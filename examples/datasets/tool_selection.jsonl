@@ -1,0 +1,2 @@
+{"id":"tool-selection-001","capability":"tool_selection","input":{"message":"What is the weather in Shanghai?","available_tools":["get_weather","search_docs"]},"expected":{"tool_name":"get_weather"},"metadata":{"split":"dev","version":"1"}}
+{"id":"tool-selection-002","capability":"tool_selection","input":{"message":"Find the installation instructions in our documentation.","available_tools":["get_weather","search_docs"]},"expected":{"tool_name":"search_docs"},"metadata":{"split":"dev","version":"1"}}
