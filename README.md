@@ -56,15 +56,23 @@ uv run ruff format --check .
 
 ## Repository Layout
 
+Target layout (the current checkout is at the foundation stage — see Status):
+
 ```text
 src/agent_eval_lab/
-  graders/          Pure grading logic
-tests/
-  graders/          Unit tests for graders
+  tasks/            Task schema and validation
+  tools/            Synthetic tool-world (schemas + pure implementations)
+  runners/          Model<->tool loop and trace capture (I/O edge)
+  graders/          Pure tiered grading logic
+  metrics/          Pure aggregation (pass@k, pass^k, bootstrap CIs)
+  reports/          Report models and rendering
+  experiments/      Pre-registered experiment specs and analysis
+tests/              Unit, integration, and golden-conformance tests
 examples/datasets/  Small example evaluation datasets
 docs/
-  ARCHITECTURE.md   Boundaries and design principles
-  ROADMAP.md        Twelve-week delivery plan
+  ARCHITECTURE.md       Boundaries and design principles
+  ROADMAP.md            Sixteen-week delivery plan
+  superpowers/specs/    Detailed design documents
 ```
 
 ## Engineering Principles
@@ -87,23 +95,35 @@ docs/
 - Preserve a held-out set for final evaluation.
 - Report uncertainty, failure modes, and known limitations.
 
-## Twelve-Week Outcome
+## Outcomes
 
-By the end of the initial roadmap, this repository should contain:
+The roadmap ships as two independent portfolio releases, so finetuning never
+delays the evaluation system.
+
+**Release #1 — Evaluation portfolio (Weeks 1–12), no training dependency:**
 
 - a documented task taxonomy and versioned dataset;
-- deterministic, execution-based, and model-based graders;
-- a reproducible evaluation runner;
+- deterministic, execution-based, and calibrated model-based graders;
+- a reproducible, multi-run runner reporting cost and reliability (`pass^k`);
 - trace inspection and failure-mode analysis;
-- at least two controlled comparison experiments;
+- two pre-registered controlled experiments with bootstrap confidence intervals;
+- a golden conformance suite cross-checked against Inspect AI;
 - a portfolio-quality technical report.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the delivery plan.
+**Release #2 — Data and finetuning (Weeks 13–16):**
+
+- a synthetic task generator and a curated SFT dataset with dataset cards;
+- one MLX-finetuned model re-evaluated in this harness — the "my data → my model
+  → my eval" closed loop — with a capability-regression matrix.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the delivery plan and
+[docs/superpowers/specs/](docs/superpowers/specs/) for the detailed design.
 
 ## Status
 
 This repository is at the foundation stage. The current implementation begins
-with a pure exact-match grader and its tests.
+with a pure exact-match grader and its tests; the full pipeline is specified in
+[docs/superpowers/specs/](docs/superpowers/specs/) and built slice by slice.
 
 ## License
 
