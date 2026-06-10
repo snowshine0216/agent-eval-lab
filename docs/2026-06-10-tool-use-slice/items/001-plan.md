@@ -78,7 +78,7 @@ tests/                          (mirrors src, plus:)
   runners/test_fake_model.py
   runners/test_runner.py
   runners/test_runner_determinism.py
-  runners/cassettes/*.json
+  runners/cassettes/*.json    (illustrative — Task 15 test_cassette_replay uses tmp_path; no committed cassettes dir needed; A5 satisfied)
   metrics/test_baseline.py
   reports/test_baseline_report.py
   reports/test_baseline_cli.py
