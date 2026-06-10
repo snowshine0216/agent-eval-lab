@@ -171,3 +171,31 @@ def test_multiset_duplicate_count_mismatch_fails():
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.passed is False
     assert result.failure_reason == "missing_call"
+
+
+def test_swapped_tools_with_wrong_args_is_wrong_tool():
+    """Names swapped AND args wrong: the early Counter(full-key) check won't match,
+    so the loop's name mismatch should fire wrong_tool — NOT order_mismatch."""
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        ),
+        ExpectedToolCall(
+            name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}
+        ),
+    )
+    obs = (
+        ToolCall(
+            call_id="c1",
+            name="update_ticket",
+            arguments={"ticket_id": "T-1", "status": "open"},  # wrong args
+        ),
+        ToolCall(
+            call_id="c2",
+            name="create_ticket",
+            arguments={"title": "y", "priority": "high"},  # wrong args
+        ),
+    )
+    result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
+    assert result.passed is False
+    assert result.failure_reason == "wrong_tool"

@@ -74,12 +74,10 @@ def _grade_exact_sequence(
         return _fail("order_mismatch", "same calls, wrong order")
     for exp, obs in zip(expected, observed, strict=True):
         if exp.name != obs.name:
-            if Counter(o.name for o in observed) == Counter(e.name for e in expected):
-                return _fail("order_mismatch", "right tools, wrong order")
             return _fail("wrong_tool", f"expected {exp.name!r}, saw {obs.name!r}")
         if _key(exp) != _key(obs):
             return _fail("wrong_args", f"argument mismatch for {obs.name!r}")
-    return _passed()
+    raise AssertionError("unreachable: ordered keys differ, so the loop must return")
 
 
 def _grade_multiset(
