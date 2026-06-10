@@ -169,3 +169,84 @@ def test_unknown_spec_still_raises() -> None:
             trajectory=_state_trajectory(None),
             registry=WORKSPACE_TOOLS,
         )
+
+
+def test_dispatches_llm_judge_with_supplied_verdict() -> None:
+    from agent_eval_lab.graders.judge import (
+        JudgeVerdict,
+        build_judge_prompt,
+        prompt_hash,
+    )
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    spec = LlmJudgeSpec(rubric="r", judge_model="m", scale=(1, 5))
+    trajectory = _trajectory(MessageTurn(role="assistant", content="Done."))
+    h = prompt_hash(build_judge_prompt(spec=spec, trajectory=trajectory))
+    verdict = JudgeVerdict(
+        score=5, rationale="ok", raw="SCORE: 5", judge_model="m", prompt_hash=h
+    )
+
+    result = grade_trajectory(
+        verification=spec,
+        trajectory=trajectory,
+        registry=WORKSPACE_TOOLS,
+        verdicts={h: verdict},
+    )
+
+    assert result.passed is True
+    assert result.grader_id == "llm_judge"
+
+
+def test_all_of_with_judge_leg_runs_deterministic_leg_regardless() -> None:
+    from agent_eval_lab.graders.judge import (
+        JudgeVerdict,
+        build_judge_prompt,
+        prompt_hash,
+    )
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    judge = LlmJudgeSpec(rubric="r", judge_model="m", scale=(1, 5))
+    spec = AllOf(
+        specs=(
+            FinalStateSpec(
+                constraints=(StateEquals(path="tickets.T-1.status", expected="closed"),)
+            ),
+            judge,
+        )
+    )
+    trajectory = _state_trajectory({"tickets": {"T-1": {"status": "closed"}}})
+    h = prompt_hash(build_judge_prompt(spec=judge, trajectory=trajectory))
+    # judge fails (score 2) but the deterministic leg passes -> AllOf is the AND -> False
+    verdict = JudgeVerdict(
+        score=2, rationale="bad", raw="SCORE: 2", judge_model="m", prompt_hash=h
+    )
+
+    result = grade_trajectory(
+        verification=spec,
+        trajectory=trajectory,
+        registry=WORKSPACE_TOOLS,
+        verdicts={h: verdict},
+    )
+
+    assert result.passed is False
+    subs = result.evidence["sub_results"]
+    assert len(subs) == 2
+    assert subs[0]["grader_id"] == "final_state" and subs[0]["passed"] is True
+    assert subs[1]["grader_id"] == "llm_judge" and subs[1]["passed"] is False
+
+
+def test_existing_dispatch_works_with_default_empty_verdicts() -> None:
+    spec = OutputMatchSpec(expected_output="Done.")
+    trajectory = _trajectory(MessageTurn(role="assistant", content="Done."))
+    result = grade_trajectory(
+        verification=spec, trajectory=trajectory, registry=WORKSPACE_TOOLS
+    )
+    assert result.passed is True
+
+
+def test_dispatch_module_imports_no_http_client() -> None:
+    import agent_eval_lab.graders.dispatch as dispatch_mod
+
+    src = open(dispatch_mod.__file__).read()
+    assert "httpx" not in src
+    assert "chat_completion" not in src
