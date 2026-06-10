@@ -9,6 +9,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added — Weeks 3–4 dataset and grader quality
 
+- Model-based grader: `LlmJudgeSpec` joined the `VerificationSpec` union —
+  pure prompt build / response parse / spec-tree collection in
+  `graders/judge.py`, with judge calls confined to an explicit edge; verdicts
+  are pre-computed and threaded into pure grading keyed by prompt hash
+  (ADR-0005). Judge failures are explicit sum types carried in evidence,
+  never coerced into agent failures.
+- Calibration harness: blind versioned annotation packets (export / LLM-label
+  / compute via `calibrate` CLI subcommands with atomic writes), pure
+  `metrics/agreement.py` — binary Cohen's κ headline + quadratic-weighted κ
+  secondary (ADR-0006) + seeded percentile bootstrap CI with degenerate-
+  resample accounting, all pinned to hand-computed literature vectors.
+- 20 committed calibration fixtures (incl. four near-miss boundary cases
+  added after adversarial review) with intended labels kept outside the
+  blind packet; calibration runbook documenting the §6 protocol state
+  machine — human–human and judge–human calibration remain OPEN for human
+  annotators; a provisional LLM–LLM run (deepseek + GLM, n=19 scored,
+  1 judge error surfaced) measured binary κ 0.87 / weighted 0.94, labeled
+  PROVISIONAL throughout.
 - Workspace-world v2: five new schema-validated pure tools (`get_account`,
   `list_tickets`, `send_email`, plus deliberate distractors `archive_ticket`,
   `find_account`, `draft_email`); state grows to

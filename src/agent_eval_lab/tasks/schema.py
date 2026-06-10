@@ -85,10 +85,23 @@ class AllOf:
     specs: "tuple[VerificationSpec, ...]"
 
 
-# Weeks 3-4 deterministic tier. LlmJudgeSpec (item 003) and ExecutionSpec
-# (Weeks 5-6) extend this union later without breaking serialization.
+@dataclass(frozen=True, kw_only=True)
+class LlmJudgeSpec:
+    type: Literal["llm_judge"] = "llm_judge"
+    rubric: str
+    judge_model: str
+    scale: tuple[int, int] = (1, 5)
+
+
+# Weeks 3-4 deterministic tier + the Tier-3 model-based grader (item 003).
+# ExecutionSpec (Weeks 5-6) extends this union later without breaking serialization.
 VerificationSpec = (
-    OutputMatchSpec | ToolCallMatchSpec | FinalStateSpec | TrajectorySpec | AllOf
+    OutputMatchSpec
+    | ToolCallMatchSpec
+    | FinalStateSpec
+    | TrajectorySpec
+    | AllOf
+    | LlmJudgeSpec
 )
 
 

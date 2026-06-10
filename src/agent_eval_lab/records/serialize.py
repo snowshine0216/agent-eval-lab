@@ -141,3 +141,49 @@ def run_result_to_dict(run: RunResult) -> dict[str, Any]:
         "trajectory": trajectory_to_dict(run.trajectory),
         "grade": grade_result_to_dict(run.grade),
     }
+
+
+def verdict_to_dict(value: Any) -> dict[str, Any]:
+    from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.runners.judge_edge import JudgeError
+
+    if isinstance(value, JudgeVerdict):
+        return {
+            "type": "verdict",
+            "score": value.score,
+            "rationale": value.rationale,
+            "raw": value.raw,
+            "judge_model": value.judge_model,
+            "prompt_hash": value.prompt_hash,
+        }
+    if isinstance(value, JudgeError):
+        return {
+            "type": "judge_error",
+            "kind": value.kind,
+            "error": value.error,
+            "prompt_hash": value.prompt_hash,
+            "judge_model": value.judge_model,
+        }
+    raise ValueError(f"not a judge value: {value!r}")
+
+
+def verdict_from_dict(data: Mapping[str, Any]) -> Any:
+    from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.runners.judge_edge import JudgeError
+
+    if data["type"] == "verdict":
+        return JudgeVerdict(
+            score=data["score"],
+            rationale=data["rationale"],
+            raw=data["raw"],
+            judge_model=data["judge_model"],
+            prompt_hash=data["prompt_hash"],
+        )
+    if data["type"] == "judge_error":
+        return JudgeError(
+            kind=data["kind"],
+            error=data["error"],
+            prompt_hash=data["prompt_hash"],
+            judge_model=data["judge_model"],
+        )
+    raise ValueError(f"unknown judge value type: {data['type']!r}")

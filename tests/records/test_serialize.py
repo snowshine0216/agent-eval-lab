@@ -151,3 +151,21 @@ def test_trajectory_final_state_with_nested_mappingproxytype_is_json_serializabl
     restored = trajectory_from_dict(data)
     expected = {"tickets": {"T-1": {"status": "open", "tags": ["bug", "urgent"]}}}
     assert restored.final_state == expected
+
+
+def test_judge_verdict_round_trips() -> None:
+    from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.records.serialize import verdict_from_dict, verdict_to_dict
+
+    v = JudgeVerdict(
+        score=4, rationale="r", raw="SCORE: 4", judge_model="m", prompt_hash="h"
+    )
+    assert verdict_from_dict(verdict_to_dict(v)) == v
+
+
+def test_judge_error_round_trips() -> None:
+    from agent_eval_lab.records.serialize import verdict_from_dict, verdict_to_dict
+    from agent_eval_lab.runners.judge_edge import JudgeError
+
+    e = JudgeError(kind="http", error="500", prompt_hash="h", judge_model="m")
+    assert verdict_from_dict(verdict_to_dict(e)) == e

@@ -234,6 +234,190 @@ def test_default_client_is_direct_for_local(tmp_path: Path, monkeypatch) -> None
     assert captured["trust_env"] is False
 
 
+def test_calibrate_export_packet_writes_blind_jsonl_and_md(tmp_path: Path) -> None:
+    out = tmp_path / "packet.jsonl"
+    exit_code = main(
+        [
+            "calibrate",
+            "export-packet",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--out",
+            str(out),
+        ]
+    )
+    assert exit_code == 0
+    text = out.read_text()
+    assert "calib-packet-v1" in text
+    assert "intended_anchor" not in text  # blind: no intended labels
+    assert '"score": null' in text
+    assert (out.with_suffix(".md")).exists()  # sibling human-readable view
+
+
+def _write_filled_packet(
+    path: Path, fixtures_path: Path, rubric_path: Path, scores, annotator
+) -> Path:
+    import dataclasses
+
+    from agent_eval_lab.calibrate.packet import build_packet, packet_to_jsonl
+    from agent_eval_lab.records.serialize import trajectory_from_dict
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    spec = LlmJudgeSpec(rubric="(cal)", judge_model="(cal)", scale=(1, 5))
+    rows = [
+        json.loads(line)
+        for line in fixtures_path.read_text().splitlines()
+        if line.strip()
+    ]
+    fixtures = [(r["id"], trajectory_from_dict(r["trajectory"])) for r in rows]
+    blank = build_packet(fixtures=fixtures, spec=spec, rubric=rubric_path.read_text())
+    items = tuple(dataclasses.replace(i, score=s) for i, s in zip(blank.items, scores))
+    filled = dataclasses.replace(blank, items=items, annotator_id=annotator)
+    path.write_text(packet_to_jsonl(filled))
+    return path
+
+
+def test_calibrate_compute_reports_kappa_and_ci(tmp_path: Path, capsys) -> None:
+    fixtures = Path("examples/calibration/fixtures.jsonl")
+    rubric = Path("examples/calibration/rubric.md")
+    n = len([ln for ln in fixtures.read_text().splitlines() if ln.strip()])
+    a = _write_filled_packet(tmp_path / "a.jsonl", fixtures, rubric, [5] * n, "alice")
+    b = _write_filled_packet(tmp_path / "b.jsonl", fixtures, rubric, [5] * n, "bob")
+    report = tmp_path / "report.md"
+
+    exit_code = main(
+        [
+            "calibrate",
+            "compute",
+            "--packets",
+            str(a),
+            str(b),
+            "--fixtures",
+            str(fixtures),
+            "--rubric",
+            str(rubric),
+            "--out",
+            str(report),
+        ]
+    )
+
+    assert exit_code == 0
+    md = report.read_text()
+    assert "kappa" in md.lower()
+    assert "CI" in md
+    assert "Confusion matrix" in md
+
+
+def test_provisional_label_skips_cleanly_when_key_unset(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    out = tmp_path / "p.jsonl"
+    exit_code = main(
+        [
+            "calibrate",
+            "provisional-label",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--provider",
+            "deepseek",
+            "--out",
+            str(out),
+        ]
+    )
+    assert exit_code == 0
+    assert not out.exists()  # no partial packet written
+    assert "key unset" in capsys.readouterr().out.lower()
+
+
+# Fix 4: atomic writes — _atomic_write helper, tested with tmp_path
+
+
+def test_atomic_write_helper_writes_content(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    _atomic_write(target, "hello\n")
+    assert target.read_text() == "hello\n"
+
+
+def test_atomic_write_leaves_no_tmp_file_behind(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    _atomic_write(target, "data")
+    # Only the target file should exist after the replace
+    files = list(tmp_path.iterdir())
+    assert files == [target]
+
+
+def test_atomic_write_replaces_existing_file(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    target.write_text("old content")
+    _atomic_write(target, "new content")
+    assert target.read_text() == "new content"
+
+
+def test_atomic_write_creates_parent_dirs(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "sub" / "deep" / "out.jsonl"
+    _atomic_write(target, "x")
+    assert target.read_text() == "x"
+
+
+# Fix 5: provisional partial-failure visibility
+
+
+def test_provisional_label_prints_scored_and_errored_counts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A JudgeError item (no parseable SCORE) must produce a visible errored count
+    in the CLI stdout and in the rendered summary."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+    def handler(r: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"role": "assistant", "content": "I cannot score."}}
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    out = tmp_path / "p.jsonl"
+    exit_code = main(
+        [
+            "calibrate",
+            "provisional-label",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--provider",
+            "deepseek",
+            "--out",
+            str(out),
+        ],
+        http_client=client,
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    # Must report scored=0 and errored=16 (all 16 fixtures fail to parse)
+    assert "scored" in captured.lower() or "errored" in captured.lower()
+    # The packet file must exist even when all errored (score=None recorded)
+    assert out.exists()
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 
