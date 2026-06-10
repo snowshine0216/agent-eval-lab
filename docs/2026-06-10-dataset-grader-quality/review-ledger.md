@@ -52,7 +52,7 @@ checks passed under `rubric-v1`.
 | ws2-044 | T4 | constraint_compliance | layered_constraint | a-g:PASS | list → close all for u-2; never archive — policy + multi-step; forbidden_action if archive used for any ticket. |
 | ws2-045 | T4 | distractor_resistance | distractor_count | a-g:PASS | send_email (not draft) with explicit instruction — draft_email distractor under "make sure it is sent" framing. |
 | ws2-046 | T4 | distractor_resistance | distractor_count | a-g:PASS | Email u-7 with id given; find_account explicitly forbidden — models that habitually confirm by email-search fail. |
-| ws2-047 | T4 | constraint_compliance | layered_constraint | a-g:PASS | search_docs only; create_ticket forbidden — no-ticket policy; models that open a ticket in response fail. |
+| ws2-047 | T4 | constraint_compliance | layered_constraint | a-g:PASS | search_docs only; create_ticket forbidden — no-ticket policy; models that open a ticket in response fail. (review round 1 caught no-op false PASS: final_state leg replaced with tool_call_match requiring search_docs) |
 | ws2-048 | T4 | constraint_compliance | layered_constraint | a-g:PASS | Close T-1 only; OnlyModifies T-1 — constraint on scope; models that also touch T-2 fail. |
 | ws2-049 | T4 | constraint_compliance | layered_constraint | a-g:PASS | Close oldest open ticket in ≤3 calls — MaxToolCalls 3 constraint; models that over-call fail. |
 | ws2-050 | T4 | constraint_compliance | layered_constraint | a-g:PASS | Create + close ticket; no email, only tickets — multi-clause policy (NoToolCall send_email + OnlyModifies tickets); ≥1 frontier model expected to slip and email. |
