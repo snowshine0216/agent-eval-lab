@@ -15,4 +15,6 @@ def test_exact_match_fails_different_values():
     assert result.passed is False
     assert result.score == 0.0
     assert result.failure_reason == "wrong_tool"
-    assert result.evidence["message"] == "Expected 'get_weather', received 'search_docs'."
+    assert (
+        result.evidence["message"] == "Expected 'get_weather', received 'search_docs'."
+    )

@@ -9,9 +9,17 @@ from agent_eval_lab.tools.workspace_world import TOOL_SCHEMAS
 
 def test_tool_call_match_dispatch_passes():
     spec = ToolCallMatchSpec(
-        expected_tool_calls=(ExpectedToolCall(name="search_docs", arguments={"query": "x"}),),
+        expected_tool_calls=(
+            ExpectedToolCall(name="search_docs", arguments={"query": "x"}),
+        ),
     )
-    turns = (ToolCallTurn(tool_calls=(ToolCall(call_id="c1", name="search_docs", arguments={"query": "x"}),)),)
+    turns = (
+        ToolCallTurn(
+            tool_calls=(
+                ToolCall(call_id="c1", name="search_docs", arguments={"query": "x"}),
+            )
+        ),
+    )
     result = grade_trajectory(spec, turns, TOOL_SCHEMAS)
     assert result.passed is True
 

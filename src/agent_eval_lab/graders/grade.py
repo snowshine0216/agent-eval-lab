@@ -24,7 +24,9 @@ def _observed_calls(turns: Sequence[Any]) -> tuple[ToolCall, ...]:
 
 
 def _last_assistant_text(turns: Sequence[Any]) -> str:
-    texts = [t.content for t in turns if isinstance(t, MessageTurn) and t.role == "assistant"]
+    texts = [
+        t.content for t in turns if isinstance(t, MessageTurn) and t.role == "assistant"
+    ]
     return texts[-1] if texts else ""
 
 
@@ -36,5 +38,7 @@ def grade_trajectory(
     if isinstance(spec, ToolCallMatchSpec):
         return grade_tool_calls(spec, _observed_calls(turns), schemas)
     if isinstance(spec, OutputMatchSpec):
-        return grade_exact_match(expected=spec.expected_output, actual=_last_assistant_text(turns))
+        return grade_exact_match(
+            expected=spec.expected_output, actual=_last_assistant_text(turns)
+        )
     raise AssertionError(f"unreachable spec dispatch for {spec.type!r}")

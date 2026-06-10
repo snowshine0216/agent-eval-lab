@@ -31,14 +31,20 @@ def _fail(reason: FailureCategory, message: str, **evidence: Any) -> GradeResult
 
 
 def _passed() -> GradeResult:
-    return GradeResult(grader_id=_GRADER_ID, passed=True, score=1.0, evidence={"message": "match"})
+    return GradeResult(
+        grader_id=_GRADER_ID, passed=True, score=1.0, evidence={"message": "match"}
+    )
 
 
-def _precheck(observed: Sequence[ToolCall], schemas: Mapping[str, Any]) -> GradeResult | None:
+def _precheck(
+    observed: Sequence[ToolCall], schemas: Mapping[str, Any]
+) -> GradeResult | None:
     """Stage 1+2: unknown tool -> malformed_call; bad args -> schema_violation."""
     for call in observed:
         if call.name not in schemas:
-            return _fail("malformed_call", f"unknown tool {call.name!r}", tool=call.name)
+            return _fail(
+                "malformed_call", f"unknown tool {call.name!r}", tool=call.name
+            )
         errors = validate(dict(call.arguments), schemas[call.name])
         if errors:
             return _fail("schema_violation", "; ".join(errors), tool=call.name)
@@ -53,9 +59,13 @@ def _grade_exact_sequence(
     expected: Sequence[ExpectedToolCall], observed: Sequence[ToolCall]
 ) -> GradeResult:
     if len(observed) < len(expected):
-        return _fail("missing_call", f"expected {len(expected)} calls, saw {len(observed)}")
+        return _fail(
+            "missing_call", f"expected {len(expected)} calls, saw {len(observed)}"
+        )
     if len(observed) > len(expected):
-        return _fail("extra_call", f"expected {len(expected)} calls, saw {len(observed)}")
+        return _fail(
+            "extra_call", f"expected {len(expected)} calls, saw {len(observed)}"
+        )
     for exp, obs in zip(expected, observed, strict=True):
         if exp.name != obs.name:
             if Counter(o.name for o in observed) == Counter(e.name for e in expected):

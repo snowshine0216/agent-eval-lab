@@ -13,7 +13,11 @@ def _spec(*expected, match="exact_sequence"):
 
 
 def test_exact_match_passes():
-    spec = _spec(ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}))
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        )
+    )
     obs = _observed("create_ticket", {"title": "x", "priority": "low"})
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.passed is True
@@ -21,7 +25,11 @@ def test_exact_match_passes():
 
 
 def test_schema_violation_type_coercion_never_passes():
-    spec = _spec(ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}))
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        )
+    )
     obs = _observed("create_ticket", {"title": 1, "priority": "low"})
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.passed is False
@@ -29,14 +37,22 @@ def test_schema_violation_type_coercion_never_passes():
 
 
 def test_enum_violation_is_schema_violation():
-    spec = _spec(ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}))
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        )
+    )
     obs = _observed("create_ticket", {"title": "x", "priority": "urgent"})
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.failure_reason == "schema_violation"
 
 
 def test_unknown_tool_name_is_malformed_call():
-    spec = _spec(ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}))
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        )
+    )
     obs = _observed("nonexistent_tool", {})
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.failure_reason == "malformed_call"
@@ -58,8 +74,12 @@ def test_wrong_args():
 
 def test_missing_call():
     spec = _spec(
-        ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}),
-        ExpectedToolCall(name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}),
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        ),
+        ExpectedToolCall(
+            name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}
+        ),
     )
     obs = _observed("create_ticket", {"title": "x", "priority": "low"})
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
@@ -78,12 +98,24 @@ def test_extra_call():
 
 def test_order_mismatch_in_exact_sequence():
     spec = _spec(
-        ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}),
-        ExpectedToolCall(name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}),
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        ),
+        ExpectedToolCall(
+            name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}
+        ),
     )
     obs = (
-        ToolCall(call_id="c1", name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}),
-        ToolCall(call_id="c2", name="create_ticket", arguments={"title": "x", "priority": "low"}),
+        ToolCall(
+            call_id="c1",
+            name="update_ticket",
+            arguments={"ticket_id": "T-1", "status": "closed"},
+        ),
+        ToolCall(
+            call_id="c2",
+            name="create_ticket",
+            arguments={"title": "x", "priority": "low"},
+        ),
     )
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.failure_reason == "order_mismatch"
@@ -91,13 +123,25 @@ def test_order_mismatch_in_exact_sequence():
 
 def test_multiset_ignores_order_but_keeps_count():
     spec = _spec(
-        ExpectedToolCall(name="create_ticket", arguments={"title": "x", "priority": "low"}),
-        ExpectedToolCall(name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}),
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        ),
+        ExpectedToolCall(
+            name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}
+        ),
         match="multiset",
     )
     obs = (
-        ToolCall(call_id="c1", name="update_ticket", arguments={"ticket_id": "T-1", "status": "closed"}),
-        ToolCall(call_id="c2", name="create_ticket", arguments={"title": "x", "priority": "low"}),
+        ToolCall(
+            call_id="c1",
+            name="update_ticket",
+            arguments={"ticket_id": "T-1", "status": "closed"},
+        ),
+        ToolCall(
+            call_id="c2",
+            name="create_ticket",
+            arguments={"title": "x", "priority": "low"},
+        ),
     )
     result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
     assert result.passed is True
