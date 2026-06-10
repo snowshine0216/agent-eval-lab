@@ -171,6 +171,114 @@ def test_render_markdown_contains_headline_sections() -> None:
     assert "n=2" in md  # n stated honestly
 
 
+# ── P1-3: pass^k with tasks that have fewer than k runs ─────────────────────
+
+
+def test_incomplete_tasks_excluded_from_pass_pow_k_and_reported() -> None:
+    """A task with < k runs must be EXCLUDED from pass^k (and bootstrap input)
+    and an explicit 'excluded (incomplete, <k runs)' line must appear in the
+    per-condition markdown section."""
+    # Task ws2-001 has 3/3 runs (reliable); ws2-018 has only 1/3 run (incomplete).
+    # With k=3, ws2-018 must be excluded from pass^k.
+    runs = (
+        *_all("A", "ws2-001", 3, True),
+        _run("A", "ws2-018", 0, True),  # only 1 run out of k=3
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-001": "T1", "ws2-018": "T3"},
+        capabilities={"ws2-001": "tool_selection", "ws2-018": "multi_step_state"},
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    cond = report.conditions[0]
+    # ws2-018 has only 1 run (<3), so pass^k must be computed only over ws2-001
+    assert cond.pass_pow_k.point == pytest.approx(1.0)
+    # status must be "incomplete" because a task was excluded
+    assert cond.status == "incomplete"
+    md = render_markdown(report)
+    # The per-condition section must call out the excluded task
+    assert "excluded" in md.lower() and "incomplete" in md.lower()
+    assert "ws2-018" in md
+
+
+# ── P1-4: discriminativeness gradient rung must require strict decrease ─────
+
+
+def test_discriminativeness_flat_ceiling_gradient_not_strong() -> None:
+    """A monotone gradient that is FLAT at 1.000 for all tiers must NOT
+    satisfy the strong rung (trivial gradient). The weak rung should still be
+    asserted separately."""
+    # One hosted condition: T1=1.0, T2=1.0, T3=1.0, T4=1.0 — flat ceiling.
+    a = (
+        *_all("A", "ws2-001", 3, True),  # T1
+        *_all("A", "ws2-018", 3, True),  # T3
+        *_all("A", "ws2-040", 3, True),  # T4
+    )
+    # Second hosted condition has a different result on ws2-018 so weak_met=True
+    b = (
+        *_all("B", "ws2-001", 3, True),  # T1
+        *_all("B", "ws2-018", 3, False, "wrong_args"),  # T3 — differs
+        *_all("B", "ws2-040", 3, True),  # T4
+    )
+    report = build_validation_report(
+        conditions=(
+            ConditionInput(label="A", results=a, hosted=True),
+            ConditionInput(label="B", results=b, hosted=True),
+        ),
+        tiers=TIERS,
+        capabilities=CAPS,
+        k=3,
+        expected_n_tasks=3,
+        seed=20260610,
+        n_resamples=500,
+        alpha=0.05,
+    )
+    # A is flat-at-ceiling; that must NOT satisfy gradient rung
+    assert "A" not in report.discriminativeness.monotone_conditions
+
+
+# ── P1-5: capability map raises ValueError on unknown task id ────────────────
+
+
+def test_capability_lookup_raises_on_unknown_task_id() -> None:
+    """An unmapped task id in capabilities must raise ValueError (not return '?')."""
+    from agent_eval_lab.reports.validation import _build_condition
+
+    runs = (*_all("A", "ws2-999", 3, False, "wrong_args"),)
+    with pytest.raises(ValueError, match="ws2-999"):
+        _build_condition(
+            ConditionInput(label="A", results=runs),
+            tiers={"ws2-999": "T3"},
+            capabilities={},  # ws2-999 not in map -> must raise
+            k=3,
+            expected_n_tasks=1,
+            seed=20260610,
+            n_resamples=100,
+            alpha=0.05,
+        )
+
+
+# ── P1-6: _task_reliability not duplicated in validation.py ─────────────────
+
+
+def test_task_reliability_imported_from_metrics_not_duplicated() -> None:
+    """validation.py must NOT define its own _task_reliability; it must
+    import from metrics.reliability (single definition)."""
+    import agent_eval_lab.metrics.reliability as rel_mod
+    import agent_eval_lab.reports.validation as val_mod
+
+    # The function used by validation must be the same object (or a re-export)
+    # as the one in metrics.reliability.
+    assert not hasattr(val_mod, "_task_reliability") or (
+        val_mod._task_reliability is rel_mod._task_reliability
+        or val_mod._task_reliability is rel_mod.task_reliability
+    ), "validation.py must not have its own independent _task_reliability definition"
+
+
 def test_render_is_byte_identical_under_same_inputs() -> None:
     runs = (
         *_all("A", "ws2-001", 3, True),

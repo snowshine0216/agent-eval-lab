@@ -53,12 +53,16 @@ def mean_latency_s(results: Sequence[RunResult]) -> float:
     return sum(run.trajectory.usage.latency_s for run in results) / len(results)
 
 
-def _task_reliability(results: Sequence[RunResult]) -> dict[str, bool]:
+def task_reliability(results: Sequence[RunResult]) -> dict[str, bool]:
     """Map each task id to whether ALL its runs passed (its pass^k indicator)."""
     by_task: dict[str, list[bool]] = {}
     for run in results:
         by_task.setdefault(run.task_id, []).append(run.grade.passed)
     return {tid: all(passes) for tid, passes in by_task.items()}
+
+
+# Back-compat alias — call sites that used the private name continue to work.
+_task_reliability = task_reliability
 
 
 def pass_pow_k_bootstrap_ci(
