@@ -69,7 +69,9 @@ def test_task_roundtrip_with_tool_call_verification():
             available_tools=({"name": "search_docs"},),
         ),
         verification=ToolCallMatchSpec(
-            expected_tool_calls=(ExpectedToolCall(name="search_docs", arguments={"query": "x"}),),
+            expected_tool_calls=(
+                ExpectedToolCall(name="search_docs", arguments={"query": "x"}),
+            ),
         ),
         metadata=TaskMetadata(
             split="dev",
@@ -93,5 +95,7 @@ def test_run_result_roundtrip():
         termination_reason="stop",
     )
     grade = GradeResult(grader_id="ast_tool_match", passed=True, score=1.0)
-    rec = RunResult(task_id="t1", condition_id="c", run_index=0, trajectory=traj, grade=grade)
+    rec = RunResult(
+        task_id="t1", condition_id="c", run_index=0, trajectory=traj, grade=grade
+    )
     assert _roundtrip(rec) == rec

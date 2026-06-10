@@ -30,7 +30,7 @@ class GradeResult:
 @dataclass(frozen=True, kw_only=True)
 class Trajectory:
     turns: tuple[Turn, ...]
-    usage: Mapping[str, int]            # {prompt_tokens, completion_tokens, total_tokens}
+    usage: Mapping[str, int]  # {prompt_tokens, completion_tokens, total_tokens}
     cost_usd: float
     latency_ms: int
     run_index: int

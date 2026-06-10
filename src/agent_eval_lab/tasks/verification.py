@@ -1,4 +1,4 @@
-"""Verification specs (tool-use subset) + open-union dispatch guard (design §4.3, §13)."""
+"""Verification specs (tool-use subset) + open-union dispatch guard (design §4.3)."""
 
 from dataclasses import dataclass
 from typing import Literal

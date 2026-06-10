@@ -14,7 +14,11 @@ from agent_eval_lab.tasks.turns import (
 )
 from agent_eval_lab.tasks.verification import OutputMatchSpec, ToolCallMatchSpec
 
-_TURN_BY_TAG = {"message": MessageTurn, "tool_call": ToolCallTurn, "tool_result": ToolResultTurn}
+_TURN_BY_TAG = {
+    "message": MessageTurn,
+    "tool_call": ToolCallTurn,
+    "tool_result": ToolResultTurn,
+}
 _OUTCOME_BY_TAG = {"success": ToolSuccess, "failure": ToolFailure}
 _VERIFY_BY_TAG = {"output_match": OutputMatchSpec, "tool_call_match": ToolCallMatchSpec}
 
@@ -38,12 +42,20 @@ def _turn_to_dict(t: Any) -> dict[str, Any]:
     outcome = t.outcome
     tag = "success" if isinstance(outcome, ToolSuccess) else "failure"
     body = {"result": outcome.result} if tag == "success" else {"error": outcome.error}
-    return {"type": "tool_result", "call_id": t.call_id, "outcome": {"type": tag, **body}}
+    return {
+        "type": "tool_result",
+        "call_id": t.call_id,
+        "outcome": {"type": tag, **body},
+    }
 
 
 def _verify_to_dict(v: Any) -> dict[str, Any]:
     if isinstance(v, OutputMatchSpec):
-        return {"type": "output_match", "expected_output": v.expected_output, "normalizer": v.normalizer}
+        return {
+            "type": "output_match",
+            "expected_output": v.expected_output,
+            "normalizer": v.normalizer,
+        }
     return {
         "type": "tool_call_match",
         "match": v.match,
@@ -79,7 +91,9 @@ def to_dict(record: Any) -> dict[str, Any]:
             "input": to_dict(record.input),
             "verification": _verify_to_dict(record.verification),
             "metadata": to_dict(record.metadata),
-            "initial_state": dict(record.initial_state) if record.initial_state is not None else None,
+            "initial_state": dict(record.initial_state)
+            if record.initial_state is not None
+            else None,
         }
     if isinstance(record, GradeResult):
         return {
@@ -111,7 +125,9 @@ def to_dict(record: Any) -> dict[str, Any]:
 
 def _call_from_dict(cls: Any, d: dict[str, Any]) -> Any:
     if cls is ToolCall:
-        return ToolCall(call_id=d["call_id"], name=d["name"], arguments=dict(d.get("arguments", {})))
+        return ToolCall(
+            call_id=d["call_id"], name=d["name"], arguments=dict(d.get("arguments", {}))
+        )
     return ExpectedToolCall(name=d["name"], arguments=dict(d.get("arguments", {})))
 
 
@@ -125,17 +141,25 @@ def _turn_from_dict(d: dict[str, Any]) -> Any:
             tool_calls=tuple(_call_from_dict(ToolCall, c) for c in d["tool_calls"]),
         )
     o = d["outcome"]
-    outcome = ToolSuccess(result=o["result"]) if o["type"] == "success" else ToolFailure(error=o["error"])
+    outcome = (
+        ToolSuccess(result=o["result"])
+        if o["type"] == "success"
+        else ToolFailure(error=o["error"])
+    )
     return ToolResultTurn(call_id=d["call_id"], outcome=outcome)
 
 
 def _verify_from_dict(d: dict[str, Any]) -> Any:
     cls = _VERIFY_BY_TAG[d["type"]]
     if cls is OutputMatchSpec:
-        return OutputMatchSpec(expected_output=d["expected_output"], normalizer=d.get("normalizer"))
+        return OutputMatchSpec(
+            expected_output=d["expected_output"], normalizer=d.get("normalizer")
+        )
     return ToolCallMatchSpec(
         match=d.get("match", "exact_sequence"),
-        expected_tool_calls=tuple(_call_from_dict(ExpectedToolCall, c) for c in d["expected_tool_calls"]),
+        expected_tool_calls=tuple(
+            _call_from_dict(ExpectedToolCall, c) for c in d["expected_tool_calls"]
+        ),
     )
 
 
@@ -161,7 +185,9 @@ def from_dict(cls: Any, d: dict[str, Any]) -> Any:
             input=from_dict(TaskInput, d["input"]),
             verification=_verify_from_dict(d["verification"]),
             metadata=from_dict(TaskMetadata, d["metadata"]),
-            initial_state=dict(d["initial_state"]) if d.get("initial_state") is not None else None,
+            initial_state=dict(d["initial_state"])
+            if d.get("initial_state") is not None
+            else None,
         )
     if cls is GradeResult:
         return GradeResult(
