@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -146,26 +147,32 @@ def _load_run_results(path: Path) -> list[RunResult]:
     from agent_eval_lab.records.serialize import trajectory_from_dict
 
     runs: list[RunResult] = []
-    for line in path.read_text().splitlines():
+    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
         if not line.strip():
             continue
-        row = json.loads(line)
-        g = row["grade"]
-        runs.append(
-            RunResult(
-                task_id=row["task_id"],
-                condition_id=row["condition_id"],
-                run_index=row["run_index"],
-                trajectory=trajectory_from_dict(row["trajectory"]),
-                grade=GradeResult(
-                    grader_id=g["grader_id"],
-                    passed=g["passed"],
-                    score=g["score"],
-                    evidence=g["evidence"],
-                    failure_reason=g["failure_reason"],
-                ),
+        try:
+            row = json.loads(line)
+            g = row["grade"]
+            runs.append(
+                RunResult(
+                    task_id=row["task_id"],
+                    condition_id=row["condition_id"],
+                    run_index=row["run_index"],
+                    trajectory=trajectory_from_dict(row["trajectory"]),
+                    grade=GradeResult(
+                        grader_id=g["grader_id"],
+                        passed=g["passed"],
+                        score=g["score"],
+                        evidence=g["evidence"],
+                        failure_reason=g["failure_reason"],
+                    ),
+                )
             )
-        )
+        except Exception as exc:
+            raise ValueError(
+                f"malformed record in {path} at line {lineno} "
+                f"({len(runs)} records loaded so far)"
+            ) from exc
     return runs
 
 
@@ -175,13 +182,22 @@ def _capability_map(dataset_path: Path) -> dict[str, str]:
 
 
 def _parse_runs_spec(spec: str) -> tuple[str, Path]:
-    """'LABEL=condition_id=path' or 'LABEL=path'. Returns (label, path)."""
-    parts = spec.split("=", 2)
-    if len(parts) == 3:
-        return parts[0], Path(parts[2])
-    if len(parts) == 2:
-        return parts[0], Path(parts[1])
-    raise ValueError(f"bad --runs spec {spec!r}; want LABEL=condition_id=path")
+    """'LABEL=condition_id=path' or 'LABEL=path'. Returns (label, path).
+
+    The condition_id may itself contain '=' (e.g. openrouter model ids).
+    Parse left-to-right for LABEL with split("=", 1), then right-to-left for
+    PATH with rsplit("=", 1) on the remainder — condition keeps any interior '='.
+    """
+    label_rest = spec.split("=", 1)
+    if len(label_rest) < 2:
+        raise ValueError(f"bad --runs spec {spec!r}; want LABEL=condition_id=path")
+    label, rest = label_rest
+    # rest is either 'condition_id=path' or just 'path'
+    # rsplit("=", 1) gives ['condition_or_bare', 'path'] or ['path'] if no '='
+    cond_or_path, *tail = rest.rsplit("=", 1)
+    if tail:
+        return label, Path(tail[0])
+    return label, Path(cond_or_path)
 
 
 def _hosted_label(label: str) -> bool:
@@ -219,19 +235,42 @@ def _run_report_validation(args: argparse.Namespace) -> int:
 
 
 def _run_compare_configs(args: argparse.Namespace) -> int:
+    # P1-7b: explicit missing-file check with a clean message.
+    for label, path in (("--config-a", args.config_a), ("--config-b", args.config_b)):
+        if not path.exists():
+            print(f"error: {label} file not found: {path}", file=sys.stderr)
+            return 1
     tiers = json.loads(args.tiers.read_text())
-    report = build_comparison_report(
-        results_a=_load_run_results(args.config_a),
-        results_b=_load_run_results(args.config_b),
-        tiers=tiers,
-        planning_prompt_text=args.planning_prompt_file.read_text(),
-        config_a_path=str(args.config_a),
-        config_b_path=str(args.config_b),
-        k=args.k,
-        seed=args.seed,
-        n_resamples=args.n_resamples,
-        alpha=args.alpha,
-    )
+    results_a = _load_run_results(args.config_a)
+    results_b = _load_run_results(args.config_b)
+    # P1-7c: detect empty hard-subset before calling the pure core.
+    hard_a = [r for r in results_a if tiers.get(r.task_id) in ("T3", "T4")]
+    hard_b = [r for r in results_b if tiers.get(r.task_id) in ("T3", "T4")]
+    if not hard_a or not hard_b:
+        print(
+            f"error: no T3/T4 tasks found for the primary comparison "
+            f"(check --tiers file: {args.tiers})",
+            file=sys.stderr,
+        )
+        return 1
+    # P1-7a: catch universe-mismatch ValueError from the pure core and emit a
+    # clean one-line diagnostic (no traceback).
+    try:
+        report = build_comparison_report(
+            results_a=results_a,
+            results_b=results_b,
+            tiers=tiers,
+            planning_prompt_text=args.planning_prompt_file.read_text(),
+            config_a_path=str(args.config_a),
+            config_b_path=str(args.config_b),
+            k=args.k,
+            seed=args.seed,
+            n_resamples=args.n_resamples,
+            alpha=args.alpha,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     _atomic_write(args.out, render_comparison(report))
     print(args.out)
     return 0
