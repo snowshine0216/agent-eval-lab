@@ -473,6 +473,124 @@ def test_no_system_prompt_file_keeps_v1_artifact_name(tmp_path: Path) -> None:
     assert names == ["baseline-local-qwen3-8b.md", "runs-local-qwen3-8b.jsonl"]
 
 
+def _write_runs_jsonl(path: Path, runs) -> Path:
+    from agent_eval_lab.records.serialize import run_result_to_dict
+
+    path.write_text("".join(json.dumps(run_result_to_dict(r)) + "\n" for r in runs))
+    return path
+
+
+def _mk_run(condition, task_id, run_index, passed, failure_reason=None):
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    return RunResult(
+        task_id=task_id,
+        condition_id=condition,
+        run_index=run_index,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+            run_index=run_index,
+            stop_reason="completed",
+        ),
+        grade=GradeResult(
+            grader_id="g",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=None if passed else failure_reason,
+        ),
+    )
+
+
+def _write_tiers(path: Path, mapping) -> Path:
+    path.write_text(json.dumps(mapping) + "\n")
+    return path
+
+
+def test_report_validation_rebuilds_from_jsonl(tmp_path: Path) -> None:
+    tiers = _write_tiers(tmp_path / "tiers.json", {"ws2-001": "T1", "ws2-018": "T3"})
+    runs = [
+        *[_mk_run("local:Qwen/Qwen3-8B", "ws2-001", i, True) for i in range(3)],
+        *[
+            _mk_run("local:Qwen/Qwen3-8B", "ws2-018", i, False, "wrong_args")
+            for i in range(3)
+        ],
+    ]
+    jsonl = _write_runs_jsonl(tmp_path / "runs-local.jsonl", runs)
+    out = tmp_path / "validation-report.md"
+
+    exit_code = main(
+        [
+            "report-validation",
+            "--runs",
+            f"C4=local:Qwen/Qwen3-8B={jsonl}",
+            "--dataset",
+            "examples/datasets/workspace_tool_use_v2.jsonl",
+            "--tiers",
+            str(tiers),
+            "--k",
+            "3",
+            "--out",
+            str(out),
+        ]
+    )
+    assert exit_code == 0
+    md = out.read_text()
+    assert "# Validation report" in md
+    assert "pass^3" in md
+
+
+def test_compare_configs_identifies_by_path_not_condition_id(tmp_path: Path) -> None:
+    tiers = _write_tiers(tmp_path / "tiers.json", {"ws2-018": "T3", "ws2-040": "T4"})
+    prompt = tmp_path / "planning-v1.txt"
+    prompt.write_text("PLAN FIRST.\n")
+    # Both files carry the SAME in-record condition_id; identity is the path.
+    # A fails BOTH hard tasks; B passes BOTH -> Δ pass^3 = +1.0 on every cluster
+    # resample -> T3+T4 CI = [1.0, 1.0] (strictly above 0) -> "planning helps".
+    a = [
+        *[
+            _mk_run("deepseek:deepseek-v4-pro", "ws2-018", i, False, "wrong_args")
+            for i in range(3)
+        ],
+        *[
+            _mk_run("deepseek:deepseek-v4-pro", "ws2-040", i, False, "forbidden_action")
+            for i in range(3)
+        ],
+    ]
+    b = [
+        *[_mk_run("deepseek:deepseek-v4-pro", "ws2-018", i, True) for i in range(3)],
+        *[_mk_run("deepseek:deepseek-v4-pro", "ws2-040", i, True) for i in range(3)],
+    ]
+    pa = _write_runs_jsonl(tmp_path / "runs__default.jsonl", a)
+    pb = _write_runs_jsonl(tmp_path / "runs__planning-v1.jsonl", b)
+    out = tmp_path / "comparison-report.md"
+
+    exit_code = main(
+        [
+            "compare-configs",
+            "--config-a",
+            str(pa),
+            "--config-b",
+            str(pb),
+            "--tiers",
+            str(tiers),
+            "--planning-prompt-file",
+            str(prompt),
+            "--k",
+            "3",
+            "--out",
+            str(out),
+        ]
+    )
+    assert exit_code == 0
+    md = out.read_text()
+    assert "# Configuration comparison" in md
+    assert "sha256" in md.lower()
+    assert "planning helps on hard tiers" in md  # B fixed ws2-018 -> Δ above 0
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 

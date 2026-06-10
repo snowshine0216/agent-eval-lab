@@ -96,7 +96,11 @@ def test_incomplete_condition_is_marked_not_blocked() -> None:
 def test_blocked_condition_invents_no_numbers() -> None:
     report = build_validation_report(
         conditions=(
-            ConditionInput(label="openrouter", results=(), blocked_reason="network ToS block"),
+            ConditionInput(
+                label="openrouter",
+                results=(),
+                blocked_reason="network ToS block",
+            ),
         ),
         tiers=TIERS,
         capabilities=CAPS,
@@ -144,7 +148,10 @@ def test_discriminativeness_weak_when_hosted_differ_but_within_noise() -> None:
 
 
 def test_render_markdown_contains_headline_sections() -> None:
-    runs = (*_all("A", "ws2-001", 3, True), *_all("A", "ws2-018", 3, False, "wrong_args"))
+    runs = (
+        *_all("A", "ws2-001", 3, True),
+        *_all("A", "ws2-018", 3, False, "wrong_args"),
+    )
     report = build_validation_report(
         conditions=(ConditionInput(label="A", results=runs, hosted=True),),
         tiers={"ws2-001": "T1", "ws2-018": "T3"},
@@ -165,7 +172,10 @@ def test_render_markdown_contains_headline_sections() -> None:
 
 
 def test_render_is_byte_identical_under_same_inputs() -> None:
-    runs = (*_all("A", "ws2-001", 3, True), *_all("A", "ws2-018", 3, False, "wrong_args"))
+    runs = (
+        *_all("A", "ws2-001", 3, True),
+        *_all("A", "ws2-018", 3, False, "wrong_args"),
+    )
     kwargs = dict(
         conditions=(ConditionInput(label="A", results=runs),),
         tiers={"ws2-001": "T1", "ws2-018": "T3"},

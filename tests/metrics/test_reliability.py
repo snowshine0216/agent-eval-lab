@@ -7,7 +7,6 @@ from agent_eval_lab.metrics.reliability import (
     pass_pow_k,
     token_totals,
 )
-
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 
@@ -182,9 +181,9 @@ def test_pass_pow_k_by_tier_filters_results() -> None:
     from agent_eval_lab.metrics.reliability import pass_pow_k_by_tier
 
     results = (
-        *_task_runs("ws2-001", 2, True),   # T1, reliable
+        *_task_runs("ws2-001", 2, True),  # T1, reliable
         *_task_runs("ws2-018", 2, False),  # T3, unreliable
-        *_task_runs("ws2-019", 2, True),   # T3, reliable
+        *_task_runs("ws2-019", 2, True),  # T3, reliable
     )
     tiers = {"ws2-001": "T1", "ws2-018": "T3", "ws2-019": "T3"}
     by_tier = pass_pow_k_by_tier(results, tiers)

@@ -39,10 +39,16 @@ def test_primary_t3t4_delta_and_hash_pin() -> None:
     # and B passes every run. With the hard universe {ws2-018, ws2-040} all-fail
     # in A and all-pass in B, every cluster resample yields Δ = +1.0, so the CI
     # is [1.0, 1.0] — strictly above 0 (verified offline, seed 20260610).
-    a = (*_all("ws2-001", 3, True), *_all("ws2-018", 3, False, "wrong_args"),
-         *_all("ws2-040", 3, False, "forbidden_action"))
-    b = (*_all("ws2-001", 3, True), *_all("ws2-018", 3, True),
-         *_all("ws2-040", 3, True))
+    a = (
+        *_all("ws2-001", 3, True),
+        *_all("ws2-018", 3, False, "wrong_args"),
+        *_all("ws2-040", 3, False, "forbidden_action"),
+    )
+    b = (
+        *_all("ws2-001", 3, True),
+        *_all("ws2-018", 3, True),
+        *_all("ws2-040", 3, True),
+    )
     report = build_comparison_report(
         results_a=a,
         results_b=b,
@@ -56,6 +62,7 @@ def test_primary_t3t4_delta_and_hash_pin() -> None:
         alpha=0.05,
     )
     import hashlib
+
     expected = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
     assert report.planning_prompt_hash == expected
     assert report.config_a_label == "default (per-task author prompt, no override)"

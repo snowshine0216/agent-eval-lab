@@ -15,6 +15,10 @@ def apply_system_prompt(
     returns `messages` unchanged."""
     if prompt is None:
         return messages
-    if messages and isinstance(messages[0], MessageTurn) and messages[0].role == "system":
+    if (
+        messages
+        and isinstance(messages[0], MessageTurn)
+        and messages[0].role == "system"
+    ):
         return (MessageTurn(role="system", content=prompt), *messages[1:])
     return (MessageTurn(role="system", content=prompt), *messages)

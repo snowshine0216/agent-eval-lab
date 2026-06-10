@@ -222,9 +222,7 @@ def _budget_task(max_steps_value) -> Task:
         id="ws2-budget",
         capability="multi_step_state",
         input=TaskInput(
-            messages=(
-                MessageTurn(role="user", content="go"),
-            ),
+            messages=(MessageTurn(role="user", content="go"),),
             available_tools=("search_docs",),
         ),
         verification=TrajectorySpec(constraints=()),
@@ -240,7 +238,8 @@ def _budget_task(max_steps_value) -> Task:
 
 def test_per_task_budget_drives_loop_iterations_over_cli_default() -> None:
     counter = [0]
-    client = httpx.Client(transport=httpx.MockTransport(_counting_tool_call_handler(counter)))
+    handler = _counting_tool_call_handler(counter)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
     # CLI default is 4 but the task declares max_steps=6 -> expect 6 iterations.
     run_task_k(
         task=_budget_task(6),
@@ -256,7 +255,8 @@ def test_per_task_budget_drives_loop_iterations_over_cli_default() -> None:
 
 def test_task_without_max_steps_uses_cli_default() -> None:
     counter = [0]
-    client = httpx.Client(transport=httpx.MockTransport(_counting_tool_call_handler(counter)))
+    handler = _counting_tool_call_handler(counter)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
     # No declared budget -> falls back to the CLI default of 4.
     run_task_k(
         task=_budget_task(None),

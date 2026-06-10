@@ -22,6 +22,10 @@ from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
+from agent_eval_lab.reports.comparison import build_comparison_report
+from agent_eval_lab.reports.comparison import render_markdown as render_comparison
+from agent_eval_lab.reports.validation import ConditionInput, build_validation_report
+from agent_eval_lab.reports.validation import render_markdown as render_validation
 from agent_eval_lab.runners.config import (
     PROVIDERS,
     ProviderConfig,
@@ -62,7 +66,9 @@ def run_baseline(
                     task,
                     input=replace(
                         task.input,
-                        messages=apply_system_prompt(task.input.messages, system_prompt),
+                        messages=apply_system_prompt(
+                            task.input.messages, system_prompt
+                        ),
                     ),
                 )
             )
@@ -133,6 +139,102 @@ _CALIBRATION_SPEC = LlmJudgeSpec(
 def _load_calibration_fixtures(path: Path) -> list[tuple[str, object]]:
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     return [(row["id"], trajectory_from_dict(row["trajectory"])) for row in rows]
+
+
+def _load_run_results(path: Path) -> list[RunResult]:
+    from agent_eval_lab.records.grade import GradeResult
+    from agent_eval_lab.records.serialize import trajectory_from_dict
+
+    runs: list[RunResult] = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        g = row["grade"]
+        runs.append(
+            RunResult(
+                task_id=row["task_id"],
+                condition_id=row["condition_id"],
+                run_index=row["run_index"],
+                trajectory=trajectory_from_dict(row["trajectory"]),
+                grade=GradeResult(
+                    grader_id=g["grader_id"],
+                    passed=g["passed"],
+                    score=g["score"],
+                    evidence=g["evidence"],
+                    failure_reason=g["failure_reason"],
+                ),
+            )
+        )
+    return runs
+
+
+def _capability_map(dataset_path: Path) -> dict[str, str]:
+    tasks = load_tasks(dataset_path)
+    return {t.id: t.capability for t in tasks}
+
+
+def _parse_runs_spec(spec: str) -> tuple[str, Path]:
+    """'LABEL=condition_id=path' or 'LABEL=path'. Returns (label, path)."""
+    parts = spec.split("=", 2)
+    if len(parts) == 3:
+        return parts[0], Path(parts[2])
+    if len(parts) == 2:
+        return parts[0], Path(parts[1])
+    raise ValueError(f"bad --runs spec {spec!r}; want LABEL=condition_id=path")
+
+
+def _hosted_label(label: str) -> bool:
+    return label.upper() in {"C1", "C2", "C3"}
+
+
+def _run_report_validation(args: argparse.Namespace) -> int:
+    tiers = json.loads(args.tiers.read_text())
+    caps = _capability_map(args.dataset)
+    conditions = []
+    for spec in args.runs:
+        label, path = _parse_runs_spec(spec)
+        results = _load_run_results(path) if path.exists() else []
+        conditions.append(
+            ConditionInput(
+                label=label,
+                results=results,
+                hosted=_hosted_label(label),
+                blocked_reason=None if results else "no reachable records",
+            )
+        )
+    report = build_validation_report(
+        conditions=tuple(conditions),
+        tiers=tiers,
+        capabilities=caps,
+        k=args.k,
+        expected_n_tasks=args.expected_n_tasks,
+        seed=args.seed,
+        n_resamples=args.n_resamples,
+        alpha=args.alpha,
+    )
+    _atomic_write(args.out, render_validation(report))
+    print(args.out)
+    return 0
+
+
+def _run_compare_configs(args: argparse.Namespace) -> int:
+    tiers = json.loads(args.tiers.read_text())
+    report = build_comparison_report(
+        results_a=_load_run_results(args.config_a),
+        results_b=_load_run_results(args.config_b),
+        tiers=tiers,
+        planning_prompt_text=args.planning_prompt_file.read_text(),
+        config_a_path=str(args.config_a),
+        config_b_path=str(args.config_b),
+        k=args.k,
+        seed=args.seed,
+        n_resamples=args.n_resamples,
+        alpha=args.alpha,
+    )
+    _atomic_write(args.out, render_comparison(report))
+    print(args.out)
+    return 0
 
 
 def _render_packet_markdown(packet) -> str:
@@ -326,6 +428,37 @@ def _build_parser() -> argparse.ArgumentParser:
     prov.add_argument("--provider", required=True, choices=sorted(PROVIDERS))
     prov.add_argument("--out", required=True, type=Path)
 
+    rv = subparsers.add_parser(
+        "report-validation", help="rebuild the failure-mode report from JSONL (pure)"
+    )
+    rv.add_argument(
+        "--runs",
+        required=True,
+        nargs="+",
+        help="one per condition: LABEL=condition_id=path/to/runs-*.jsonl",
+    )
+    rv.add_argument("--dataset", required=True, type=Path)
+    rv.add_argument("--tiers", required=True, type=Path)
+    rv.add_argument("--k", type=int, default=3)
+    rv.add_argument("--expected-n-tasks", type=int, default=50)
+    rv.add_argument("--out", required=True, type=Path)
+    rv.add_argument("--seed", type=int, default=20260610)
+    rv.add_argument("--n-resamples", type=int, default=2000)
+    rv.add_argument("--alpha", type=float, default=0.05)
+
+    cc = subparsers.add_parser(
+        "compare-configs", help="rebuild the two-config comparison from JSONL (pure)"
+    )
+    cc.add_argument("--config-a", required=True, type=Path)
+    cc.add_argument("--config-b", required=True, type=Path)
+    cc.add_argument("--tiers", required=True, type=Path)
+    cc.add_argument("--planning-prompt-file", required=True, type=Path)
+    cc.add_argument("--k", type=int, default=3)
+    cc.add_argument("--out", required=True, type=Path)
+    cc.add_argument("--seed", type=int, default=20260610)
+    cc.add_argument("--n-resamples", type=int, default=2000)
+    cc.add_argument("--alpha", type=float, default=0.05)
+
     return parser
 
 
@@ -334,6 +467,10 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
     args = parser.parse_args(argv)
     if args.command == "calibrate":
         return _run_calibrate(args, parser, http_client)
+    if args.command == "report-validation":
+        return _run_report_validation(args)
+    if args.command == "compare-configs":
+        return _run_compare_configs(args)
     return _run_baseline_command(args, parser, http_client)
 
 
