@@ -119,6 +119,40 @@ uv run python -m agent_eval_lab.cli run-baseline \
 scores local runs exactly as it scores hosted ones. (Ollama also works: `ollama
 pull qwen3:8b` serves `:11434` automatically — then pass `--model qwen3:8b`.)
 
+### Additional subcommands
+
+`run-baseline` honors each task's `metadata.max_steps` (the `--max-steps` flag
+is the fallback for tasks without one) and accepts `--system-prompt-file
+<path>` to evaluate an alternate agent configuration; tagged artifacts
+(`runs-<condition>__<tag>.jsonl`) keep two configs of one model from
+overwriting each other.
+
+```bash
+# Rebuild the multi-condition validation / failure-mode report (pure, no
+# live calls — deterministic for a fixed seed) from captured run JSONL:
+uv run python -m agent_eval_lab.cli report-validation \
+  --runs "C1=deepseek:deepseek-v4-pro=reports/runs-deepseek-deepseek-v4-pro.jsonl" \
+  --dataset examples/datasets/workspace_tool_use_v2.jsonl \
+  --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
+  --k 3 --expected-n-tasks 50 --seed 20260610 --n-resamples 2000 \
+  --out reports/validation.md
+
+# Compare two agent configurations of the same model (paired
+# cluster-bootstrap Δ pass^3 with a pre-declared decision rule):
+uv run python -m agent_eval_lab.cli compare-configs \
+  --config-a reports/runs-deepseek-deepseek-v4-pro.jsonl \
+  --config-b reports/runs-deepseek-deepseek-v4-pro__planning-v1.jsonl \
+  --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
+  --planning-prompt-file examples/prompts/planning-v1.txt \
+  --k 3 --seed 20260610 --n-resamples 2000 --out reports/comparison.md
+
+# LLM-judge calibration workflow (blind annotation packets, Cohen's κ +
+# bootstrap CI; see docs/2026-06-10-dataset-grader-quality/calibration-runbook.md):
+uv run python -m agent_eval_lab.cli calibrate export-packet --out packet.jsonl
+uv run python -m agent_eval_lab.cli calibrate provisional-label ...
+uv run python -m agent_eval_lab.cli calibrate compute ...
+```
+
 ## Repository Layout
 
 Target layout (the current checkout is at the foundation stage — see Status):
@@ -186,10 +220,15 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the delivery plan and
 
 ## Status
 
-This repository has the Weeks 1–2 tool-use slice implemented: locked record
-types, a schema-validated workspace-world, the AST tool-call grader with a
-structured failure taxonomy, a multi-run runner with cost capture, a 20-task
-dataset, a golden conformance suite, and a baseline report command. The full
+Weeks 1–4 are implemented. Weeks 1–2 delivered the tool-use slice: locked
+record types, a schema-validated workspace-world, the AST tool-call grader
+with a structured failure taxonomy, a multi-run runner with cost capture, a
+20-task dataset, a golden conformance suite, and the baseline report command.
+Weeks 3–4 added composite verification (`FinalStateSpec`/`TrajectorySpec`/
+`AllOf`), a 50-task capability-discriminating dataset with a conformance
+suite, a calibrated-by-protocol LLM judge (provisional LLM–LLM κ; human
+calibration packet ready), per-task step budgets, and live multi-condition
+validation with failure-mode and two-config comparison reports. The full
 pipeline is specified in [docs/superpowers/specs/](docs/superpowers/specs/)
 and built slice by slice.
 
