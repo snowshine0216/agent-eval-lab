@@ -14,7 +14,7 @@ def test_exact_match_fails_different_values():
     result = grade_exact_match(expected="get_weather", actual="search_docs")
     assert result.passed is False
     assert result.score == 0.0
-    assert result.failure_reason == "wrong_tool"
+    assert result.failure_reason is None
     assert (
         result.evidence["message"] == "Expected 'get_weather', received 'search_docs'."
     )

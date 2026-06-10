@@ -19,5 +19,4 @@ def grade_exact_match(*, expected: str, actual: str) -> GradeResult:
         passed=False,
         score=0.0,
         evidence={"message": f"Expected {expected!r}, received {actual!r}."},
-        failure_reason="wrong_tool",
     )
