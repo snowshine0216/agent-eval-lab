@@ -62,6 +62,43 @@
 - **C4** — Deterministic failures (all-3-fail): ws2-018, ws2-020, ws2-023, ws2-024, ws2-025, ws2-028, ws2-029, ws2-030, ws2-032, ws2-034, ws2-035, ws2-036, ws2-037, ws2-038, ws2-039, ws2-040, ws2-042, ws2-044, ws2-049
   - Flaky (mixed pass/fail across k): none
 
+## Budget-floor assertion (AC2 — step-starvation check)
+
+Every task ran with at least its declared `metadata.max_steps` budget (per-task budget honored by `effective_max_steps`; stop_reason='max_steps' only when the loop exhausts the budget, not when the grader emits `step_limit_exceeded`).
+
+| condition | runs hitting max_steps | starvation suspects (failing + exhausted) |
+| --- | --- | --- |
+| C1 | 0 | none |
+| C2 | 0 | none |
+| C3 | 0 | none |
+| C4 | 0 | none |
+
+## Exemplar trace excerpts (top failure modes)
+
+For each condition, the top failure mode(s) are illustrated with one exemplar (lex-first failing task, run_index=0). Compact: task id, tier/capability, grade evidence, observed tool-call sequence.
+
+### C1
+
+*(no failures — no exemplars)*
+
+### C2
+
+*(no failures — no exemplars)*
+
+### C3
+
+**Failure mode: `unclassified`** — exemplar task `ws2-031` (T3/derived_reasoning)
+- Observed tool-call sequence: `get_account(user_id='u-2') → list_tickets(status='open') → draft_email(to='grace@example.com', subject='Your Open Tickets')`
+
+**Failure mode: `wrong_args`** — exemplar task `ws2-015` (T2/argument_extraction)
+- Observed tool-call sequence: `send_email(to='ops@example.com', subject='Outage update')`
+
+### C4
+
+**Failure mode: `unclassified`** — exemplar task `ws2-018` (T3/multi_step_state)
+- Observed tool-call sequence: `(no tool calls)`
+
+
 ## Per-task pass matrix (task → reliable on each condition)
 
 | task | C1 | C2 | C3 | C4 |
