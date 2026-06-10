@@ -418,6 +418,61 @@ def test_provisional_label_prints_scored_and_errored_counts(
     assert out.exists()
 
 
+def test_system_prompt_file_tags_artifact_and_applies_override(tmp_path: Path) -> None:
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    prompt_file = tmp_path / "planning-v1.txt"
+    prompt_file.write_text("PLAN FIRST: identify before you act.\n")
+    out_dir = tmp_path / "out"
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+            "--system-prompt-file",
+            str(prompt_file),
+        ],
+        http_client=client,
+    )
+
+    # Tag = fixture stem -> __planning-v1 suffix on BOTH artifacts.
+    names = sorted(p.name for p in out_dir.iterdir())
+    assert "runs-local-qwen3-8b__planning-v1.jsonl" in names
+    assert "baseline-local-qwen3-8b__planning-v1.md" in names
+
+
+def test_no_system_prompt_file_keeps_v1_artifact_name(tmp_path: Path) -> None:
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+
+    names = sorted(p.name for p in out_dir.iterdir())
+    # Byte-identical to v1: no __tag suffix.
+    assert names == ["baseline-local-qwen3-8b.md", "runs-local-qwen3-8b.jsonl"]
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 

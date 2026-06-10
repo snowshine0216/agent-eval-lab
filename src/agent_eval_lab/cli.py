@@ -29,6 +29,7 @@ from agent_eval_lab.runners.config import (
     resolve_proxy,
 )
 from agent_eval_lab.runners.multi_run import run_task_k
+from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.tasks.loader import load_tasks
 from agent_eval_lab.tasks.schema import LlmJudgeSpec
 from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS
@@ -44,16 +45,29 @@ def run_baseline(
     out_dir: Path,
     price: TokenPrice | None,
     http_client: httpx.Client,
+    system_prompt: str | None = None,
+    system_prompt_path: Path | None = None,
 ) -> Path:
     tasks = load_tasks(dataset_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     condition = condition_id(config)
-    slug = _slug(condition)
+    slug = _slug(condition) + _prompt_config_tag(system_prompt_path)
     results: list[RunResult] = []
     with (out_dir / f"runs-{slug}.jsonl").open("w") as runs_file:
         for task in tasks:
+            run_task = (
+                task
+                if system_prompt is None
+                else replace(
+                    task,
+                    input=replace(
+                        task.input,
+                        messages=apply_system_prompt(task.input.messages, system_prompt),
+                    ),
+                )
+            )
             task_runs = run_task_k(
-                task=task,
+                task=run_task,
                 registry=WORKSPACE_TOOLS,
                 config=config,
                 http_client=http_client,
@@ -86,6 +100,14 @@ def _atomic_write(path: Path, content: str) -> None:
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def _prompt_config_tag(system_prompt_path: Path | None) -> str:
+    """ADR-0007: empty tag (byte-identical v1 name) when no override is given;
+    otherwise '__<fixture-stem>'. The stem is slugged like the condition id."""
+    if system_prompt_path is None:
+        return ""
+    return f"__{_slug(system_prompt_path.stem)}"
 
 
 def _slug(condition: str) -> str:
@@ -230,6 +252,9 @@ def _run_baseline_command(
         price = TokenPrice(input_per_mtok=given[0], output_per_mtok=given[1])
     # trust_env=False so only an explicitly opted-in provider (e.g. openrouter)
     # is proxied; domestic endpoints and localhost stay direct.
+    system_prompt = None
+    if args.system_prompt_file is not None:
+        system_prompt = args.system_prompt_file.read_text()
     client = http_client or httpx.Client(
         timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
     )
@@ -243,6 +268,8 @@ def _run_baseline_command(
             out_dir=args.out,
             price=price,
             http_client=client,
+            system_prompt=system_prompt,
+            system_prompt_path=args.system_prompt_file,
         )
     finally:
         if http_client is None:
@@ -264,6 +291,12 @@ def _build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--out", type=Path, default=Path("reports"))
     baseline.add_argument("--input-price-per-mtok", type=float)
     baseline.add_argument("--output-price-per-mtok", type=float)
+    baseline.add_argument(
+        "--system-prompt-file",
+        type=Path,
+        help="override each task's system turn with this file's text (Config B); "
+        "tags the artifact slug with __<file-stem> (ADR-0007)",
+    )
 
     calibrate = subparsers.add_parser("calibrate", help="judge calibration harness")
     cal_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)
