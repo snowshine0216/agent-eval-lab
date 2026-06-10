@@ -9,6 +9,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added — Weeks 3–4 dataset and grader quality
 
+- Workspace-world v2: five new schema-validated pure tools (`get_account`,
+  `list_tickets`, `send_email`, plus deliberate distractors `archive_ticket`,
+  `find_account`, `draft_email`); state grows to
+  `{tickets, docs, accounts, emails}`.
+- `workspace_tool_use_v2`: 50 reviewed, capability-discriminating tasks
+  (`ws2-001`…`ws2-050`) across six capabilities and four difficulty tiers
+  (66% hard: T3=22, T4=11) — long-horizon state-dependent chains, derived
+  arguments (filter/compare/aggregate over returned data), distractor
+  pressure, and layered `AllOf` constraint stacks; every task carries
+  difficulty-knob, provenance, review, and `world_template_id` metadata.
+- Task taxonomy and scoring-rubric docs plus a per-task review ledger.
+- Dataset conformance suite (15+ pure checks in CI): parse, registered tools
+  only, schema-valid expected calls, distractors never the expected path,
+  initial-state preconditions, anti-rote state-dependency proxy (22/33 hard
+  tasks pinned), tier/capability mix, and a no-op guarantee — a zero-tool
+  agent grades 0/50 by construction.
+- `TaskMetadata.max_steps` (per-task step budget; runner wiring lands with the
+  validation item per ADR-0004) and `TaskMetadata.review`.
 - Composite verification layer: `FinalStateSpec`, `TrajectorySpec`, and `AllOf`
   joined the `VerificationSpec` union, with constraint variants
   (`StateEquals`/`StateContains`; `NoToolCall`/`OnlyModifies`/`MaxToolCalls`)
