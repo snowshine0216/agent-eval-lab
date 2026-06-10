@@ -85,6 +85,9 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
             if parse_failure is None
             else {"raw": parse_failure.raw, "error": parse_failure.error}
         ),
+        "final_state": (
+            None if trajectory.final_state is None else dict(trajectory.final_state)
+        ),
     }
 
 
@@ -105,6 +108,7 @@ def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
             if parse_failure is None
             else ParseFailure(raw=parse_failure["raw"], error=parse_failure["error"])
         ),
+        final_state=data.get("final_state"),
     )
 
 
