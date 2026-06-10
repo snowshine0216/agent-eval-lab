@@ -63,9 +63,11 @@ uv run python -m agent_eval_lab.cli run-baseline \
   --provider local --k 3
 ```
 
-Outputs: `reports/baseline-<provider>.md` (headline `pass@1`, `pass^k`, tokens,
-cost, latency, failure taxonomy) and `reports/runs-<provider>.jsonl` (full
-graded trajectories). Hosted providers read their key from the environment
+Outputs: `reports/baseline-<provider>-<model>.md` (headline `pass@1`, `pass^k`,
+tokens, cost, latency, failure taxonomy) and `reports/runs-<provider>-<model>.jsonl`
+(full graded trajectories, streamed per task) — named by the full condition id so
+two models under one provider never overwrite each other. Hosted providers read
+their key from the environment
 variable named in `src/agent_eval_lab/runners/config.py` (e.g.
 `DASHSCOPE_API_KEY`); pass `--input-price-per-mtok/--output-price-per-mtok`
 to include estimated cost.
