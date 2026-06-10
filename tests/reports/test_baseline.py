@@ -1,10 +1,17 @@
+import pytest
+
 from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 
 
-def _run(task_id: str, run_index: int, passed: bool, failure_reason=None) -> RunResult:
+def _run(
+    task_id: str,
+    run_index: int,
+    passed: bool,
+    failure_reason: str | None = None,
+) -> RunResult:
     return RunResult(
         task_id=task_id,
         condition_id="local:qwen3-8b",
@@ -81,3 +88,15 @@ def test_render_markdown_handles_no_failures() -> None:
     )
 
     assert "No failures recorded." in render_markdown(report)
+
+
+def test_build_report_rejects_k_mismatching_data() -> None:
+    with pytest.raises(ValueError, match="k=3 but data has 2"):
+        build_baseline_report(RESULTS, dataset_id="d", condition_id="c", k=3)
+
+
+def test_build_report_rejects_unequal_runs_per_task() -> None:
+    lopsided = RESULTS + (_run("c", 0, True),)
+
+    with pytest.raises(ValueError, match="unequal runs per task"):
+        build_baseline_report(lopsided, dataset_id="d", condition_id="c", k=2)

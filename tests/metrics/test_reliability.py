@@ -11,7 +11,12 @@ from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 
 
-def _run(task_id: str, run_index: int, passed: bool, failure_reason=None) -> RunResult:
+def _run(
+    task_id: str,
+    run_index: int,
+    passed: bool,
+    failure_reason: str | None = None,
+) -> RunResult:
     return RunResult(
         task_id=task_id,
         condition_id="local:qwen3-8b",
@@ -54,6 +59,8 @@ def test_metrics_reject_empty_results() -> None:
         pass_at_1(())
     with pytest.raises(ValueError, match="no results"):
         pass_pow_k(())
+    with pytest.raises(ValueError, match="no results"):
+        mean_latency_s(())
 
 
 def test_failure_counts_groups_by_category() -> None:

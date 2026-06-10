@@ -27,3 +27,10 @@ def test_cost_is_tokens_times_price_per_million() -> None:
     price = TokenPrice(input_per_mtok=1.0, output_per_mtok=5.0)
 
     assert total_cost_usd(results, price=price) == 1.0 + 1.0
+
+
+def test_cost_handles_zero_and_asymmetric_tokens() -> None:
+    results = (_run(0, 0), _run(1_000_000, 0), _run(0, 200_000))
+    price = TokenPrice(input_per_mtok=2.0, output_per_mtok=10.0)
+
+    assert total_cost_usd(results, price=price) == 2.0 + 2.0

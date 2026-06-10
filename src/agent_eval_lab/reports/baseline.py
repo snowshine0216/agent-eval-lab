@@ -29,6 +29,18 @@ class BaselineReport:
     mean_latency_s: float
 
 
+def _validate_k(results: Sequence[RunResult], k: int) -> None:
+    runs_per_task: dict[str, int] = {}
+    for run in results:
+        runs_per_task[run.task_id] = runs_per_task.get(run.task_id, 0) + 1
+    counts = set(runs_per_task.values())
+    if len(counts) > 1:
+        raise ValueError(f"unequal runs per task: {sorted(counts)}")
+    actual_k = counts.pop()
+    if k != actual_k:
+        raise ValueError(f"k={k} but data has {actual_k} runs per task")
+
+
 def build_baseline_report(
     results: Sequence[RunResult],
     *,
@@ -37,6 +49,7 @@ def build_baseline_report(
     k: int,
     price: TokenPrice | None = None,
 ) -> BaselineReport:
+    _validate_k(results, k)
     prompt_tokens, completion_tokens = token_totals(results)
     return BaselineReport(
         dataset_id=dataset_id,
