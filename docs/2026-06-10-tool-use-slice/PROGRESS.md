@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | ✅ | ✅ [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) | ✅ | ✅ | ✅ | ✅ 2 rounds | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | ✅ | ✅ [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) | ✅ | ✅ | ✅ | ✅ 2 rounds | ✅ `b071eda` |
 
 ## Cells / notes
 
@@ -20,6 +20,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 verify** ✅ — [items/001-verify.md](items/001-verify.md). `/verify` (Sonnet) exercised the baseline CLI + full suite + env-stripped run; A1–A10 observed. PASS.
 - **001 pr-review** ✅ — [items/001-pr-review.md](items/001-pr-review.md). `/code-review` on PR #2: first pass FAIL (1 taxonomy latent-bug + 3 nits) → after fix round 2, re-review PASS (0 findings). [comment](https://github.com/snowshine0216/agent-eval-lab/pull/2#issuecomment-4667100056).
 - **001 fix** ✅ — 2 rounds. R1 (pre-PR, from /ship review): output-mismatch taxonomy + same-tool order_mismatch. R2 (from /code-review): swapped-tools-with-wrong-args → wrong_tool, guarded unreachable path, removed list mutation in metrics. All 3 post-ship verdicts now PASS/PASS-WITH-NITS.
+- **001 merge** ✅ — `gh pr merge 2 --squash --delete-branch` into feature branch `claude/gracious-villani-753e22`. Squash commit `b071eda`; PR #2 MERGED; sub-branch deleted. Feature branch green (89 tests, ruff clean).
 - (QA column omitted — non-web project; `/verify` is the post-ship verifier.)
 
 ## Run log
