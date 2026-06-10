@@ -9,6 +9,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added — Weeks 3–4 dataset and grader quality
 
+- Live v2 validation: four conditions at k=3 (deepseek-v4-pro 1.000/1.000,
+  GLM-5.1 1.000/1.000, MiniMax-M3 0.980/0.940, local Qwen3-8B 0.620/0.620 —
+  pass@1/pass^3) with cluster-bootstrap-by-task CIs; committed
+  failure-mode/validation report with per-tier curves, failure taxonomy ×
+  tier × capability, deterministic-vs-flaky split, and a mechanical
+  discriminativeness verdict (weak rung met: v2 is no longer saturated;
+  hosted separation a named near-miss at n=50).
+- Pre-declared two-configuration comparison (deepseek default vs frozen
+  hash-pinned planning prompt, paired on all 50 tasks): primary T3+T4
+  Δ pass^3 = 0.000 [0.000, 0.000] → "no detectable effect at n=50" read
+  mechanically off the frozen decision rule; planning regressed one T2 task.
+- Per-task `metadata.max_steps` honored by the runner (ADR-0004; CLI flag
+  stays the fallback; v1 behavior unchanged) and `--system-prompt-file`
+  with prompt-config artifact tags (ADR-0007; empty tag keeps v1 filenames
+  byte-identical).
+- Pure `report-validation` and `compare-configs` CLI subcommands —
+  deterministic regeneration from captured run JSONL (byte-identical on
+  re-run, seeded bootstrap), loud structured errors on malformed lines,
+  task-universe mismatches, unmapped capabilities, and sub-k partial tasks
+  (excluded and named, never vacuously passed).
 - Model-based grader: `LlmJudgeSpec` joined the `VerificationSpec` union —
   pure prompt build / response parse / spec-tree collection in
   `graders/judge.py`, with judge calls confined to an explicit edge; verdicts
