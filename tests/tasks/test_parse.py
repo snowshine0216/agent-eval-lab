@@ -92,7 +92,94 @@ def test_verification_from_dict_parses_output_match() -> None:
 
 def test_verification_from_dict_rejects_unknown_type() -> None:
     with pytest.raises(ValueError, match="unknown verification type"):
-        verification_from_dict({"type": "final_state", "constraints": []})
+        verification_from_dict({"type": "llm_judge", "rubric": "x"})
+
+
+from agent_eval_lab.tasks.schema import (  # noqa: E402
+    AllOf,
+    FinalStateSpec,
+    MaxToolCalls,
+    NoToolCall,
+    OnlyModifies,
+    StateContains,
+    StateEquals,
+    TrajectorySpec,
+)
+
+
+def test_verification_from_dict_parses_final_state() -> None:
+    spec = verification_from_dict(
+        {
+            "type": "final_state",
+            "constraints": [
+                {
+                    "type": "state_equals",
+                    "path": "tickets.T-1.status",
+                    "expected": "closed",
+                },
+                {"type": "state_contains", "path": "docs.ids", "expected": "doc-1"},
+            ],
+        }
+    )
+
+    assert isinstance(spec, FinalStateSpec)
+    assert isinstance(spec.constraints[0], StateEquals)
+    assert spec.constraints[0].path == "tickets.T-1.status"
+    assert isinstance(spec.constraints[1], StateContains)
+    assert spec.constraints[1].expected == "doc-1"
+
+
+def test_verification_from_dict_parses_trajectory() -> None:
+    spec = verification_from_dict(
+        {
+            "type": "trajectory",
+            "constraints": [
+                {"type": "no_tool_call", "name": "delete_ticket"},
+                {"type": "only_modifies", "paths": ["tickets.T-1"]},
+                {"type": "max_tool_calls", "n": 3},
+            ],
+        }
+    )
+
+    assert isinstance(spec, TrajectorySpec)
+    assert isinstance(spec.constraints[0], NoToolCall)
+    assert isinstance(spec.constraints[1], OnlyModifies)
+    assert spec.constraints[1].paths == ("tickets.T-1",)
+    assert isinstance(spec.constraints[2], MaxToolCalls)
+    assert spec.constraints[2].n == 3
+
+
+def test_verification_from_dict_parses_all_of_recursively() -> None:
+    spec = verification_from_dict(
+        {
+            "type": "all_of",
+            "specs": [
+                {"type": "output_match", "expected_output": "done"},
+                {
+                    "type": "all_of",
+                    "specs": [{"type": "final_state", "constraints": []}],
+                },
+            ],
+        }
+    )
+
+    assert isinstance(spec, AllOf)
+    assert isinstance(spec.specs[1], AllOf)
+    assert isinstance(spec.specs[1].specs[0], FinalStateSpec)
+
+
+def test_verification_from_dict_rejects_unknown_state_constraint() -> None:
+    with pytest.raises(ValueError, match="unknown state constraint"):
+        verification_from_dict(
+            {"type": "final_state", "constraints": [{"type": "state_gt"}]}
+        )
+
+
+def test_verification_from_dict_rejects_unknown_trajectory_constraint() -> None:
+    with pytest.raises(ValueError, match="unknown trajectory constraint"):
+        verification_from_dict(
+            {"type": "trajectory", "constraints": [{"type": "min_tool_calls"}]}
+        )
 
 
 def test_verification_from_dict_rejects_unknown_match_mode() -> None:
