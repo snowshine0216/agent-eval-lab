@@ -15,9 +15,9 @@ the post-ship XOR (see MASTER-PLAN.md).
 | gate | status |
 |------|--------|
 | dependency scan | ✅ order 001→002→003→004 (003 plugs into 001's dispatch; 004 terminal — consumes 001+002+003) |
-| run-doc-sync | ⏳ |
-| run-final-verify | ⏳ |
-| close-out | ⏳ |
+| run-doc-sync | ✅ PASS (1 FAIL→README-only remediation 7be4934 — no CONTEXT/ADR touched) |
+| run-final-verify | ✅ PASS (live cross-item flow: ws2-040 AllOf → local Qwen3-8B → report; byte-identical regen) |
+| close-out | ✅ roll-up PR [#9](https://github.com/snowshine0216/agent-eval-lab/pull/9) → main, left open for user |
 
 ## Notes
 
