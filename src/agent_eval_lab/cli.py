@@ -194,6 +194,9 @@ def _run_provisional_label(args: argparse.Namespace, http_client) -> int:
     finally:
         if http_client is None:
             client.close()
+    scored = sum(1 for i in packet.items if i.score is not None)
+    errored = sum(1 for i in packet.items if i.score is None)
+    print(f"scored={scored} errored={errored} total={len(packet.items)}")
     _atomic_write(args.out, packet_to_jsonl(packet))
     print(args.out)
     return 0

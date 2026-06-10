@@ -41,7 +41,12 @@ def run_provisional_labeling(
 
 
 def render_provisional_summary(
-    report: Mapping[str, object], *, models: Sequence[str], skipped: Sequence[str]
+    report: Mapping[str, object],
+    *,
+    models: Sequence[str],
+    skipped: Sequence[str],
+    scored: int | None = None,
+    errored: int | None = None,
 ) -> str:
     bk = report["binary_kappa"]
     ci = bk["ci"]
@@ -63,24 +68,29 @@ def render_provisional_summary(
         f"- observed agreement = {bk['observed_agreement']:.4f};"
         f" degenerate={bk['degenerate']}"
     )
-    return (
-        "\n".join(
-            [
-                "# Calibration — PROVISIONAL summary",
-                "",
-                banner,
-                f"- Annotator models that ran: {list(models)}",
-                f"- Models skipped (missing key): {list(skipped)}",
-                f"- Binary Cohen's kappa (LLM-LLM) = {bk['point']:.4f}",
-                ci_line,
-                f"- Weighted (quadratic) kappa = {report['weighted_kappa']:.4f}",
-                obs_line,
-                "",
-                "At n in [12,20] the bootstrap CI is wide and n-dominated:",
-                "a plumbing/feasibility number, not a reliability verdict",
-                "(see the calibration runbook).",
-                "",
-            ]
-        )
-        + "\n"
+    labeling_line = (
+        f"- Labeling: scored={scored} errored={errored}"
+        if scored is not None and errored is not None
+        else ""
     )
+    lines = [
+        "# Calibration — PROVISIONAL summary",
+        "",
+        banner,
+        f"- Annotator models that ran: {list(models)}",
+        f"- Models skipped (missing key): {list(skipped)}",
+    ]
+    if labeling_line:
+        lines.append(labeling_line)
+    lines += [
+        f"- Binary Cohen's kappa (LLM-LLM) = {bk['point']:.4f}",
+        ci_line,
+        f"- Weighted (quadratic) kappa = {report['weighted_kappa']:.4f}",
+        obs_line,
+        "",
+        "At n in [12,20] the bootstrap CI is wide and n-dominated:",
+        "a plumbing/feasibility number, not a reliability verdict",
+        "(see the calibration runbook).",
+        "",
+    ]
+    return "\n".join(lines) + "\n"

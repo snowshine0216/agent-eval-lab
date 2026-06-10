@@ -61,3 +61,54 @@ def test_provisional_records_none_score_on_judge_error(monkeypatch) -> None:
         http_client=_client("I will not score."),
     )
     assert [i.score for i in packet.items] == [None, None]
+
+
+# Fix 5: render_provisional_summary includes scored/errored counts
+
+
+def _fake_report():
+    """Minimal agreement report dict sufficient for render_provisional_summary."""
+    return {
+        "binary_kappa": {
+            "point": 0.75,
+            "observed_agreement": 0.875,
+            "expected_agreement": 0.5,
+            "degenerate": False,
+            "ci": {
+                "lo": 0.5,
+                "hi": 1.0,
+                "alpha": 0.05,
+                "n_resamples": 200,
+                "n_degenerate": 0,
+                "seed": 42,
+            },
+        },
+        "weighted_kappa": 0.80,
+    }
+
+
+def test_render_provisional_summary_includes_scored_errored_counts() -> None:
+    from agent_eval_lab.calibrate.provisional import render_provisional_summary
+
+    summary = render_provisional_summary(
+        _fake_report(),
+        models=["deepseek"],
+        skipped=[],
+        scored=14,
+        errored=2,
+    )
+    assert "scored=14" in summary
+    assert "errored=2" in summary
+
+
+def test_render_provisional_summary_omits_counts_when_not_supplied() -> None:
+    from agent_eval_lab.calibrate.provisional import render_provisional_summary
+
+    summary = render_provisional_summary(
+        _fake_report(),
+        models=["deepseek"],
+        skipped=[],
+    )
+    # No labeling line when counts not provided — backward compatible
+    assert "scored=" not in summary
+    assert "errored=" not in summary

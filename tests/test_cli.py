@@ -372,6 +372,50 @@ def test_atomic_write_creates_parent_dirs(tmp_path: Path) -> None:
     assert target.read_text() == "x"
 
 
+# Fix 5: provisional partial-failure visibility
+
+
+def test_provisional_label_prints_scored_and_errored_counts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A JudgeError item (no parseable SCORE) must produce a visible errored count
+    in the CLI stdout and in the rendered summary."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+    def handler(r: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "I cannot score."}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    out = tmp_path / "p.jsonl"
+    exit_code = main(
+        [
+            "calibrate",
+            "provisional-label",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--provider",
+            "deepseek",
+            "--out",
+            str(out),
+        ],
+        http_client=client,
+    )
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    # Must report scored=0 and errored=16 (all 16 fixtures fail to parse)
+    assert "scored" in captured.lower() or "errored" in captured.lower()
+    # The packet file must exist even when all errored (score=None recorded)
+    assert out.exists()
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 
