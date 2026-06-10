@@ -27,6 +27,8 @@ def _call_to_dict(c: ToolCall | ExpectedToolCall) -> dict[str, Any]:
     out = {"name": c.name, "arguments": dict(c.arguments)}
     if isinstance(c, ToolCall):
         out["call_id"] = c.call_id
+        if c.arguments_parse_error is not None:
+            out["arguments_parse_error"] = c.arguments_parse_error
     return out
 
 
@@ -126,7 +128,10 @@ def to_dict(record: Any) -> dict[str, Any]:
 def _call_from_dict(cls: Any, d: dict[str, Any]) -> Any:
     if cls is ToolCall:
         return ToolCall(
-            call_id=d["call_id"], name=d["name"], arguments=dict(d.get("arguments", {}))
+            call_id=d["call_id"],
+            name=d["name"],
+            arguments=dict(d.get("arguments", {})),
+            arguments_parse_error=d.get("arguments_parse_error"),
         )
     return ExpectedToolCall(name=d["name"], arguments=dict(d.get("arguments", {})))
 

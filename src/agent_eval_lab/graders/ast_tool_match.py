@@ -39,8 +39,19 @@ def _passed() -> GradeResult:
 def _precheck(
     observed: Sequence[ToolCall], schemas: Mapping[str, Any]
 ) -> GradeResult | None:
-    """Stage 1+2: unknown tool -> malformed_call; bad args -> schema_violation."""
+    """Stage 1+2: unparseable/unknown -> malformed_call; bad args -> schema_violation.
+
+    The parse-error check precedes the schema lookup, so an unparseable call is
+    malformed_call independent of the tool schema.
+    """
     for call in observed:
+        if call.arguments_parse_error is not None:
+            return _fail(
+                "malformed_call",
+                f"unparseable arguments for {call.name!r}",
+                tool=call.name,
+                raw_arguments=call.arguments_parse_error,
+            )
         if call.name not in schemas:
             return _fail(
                 "malformed_call", f"unknown tool {call.name!r}", tool=call.name

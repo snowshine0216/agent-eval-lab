@@ -38,13 +38,32 @@ def build_request(
     return body
 
 
-def _parse_arguments(raw: Any) -> dict[str, Any]:
+def _parse_arguments(raw: Any) -> tuple[dict[str, Any], str | None]:
+    """Parse tool-call arguments into (args, parse_error).
+
+    parse_error is None for a well-formed JSON object (or an already-parsed
+    Mapping); otherwise it is the raw payload as text and args is empty. A JSON
+    value that is not an object (array/scalar) is a parse error, not coercion.
+    """
     if isinstance(raw, Mapping):
-        return dict(raw)
+        return dict(raw), None
     try:
-        return dict(json.loads(raw))
+        parsed = json.loads(raw)
     except (ValueError, TypeError):
-        return {"__raw__": raw}
+        return {}, str(raw)
+    if isinstance(parsed, Mapping):
+        return dict(parsed), None
+    return {}, str(raw)
+
+
+def _to_tool_call(raw_call: Mapping[str, Any]) -> ToolCall:
+    arguments, parse_error = _parse_arguments(raw_call["function"].get("arguments", {}))
+    return ToolCall(
+        call_id=raw_call.get("id", ""),
+        name=raw_call["function"]["name"],
+        arguments=arguments,
+        arguments_parse_error=parse_error,
+    )
 
 
 def parse_response(
@@ -55,14 +74,7 @@ def parse_response(
     usage = dict(payload.get("usage", {}))
     raw_calls = message.get("tool_calls")
     if raw_calls:
-        calls = tuple(
-            ToolCall(
-                call_id=c.get("id", ""),
-                name=c["function"]["name"],
-                arguments=_parse_arguments(c["function"].get("arguments", {})),
-            )
-            for c in raw_calls
-        )
+        calls = tuple(_to_tool_call(c) for c in raw_calls)
         return ToolCallTurn(tool_calls=calls, content=message.get("content")), usage
     return MessageTurn(role="assistant", content=message.get("content") or ""), usage
 

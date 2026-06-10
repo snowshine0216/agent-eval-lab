@@ -58,6 +58,30 @@ def test_unknown_tool_name_is_malformed_call():
     assert result.failure_reason == "malformed_call"
 
 
+def test_unparseable_arguments_is_malformed_call():
+    """A call whose arguments could not be parsed as JSON is stage-1 malformed_call,
+    regardless of the tool schema. Here empty args would otherwise be a
+    schema_violation (create_ticket requires title+priority), so this also proves the
+    parse-error check precedes schema validation."""
+    spec = _spec(
+        ExpectedToolCall(
+            name="create_ticket", arguments={"title": "x", "priority": "low"}
+        )
+    )
+    obs = (
+        ToolCall(
+            call_id="c1",
+            name="create_ticket",
+            arguments={},
+            arguments_parse_error="{not json",
+        ),
+    )
+    result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
+    assert result.passed is False
+    assert result.failure_reason == "malformed_call"
+    assert result.evidence["raw_arguments"] == "{not json"
+
+
 def test_wrong_tool():
     spec = _spec(ExpectedToolCall(name="search_docs", arguments={"query": "x"}))
     obs = _observed("create_ticket", {"title": "x", "priority": "low"})

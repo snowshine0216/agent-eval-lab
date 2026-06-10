@@ -21,6 +21,13 @@ def test_tool_call_roundtrip():
     assert _roundtrip(rec) == rec
 
 
+def test_tool_call_with_parse_error_roundtrip():
+    rec = ToolCall(
+        call_id="c1", name="t", arguments={}, arguments_parse_error="{not json"
+    )
+    assert _roundtrip(rec) == rec
+
+
 def test_message_turn_roundtrip():
     rec = MessageTurn(role="user", content="hi")
     out = to_dict(rec)

@@ -4,6 +4,7 @@ from pathlib import Path
 from agent_eval_lab.runners.provider import (
     ProviderClient,
     ProviderConfig,
+    _parse_arguments,
     build_request,
     parse_response,
 )
@@ -66,7 +67,24 @@ def test_parse_response_tool_calls_canonical():
     assert call.arguments == {"title": "x", "priority": "low"}
 
 
-def test_malformed_arguments_become_empty_dict_with_raw_evidence():
+def test_parse_arguments_json_object_string():
+    assert _parse_arguments('{"a": 1}') == ({"a": 1}, None)
+
+
+def test_parse_arguments_already_a_mapping():
+    assert _parse_arguments({"a": 1}) == ({"a": 1}, None)
+
+
+def test_parse_arguments_unparseable_returns_raw_error():
+    assert _parse_arguments("{not json") == ({}, "{not json")
+
+
+def test_parse_arguments_valid_json_but_not_an_object_is_an_error():
+    # A JSON array/scalar is not a valid arguments object -> parse error, not coercion.
+    assert _parse_arguments("[1, 2]") == ({}, "[1, 2]")
+
+
+def test_malformed_arguments_recorded_as_parse_error_not_raw_sentinel():
     payload = {
         "choices": [
             {
@@ -80,7 +98,9 @@ def test_malformed_arguments_become_empty_dict_with_raw_evidence():
         "usage": {"total_tokens": 1},
     }
     turn, _ = parse_response(CFG, payload)
-    assert turn.tool_calls[0].arguments == {"__raw__": "{not json"}
+    call = turn.tool_calls[0]
+    assert call.arguments == {}
+    assert call.arguments_parse_error == "{not json"
 
 
 def test_client_reads_key_from_named_env(monkeypatch):
