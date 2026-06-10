@@ -3131,7 +3131,7 @@ git commit -m "test(graders): add property-based canonicalization + never-pass-i
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/ROADMAP.md`
 - Modify: `docs/superpowers/specs/2026-06-09-agent-eval-pipeline-design.md`
-- Create: `docs/2026-06-10-tool-use-slice/items/dataset-note.md`
+- Create: `docs/2026-06-10-tool-use-slice/items/dataset-note.md` — **amended by drift (orchestrator): relocated to `examples/datasets/README.md`** so the dataset note lives next to the data as a durable project doc rather than inside the ephemeral, orchestrator-owned autodev run-dir. Substance unchanged.
 
 - [ ] **Step 1: Update ARCHITECTURE.md "Initial Vertical Slice" section**
 
