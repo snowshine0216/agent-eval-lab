@@ -7,6 +7,7 @@ from agent_eval_lab.metrics.reliability import (
     pass_pow_k,
     token_totals,
 )
+
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 
@@ -72,3 +73,121 @@ def test_failure_counts_groups_by_category() -> None:
 def test_token_totals_and_latency() -> None:
     assert token_totals(RESULTS) == (400, 80)
     assert mean_latency_s(RESULTS) == 0.5
+
+
+def _task_runs(task_id: str, k: int, passed: bool):
+    return tuple(_run(task_id, i, passed) for i in range(k))
+
+
+# Fixture: 3 tasks, k=2. a,b reliable (all pass); c unreliable (all fail).
+# pass^k point = 2/3. Cluster-by-task resampling 3 task ids.
+CLUSTER_RESULTS = (
+    *_task_runs("a", 2, True),
+    *_task_runs("b", 2, True),
+    *_task_runs("c", 2, False),
+)
+
+
+def test_pass_pow_k_bootstrap_ci_is_seeded_and_deterministic() -> None:
+    from agent_eval_lab.metrics.reliability import pass_pow_k_bootstrap_ci
+
+    ci1 = pass_pow_k_bootstrap_ci(
+        CLUSTER_RESULTS, n_resamples=2000, seed=20260610, alpha=0.05
+    )
+    ci2 = pass_pow_k_bootstrap_ci(
+        CLUSTER_RESULTS, n_resamples=2000, seed=20260610, alpha=0.05
+    )
+    assert ci1 == ci2
+    assert ci1.point == pytest.approx(2 / 3)
+    # Verified offline: with the task as the unit a resample can omit a/b entirely.
+    assert ci1.lo == pytest.approx(0.0)
+    assert ci1.hi == pytest.approx(1.0)
+    assert ci1.n_degenerate == 0  # Resolved Q2: no degeneracy class for pass^k
+
+
+def test_pass_pow_k_bootstrap_cluster_unit_differs_from_naive_run_level() -> None:
+    """Discriminating vector (Resolved Q5): the task is the resampling unit.
+    3 tasks, k=3, a/b all-pass, c all-fail (deterministic). A naive run-level
+    resample of the 9 runs almost never drops a whole task, so its lower bound
+    is 0.5; cluster-by-task can omit a/b entirely, giving a lower bound of 0.0."""
+    from agent_eval_lab.metrics.reliability import pass_pow_k_bootstrap_ci
+
+    results = (
+        *_task_runs("a", 3, True),
+        *_task_runs("b", 3, True),
+        *_task_runs("c", 3, False),
+    )
+    ci = pass_pow_k_bootstrap_ci(results, n_resamples=2000, seed=20260610, alpha=0.05)
+    assert ci.point == pytest.approx(2 / 3)
+    assert ci.lo == pytest.approx(0.0)  # cluster-by-task, NOT the naive 0.5
+    assert ci.hi == pytest.approx(1.0)
+
+
+def test_paired_diff_ci_structural_pairing_and_point() -> None:
+    from agent_eval_lab.metrics.reliability import paired_pass_pow_k_diff_ci
+
+    # Identical task universe {t1..t4}. A reliable on t1,t2; B additionally on t3.
+    # pass^k(A)=0.5, pass^k(B)=0.75, point diff = +0.25.
+    a = (
+        *_task_runs("t1", 2, True),
+        *_task_runs("t2", 2, True),
+        *_task_runs("t3", 2, False),
+        *_task_runs("t4", 2, False),
+    )
+    b = (
+        *_task_runs("t1", 2, True),
+        *_task_runs("t2", 2, True),
+        *_task_runs("t3", 2, True),
+        *_task_runs("t4", 2, False),
+    )
+    ci = paired_pass_pow_k_diff_ci(a, b, n_resamples=2000, seed=20260610, alpha=0.05)
+    assert ci.point == pytest.approx(0.25)
+    # Verified offline: one task-id multiset applied to BOTH configs -> diff is
+    # (count of t3 in the sample)/4, so the 95% interval is [0.0, 0.75].
+    assert ci.lo == pytest.approx(0.0)
+    assert ci.hi == pytest.approx(0.75)
+
+
+def test_paired_diff_ci_raises_on_mismatched_task_universe() -> None:
+    from agent_eval_lab.metrics.reliability import paired_pass_pow_k_diff_ci
+
+    a = (*_task_runs("t1", 2, True), *_task_runs("t2", 2, True))
+    b = (*_task_runs("t1", 2, True), *_task_runs("t3", 2, True))  # t3 != t2
+    with pytest.raises(ValueError, match="identical task-id universe"):
+        paired_pass_pow_k_diff_ci(a, b, n_resamples=10, seed=1, alpha=0.05)
+
+
+def test_bootstrap_all_pass_and_all_fail_give_finite_cis_not_degenerate() -> None:
+    """Resolved Q2: all-pass and all-fail resamples are legitimate pass^k of
+    1.0/0.0, never a degenerate flag."""
+    from agent_eval_lab.metrics.reliability import pass_pow_k_bootstrap_ci
+
+    all_pass = (*_task_runs("a", 2, True), *_task_runs("b", 2, True))
+    all_fail = (*_task_runs("a", 2, False), *_task_runs("b", 2, False))
+    cp = pass_pow_k_bootstrap_ci(all_pass, n_resamples=500, seed=1, alpha=0.05)
+    cf = pass_pow_k_bootstrap_ci(all_fail, n_resamples=500, seed=1, alpha=0.05)
+    assert cp.point == 1.0 and cp.lo == 1.0 and cp.hi == 1.0 and cp.n_degenerate == 0
+    assert cf.point == 0.0 and cf.lo == 0.0 and cf.hi == 0.0 and cf.n_degenerate == 0
+
+
+def test_tier_of_maps_id_ranges() -> None:
+    from agent_eval_lab.metrics.reliability import tier_of
+
+    tiers = {"ws2-001": "T1", "ws2-006": "T2", "ws2-018": "T3", "ws2-040": "T4"}
+    assert tier_of("ws2-001", tiers) == "T1"
+    assert tier_of("ws2-040", tiers) == "T4"
+
+
+def test_pass_pow_k_by_tier_filters_results() -> None:
+    from agent_eval_lab.metrics.reliability import pass_pow_k_by_tier
+
+    results = (
+        *_task_runs("ws2-001", 2, True),   # T1, reliable
+        *_task_runs("ws2-018", 2, False),  # T3, unreliable
+        *_task_runs("ws2-019", 2, True),   # T3, reliable
+    )
+    tiers = {"ws2-001": "T1", "ws2-018": "T3", "ws2-019": "T3"}
+    by_tier = pass_pow_k_by_tier(results, tiers)
+    assert by_tier["T1"] == pytest.approx(1.0)
+    assert by_tier["T3"] == pytest.approx(0.5)
+    assert "T2" not in by_tier  # tiers with no results are omitted
