@@ -47,3 +47,10 @@ one pool keyed by `condition_id` would re-merge them, so `compare-configs` must
 keep the two pools separate by their input paths. This is the documented reason
 the comparison CLI takes explicit `--config-a` / `--config-b` path arguments
 rather than a single conditions list.
+
+**Tag-slug collision surface:** the fixture stem is slugged via `_slug()` before
+being appended as `__<tag>`; two fixture stems that differ only in characters
+collapsed by the slug regex (e.g. `planning v1` and `planning-v1`) will produce
+the same tag and silently overwrite each other's artifacts. Convention: fixture
+stems must be distinct after slugging (i.e. after replacing `[^A-Za-z0-9._-]+`
+with `-`).
