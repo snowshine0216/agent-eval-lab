@@ -13,22 +13,41 @@ from agent_eval_lab.tools.workspace_world import TOOL_SCHEMAS, initial_state
 
 def _task():
     return Task(
-        id="t1", capability="tool_selection",
-        input=TaskInput(messages=(MessageTurn(role="user", content="go"),),
-                        available_tools=({"name": "search_docs"},)),
+        id="t1",
+        capability="tool_selection",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="go"),),
+            available_tools=({"name": "search_docs"},),
+        ),
         verification=ToolCallMatchSpec(
-            expected_tool_calls=(ExpectedToolCall(name="search_docs", arguments={"query": "x"}),)),
-        metadata=TaskMetadata(split="dev", version="1", provenance="handwritten",
-                              world_template_id="workspace", difficulty_knob="baseline"),
+            expected_tool_calls=(
+                ExpectedToolCall(name="search_docs", arguments={"query": "x"}),
+            )
+        ),
+        metadata=TaskMetadata(
+            split="dev",
+            version="1",
+            provenance="handwritten",
+            world_template_id="workspace",
+            difficulty_knob="baseline",
+        ),
         initial_state=initial_state(),
     )
 
 
 def _model():
-    return FakeModel(scripts={"t1": [
-        {"type": "tool_call", "name": "search_docs", "arguments": {"query": "x"}},
-        {"type": "message", "content": "done"},
-    ]})
+    return FakeModel(
+        scripts={
+            "t1": [
+                {
+                    "type": "tool_call",
+                    "name": "search_docs",
+                    "arguments": {"query": "x"},
+                },
+                {"type": "message", "content": "done"},
+            ]
+        }
+    )
 
 
 @given(st.just(0))

@@ -14,7 +14,9 @@ from agent_eval_lab.tasks.turns import MessageTurn, ToolCallTurn
 _FIXED_USAGE = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 
 
-def _to_turn(task_id: str, step: int, spec: Mapping[str, Any]) -> MessageTurn | ToolCallTurn:
+def _to_turn(
+    task_id: str, step: int, spec: Mapping[str, Any]
+) -> MessageTurn | ToolCallTurn:
     if spec["type"] == "message":
         return MessageTurn(role="assistant", content=spec["content"])
     call = ToolCall(

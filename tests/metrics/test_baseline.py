@@ -4,13 +4,27 @@ from agent_eval_lab.tasks.turns import MessageTurn
 
 
 def _rr(task_id, run_index, passed, reason=None, cost=0.001, latency=10):
-    traj = Trajectory(turns=(MessageTurn(role="assistant", content="x"),),
-                      usage={"total_tokens": 15}, cost_usd=cost, latency_ms=latency,
-                      run_index=run_index, termination_reason="stop")
-    grade = GradeResult(grader_id="g", passed=passed, score=1.0 if passed else 0.0,
-                        failure_reason=reason)
-    return RunResult(task_id=task_id, condition_id="c", run_index=run_index,
-                     trajectory=traj, grade=grade)
+    traj = Trajectory(
+        turns=(MessageTurn(role="assistant", content="x"),),
+        usage={"total_tokens": 15},
+        cost_usd=cost,
+        latency_ms=latency,
+        run_index=run_index,
+        termination_reason="stop",
+    )
+    grade = GradeResult(
+        grader_id="g",
+        passed=passed,
+        score=1.0 if passed else 0.0,
+        failure_reason=reason,
+    )
+    return RunResult(
+        task_id=task_id,
+        condition_id="c",
+        run_index=run_index,
+        trajectory=traj,
+        grade=grade,
+    )
 
 
 def test_pass_over_k_requires_all_runs_pass():
@@ -22,8 +36,11 @@ def test_pass_over_k_requires_all_runs_pass():
 
 
 def test_aggregate_totals_and_failure_counts():
-    runs = [_rr("t1", 0, True), _rr("t2", 0, False, reason="wrong_tool"),
-            _rr("t2", 1, False, reason="schema_violation")]
+    runs = [
+        _rr("t1", 0, True),
+        _rr("t2", 0, False, reason="wrong_tool"),
+        _rr("t2", 1, False, reason="schema_violation"),
+    ]
     summary = aggregate(runs)
     assert summary.total_runs == 3
     assert summary.tasks_passing_all_k == 1  # only t1

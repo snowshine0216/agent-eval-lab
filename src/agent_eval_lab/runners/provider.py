@@ -67,7 +67,9 @@ def parse_response(
     return MessageTurn(role="assistant", content=message.get("content") or ""), usage
 
 
-def _real_transport(config: ProviderConfig) -> Transport:  # pragma: no cover - never run in tests
+def _real_transport(
+    config: ProviderConfig,
+) -> Transport:  # pragma: no cover - never run in tests
     import urllib.request
 
     def send(request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -84,9 +86,13 @@ def _real_transport(config: ProviderConfig) -> Transport:  # pragma: no cover - 
 class ProviderClient:
     """Thin client: build request, call transport, parse response."""
 
-    def __init__(self, config: ProviderConfig, transport: Transport | None = None) -> None:
+    def __init__(
+        self, config: ProviderConfig, transport: Transport | None = None
+    ) -> None:
         self._config = config
-        self._transport = transport if transport is not None else _real_transport(config)
+        self._transport = (
+            transport if transport is not None else _real_transport(config)
+        )
 
     def _headers(self) -> dict[str, str]:
         key = os.environ.get(self._config.api_key_env, "")

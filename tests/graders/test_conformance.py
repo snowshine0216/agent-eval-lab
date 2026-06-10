@@ -15,7 +15,8 @@ CASES = json.loads((Path(__file__).parent / "conformance" / "cases.json").read_t
 def test_conformance_matches_oracle(case):
     spec = ToolCallMatchSpec(
         expected_tool_calls=tuple(
-            ExpectedToolCall(name=e["name"], arguments=e["arguments"]) for e in case["expected"]
+            ExpectedToolCall(name=e["name"], arguments=e["arguments"])
+            for e in case["expected"]
         ),
         match=case["match"],
     )
