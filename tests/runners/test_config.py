@@ -1,4 +1,4 @@
-from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig
+from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig, condition_id
 
 
 def test_registry_covers_the_design_provider_lineup() -> None:
@@ -20,6 +20,10 @@ def test_configs_hold_env_var_names_never_keys() -> None:
 
 def test_local_provider_needs_no_key() -> None:
     assert PROVIDERS["local"].api_key_env == ""
+
+
+def test_condition_id_pairs_provider_and_model() -> None:
+    assert condition_id(PROVIDERS["local"]) == "local:qwen3-8b"
 
 
 def test_extra_headers_default_is_not_shared() -> None:

@@ -14,6 +14,11 @@ class ProviderConfig:
     adapter: str | None = None  # reserved: pure tool-call dialect normalizer
 
 
+def condition_id(config: ProviderConfig) -> str:
+    """Stable identifier pairing provider and model for run/report records."""
+    return f"{config.id}:{config.model_id}"
+
+
 PROVIDERS: Mapping[str, ProviderConfig] = {
     "deepseek": ProviderConfig(
         id="deepseek",

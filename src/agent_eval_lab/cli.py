@@ -10,7 +10,7 @@ import httpx
 from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.serialize import run_result_to_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
-from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig
+from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig, condition_id
 from agent_eval_lab.runners.multi_run import run_task_k
 from agent_eval_lab.tasks.loader import load_tasks
 from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS
@@ -44,7 +44,7 @@ def run_baseline(
     report = build_baseline_report(
         results,
         dataset_id=dataset_path.stem,
-        condition_id=f"{config.id}:{config.model_id}",
+        condition_id=condition_id(config),
         k=k,
         price=price,
     )

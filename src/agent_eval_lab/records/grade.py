@@ -14,6 +14,9 @@ FailureCategory = Literal[
     "missing_call",
     "extra_call",
     "order_mismatch",
+    # The two categories below are forward-declarations: emitted from Weeks 3-4
+    # onward by TrajectorySpec/policy grading; the Weeks 1-2 pipeline never
+    # produces them.
     "forbidden_action",
     "step_limit_exceeded",
 ]
