@@ -179,7 +179,9 @@ def compute_agreement(
             "expected_agreement": binary.expected_agreement,
             "degenerate": binary.degenerate,
             "ci": {
-                "lo": ci.lo, "hi": ci.hi, "alpha": ci.alpha,
+                "lo": ci.lo,
+                "hi": ci.hi,
+                "alpha": ci.alpha,
                 "n_resamples": ci.n_resamples,
                 "n_degenerate": ci.n_degenerate,
                 "seed": ci.seed,

@@ -99,9 +99,7 @@ def weighted_kappa(
         for (x, y), count in cm.items()
     )
     p_e = sum(
-        _quadratic_weight(i, j, k) * row[i] * col[j]
-        for i in range(k)
-        for j in range(k)
+        _quadratic_weight(i, j, k) * row[i] * col[j] for i in range(k) for j in range(k)
     )
     if 1.0 - p_e == 0.0:
         return 0.0

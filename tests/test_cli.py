@@ -238,10 +238,14 @@ def test_calibrate_export_packet_writes_blind_jsonl_and_md(tmp_path: Path) -> No
     out = tmp_path / "packet.jsonl"
     exit_code = main(
         [
-            "calibrate", "export-packet",
-            "--fixtures", "examples/calibration/fixtures.jsonl",
-            "--rubric", "examples/calibration/rubric.md",
-            "--out", str(out),
+            "calibrate",
+            "export-packet",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--out",
+            str(out),
         ]
     )
     assert exit_code == 0
@@ -285,11 +289,17 @@ def test_calibrate_compute_reports_kappa_and_ci(tmp_path: Path, capsys) -> None:
 
     exit_code = main(
         [
-            "calibrate", "compute",
-            "--packets", str(a), str(b),
-            "--fixtures", str(fixtures),
-            "--rubric", str(rubric),
-            "--out", str(report),
+            "calibrate",
+            "compute",
+            "--packets",
+            str(a),
+            str(b),
+            "--fixtures",
+            str(fixtures),
+            "--rubric",
+            str(rubric),
+            "--out",
+            str(report),
         ]
     )
 
@@ -307,10 +317,16 @@ def test_provisional_label_skips_cleanly_when_key_unset(
     out = tmp_path / "p.jsonl"
     exit_code = main(
         [
-            "calibrate", "provisional-label",
-            "--fixtures", "examples/calibration/fixtures.jsonl",
-            "--rubric", "examples/calibration/rubric.md",
-            "--provider", "deepseek", "--out", str(out),
+            "calibrate",
+            "provisional-label",
+            "--fixtures",
+            "examples/calibration/fixtures.jsonl",
+            "--rubric",
+            "examples/calibration/rubric.md",
+            "--provider",
+            "deepseek",
+            "--out",
+            str(out),
         ]
     )
     assert exit_code == 0

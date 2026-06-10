@@ -54,7 +54,9 @@ def test_all_of_nests_verification_specs_recursively() -> None:
 def test_llm_judge_spec_defaults_scale_and_is_in_union() -> None:
     from agent_eval_lab.tasks.schema import LlmJudgeSpec, VerificationSpec
 
-    spec = LlmJudgeSpec(rubric="Score fidelity.", judge_model="deepseek:deepseek-v4-pro")
+    spec = LlmJudgeSpec(
+        rubric="Score fidelity.", judge_model="deepseek:deepseek-v4-pro"
+    )
 
     assert spec.type == "llm_judge"
     assert spec.scale == (1, 5)

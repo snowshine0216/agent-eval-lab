@@ -201,7 +201,9 @@ def test_parses_llm_judge_with_default_scale() -> None:
         {"type": "llm_judge", "rubric": "Score fidelity.", "judge_model": "glm:m"}
     )
 
-    assert spec == LlmJudgeSpec(rubric="Score fidelity.", judge_model="glm:m", scale=(1, 5))
+    assert spec == LlmJudgeSpec(
+        rubric="Score fidelity.", judge_model="glm:m", scale=(1, 5)
+    )
 
 
 def test_parses_llm_judge_with_explicit_scale() -> None:

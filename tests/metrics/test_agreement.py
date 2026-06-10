@@ -81,7 +81,9 @@ def test_weighted_kappa_ordinal_vector_is_two_thirds() -> None:
         for j, count in enumerate(row):
             la.extend([i] * count)
             lb.extend([j] * count)
-    assert weighted_kappa(la, lb, categories=(0, 1, 2)) == pytest.approx(2 / 3, abs=1e-9)
+    assert weighted_kappa(la, lb, categories=(0, 1, 2)) == pytest.approx(
+        2 / 3, abs=1e-9
+    )
 
 
 def test_weighted_kappa_perfect_agreement_is_1() -> None:
@@ -129,7 +131,9 @@ def test_bootstrap_counts_degenerate_resamples() -> None:
     la = ["faithful"] * 19 + ["unfaithful"]
     lb = ["faithful"] * 19 + ["unfaithful"]
     ci = kappa_bootstrap_ci(la, lb, n_resamples=300, seed=3, alpha=0.05)
-    assert ci.n_degenerate > 0  # some resamples drew all-faithful -> counted, not dropped
+    assert (
+        ci.n_degenerate > 0
+    )  # some resamples drew all-faithful -> counted, not dropped
     assert ci.n_resamples == 300
     # Degenerate resamples contribute kappa=0.0; the CI is still finite (no crash).
     assert ci.lo <= ci.hi

@@ -36,8 +36,11 @@ TRAJ = _trajectory(
     MessageTurn(role="user", content="Close ticket T-1 and tell me."),
     ToolCallTurn(
         tool_calls=(
-            ToolCall(call_id="c1", name="update_ticket",
-                     arguments={"status": "closed", "ticket_id": "T-1"}),
+            ToolCall(
+                call_id="c1",
+                name="update_ticket",
+                arguments={"status": "closed", "ticket_id": "T-1"},
+            ),
         )
     ),
     ToolResultTurn(call_id="c1", outcome=ToolSuccess(result={"ok": True})),
@@ -81,9 +84,11 @@ def test_different_scale_changes_prompt_and_hash() -> None:
 
 def test_failure_outcome_renders_error_discriminator() -> None:
     traj = _trajectory(
-        ToolCallTurn(tool_calls=(
-            ToolCall(call_id="c1", name="get_account", arguments={"user_id": "u1"}),
-        )),
+        ToolCallTurn(
+            tool_calls=(
+                ToolCall(call_id="c1", name="get_account", arguments={"user_id": "u1"}),
+            )
+        ),
         ToolResultTurn(call_id="c1", outcome=ToolFailure(error="not found")),
         MessageTurn(role="assistant", content="I looked it up."),
     )
@@ -101,7 +106,7 @@ def test_parses_well_formed_reply() -> None:
     assert out.score == 5
     assert out.rationale == "The summary is faithful.\nSCORE: 5"
     assert out.raw == "The summary is faithful.\nSCORE: 5"
-    assert out.judge_model == ""   # edge stamps this later
+    assert out.judge_model == ""  # edge stamps this later
     assert out.prompt_hash == ""
 
 
@@ -135,8 +140,11 @@ def test_score_must_be_a_score_line_not_any_integer() -> None:
 def _verdict_for(spec, trajectory, score, *, model="deepseek:deepseek-v4-pro"):
     h = prompt_hash(build_judge_prompt(spec=spec, trajectory=trajectory))
     return h, JudgeVerdict(
-        score=score, rationale="r", raw=f"raw\nSCORE: {score}",
-        judge_model=model, prompt_hash=h,
+        score=score,
+        rationale="r",
+        raw=f"raw\nSCORE: {score}",
+        judge_model=model,
+        prompt_hash=h,
     )
 
 
@@ -213,5 +221,3 @@ def test_collect_recurses_all_of() -> None:
     det = FinalStateSpec(constraints=(StateEquals(path="a.b", expected=1),))
     spec = AllOf(specs=(det, SPEC, AllOf(specs=(SPEC,))))
     assert collect_judge_specs(spec) == (SPEC, SPEC)
-
-

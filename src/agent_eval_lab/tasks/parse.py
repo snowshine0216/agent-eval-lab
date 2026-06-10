@@ -34,7 +34,11 @@ def _parse_scale(raw: Any) -> tuple[int, int]:
     if not isinstance(raw, (list, tuple)) or len(raw) != 2:
         raise ValueError(f"scale must be a 2-element list, got {raw!r}")
     lo, hi = raw
-    if not (isinstance(lo, int) and isinstance(hi, int)) or isinstance(lo, bool) or isinstance(hi, bool):
+    if (
+        not (isinstance(lo, int) and isinstance(hi, int))
+        or isinstance(lo, bool)
+        or isinstance(hi, bool)
+    ):
         raise ValueError(f"scale bounds must be ints, got {raw!r}")
     if lo >= hi:
         raise ValueError(f"scale must have lo < hi, got {raw!r}")

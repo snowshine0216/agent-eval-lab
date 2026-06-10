@@ -13,7 +13,9 @@ LABELS = Path("examples/calibration/intended_labels.jsonl")
 
 
 def _load_fixtures():
-    return [json.loads(line) for line in FIXTURES.read_text().splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in FIXTURES.read_text().splitlines() if line.strip()
+    ]
 
 
 def test_fixture_count_in_range() -> None:
@@ -59,7 +61,8 @@ def test_a_judge_leg_can_be_graded_with_a_supplied_verdict() -> None:
     traj = trajectory_from_dict(row["trajectory"])
     spec = verification_from_dict(row["verification"])
     judge = next(
-        s for s in (spec.specs if isinstance(spec, AllOf) else (spec,))
+        s
+        for s in (spec.specs if isinstance(spec, AllOf) else (spec,))
         if isinstance(s, LlmJudgeSpec)
     )
     h = prompt_hash(build_judge_prompt(spec=judge, trajectory=traj))

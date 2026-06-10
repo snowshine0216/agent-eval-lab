@@ -173,12 +173,17 @@ def verdict_from_dict(data: Mapping[str, Any]) -> Any:
 
     if data["type"] == "verdict":
         return JudgeVerdict(
-            score=data["score"], rationale=data["rationale"], raw=data["raw"],
-            judge_model=data["judge_model"], prompt_hash=data["prompt_hash"],
+            score=data["score"],
+            rationale=data["rationale"],
+            raw=data["raw"],
+            judge_model=data["judge_model"],
+            prompt_hash=data["prompt_hash"],
         )
     if data["type"] == "judge_error":
         return JudgeError(
-            kind=data["kind"], error=data["error"],
-            prompt_hash=data["prompt_hash"], judge_model=data["judge_model"],
+            kind=data["kind"],
+            error=data["error"],
+            prompt_hash=data["prompt_hash"],
+            judge_model=data["judge_model"],
         )
     raise ValueError(f"unknown judge value type: {data['type']!r}")

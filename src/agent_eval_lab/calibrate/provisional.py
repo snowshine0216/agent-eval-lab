@@ -63,18 +63,23 @@ def render_provisional_summary(
         f"- observed agreement = {bk['observed_agreement']:.4f};"
         f" degenerate={bk['degenerate']}"
     )
-    return "\n".join([
-        "# Calibration — PROVISIONAL summary",
-        "",
-        banner,
-        f"- Annotator models that ran: {list(models)}",
-        f"- Models skipped (missing key): {list(skipped)}",
-        f"- Binary Cohen's kappa (LLM-LLM) = {bk['point']:.4f}",
-        ci_line,
-        f"- Weighted (quadratic) kappa = {report['weighted_kappa']:.4f}",
-        obs_line,
-        "",
-        "At n in [12,20] the bootstrap CI is wide and n-dominated:",
-        "a plumbing/feasibility number, not a reliability verdict (see runbook).",
-        "",
-    ]) + "\n"
+    return (
+        "\n".join(
+            [
+                "# Calibration — PROVISIONAL summary",
+                "",
+                banner,
+                f"- Annotator models that ran: {list(models)}",
+                f"- Models skipped (missing key): {list(skipped)}",
+                f"- Binary Cohen's kappa (LLM-LLM) = {bk['point']:.4f}",
+                ci_line,
+                f"- Weighted (quadratic) kappa = {report['weighted_kappa']:.4f}",
+                obs_line,
+                "",
+                "At n in [12,20] the bootstrap CI is wide and n-dominated:",
+                "a plumbing/feasibility number, not a reliability verdict (see runbook).",
+                "",
+            ]
+        )
+        + "\n"
+    )

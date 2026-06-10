@@ -29,15 +29,21 @@ def _fixture(fid, assistant):
     traj = Trajectory(
         turns=(
             MessageTurn(role="user", content="Close T-1."),
-            ToolCallTurn(tool_calls=(ToolCall(
-                call_id="c1", name="update_ticket",
-                arguments={"ticket_id": "T-1", "status": "closed"},
-            ),)),
+            ToolCallTurn(
+                tool_calls=(
+                    ToolCall(
+                        call_id="c1",
+                        name="update_ticket",
+                        arguments={"ticket_id": "T-1", "status": "closed"},
+                    ),
+                )
+            ),
             ToolResultTurn(call_id="c1", outcome=ToolSuccess(result={"ok": True})),
             MessageTurn(role="assistant", content=assistant),
         ),
         usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed",
+        run_index=0,
+        stop_reason="completed",
     )
     return fid, traj
 
@@ -75,9 +81,7 @@ def test_packet_jsonl_header_is_first_line() -> None:
 
 
 def _filled(packet, scores, annotator):
-    items = tuple(
-        dataclasses.replace(i, score=s) for i, s in zip(packet.items, scores)
-    )
+    items = tuple(dataclasses.replace(i, score=s) for i, s in zip(packet.items, scores))
     return dataclasses.replace(packet, items=items, annotator_id=annotator)
 
 
@@ -86,7 +90,8 @@ def test_import_accepts_complete_filled_packet() -> None:
 
     blank = build_packet(
         fixtures=[_fixture("f1", "Done."), _fixture("f2", "Done.")],
-        spec=SPEC, rubric="R",
+        spec=SPEC,
+        rubric="R",
     )
     filled = _filled(blank, [5, 3], "alice")
     out = import_packet(packet_to_jsonl(filled), expected=blank)
@@ -99,7 +104,8 @@ def test_import_rejects_incomplete_packet() -> None:
 
     blank = build_packet(
         fixtures=[_fixture("f1", "Done."), _fixture("f2", "Done.")],
-        spec=SPEC, rubric="R",
+        spec=SPEC,
+        rubric="R",
     )
     partial = _filled(blank, [5, None], "alice")
     with pytest.raises(ValueError, match="unscored"):
@@ -120,7 +126,8 @@ def test_import_rejects_reordered_items() -> None:
 
     blank = build_packet(
         fixtures=[_fixture("f1", "Done."), _fixture("f2", "Done.")],
-        spec=SPEC, rubric="R",
+        spec=SPEC,
+        rubric="R",
     )
     filled = _filled(blank, [5, 3], "alice")
     reordered = dataclasses.replace(filled, items=tuple(reversed(filled.items)))
@@ -166,13 +173,20 @@ def test_compute_agreement_requires_two_packets() -> None:
     blank = build_packet(fixtures=[_fixture("f1", "Done.")], spec=SPEC, rubric="R")
     with pytest.raises(ValueError, match="two annotators"):
         compute_agreement(
-            [_filled(blank, [5], "A")], threshold=4, scale=(1, 5),
-            seed=1, n_resamples=10, alpha=0.05,
+            [_filled(blank, [5], "A")],
+            threshold=4,
+            scale=(1, 5),
+            seed=1,
+            n_resamples=10,
+            alpha=0.05,
         )
 
 
 def test_render_agreement_report_contains_kappa_and_ci() -> None:
-    from agent_eval_lab.calibrate.packet import compute_agreement, render_agreement_report
+    from agent_eval_lab.calibrate.packet import (
+        compute_agreement,
+        render_agreement_report,
+    )
 
     blank = build_packet(
         fixtures=[_fixture(f"f{i}", "Done.") for i in range(4)], spec=SPEC, rubric="R"
