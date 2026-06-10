@@ -4,7 +4,7 @@
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/dataset-grader-quality-001 | ✅ aab3baa | ✅ | ✅ [#5](https://github.com/snowshine0216/agent-eval-lab/pull/5) | ⏭️ | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ ca47d3b |
 | 002 | ✅ | ✅ | ✅ | ✅ claude/dataset-grader-quality-002 | ✅ f755343 | ✅ (1 FAIL→fix round) | ✅ [#6](https://github.com/snowshine0216/agent-eval-lab/pull/6) | ⏭️ | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 7dd0e80 |
-| 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | ✅ | ✅ | ✅ | ✅ claude/dataset-grader-quality-003 | ✅ 786ff74 | ✅ | ✅ [#7](https://github.com/snowshine0216/agent-eval-lab/pull/7) | ⏭️ | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 1 round | ✅ c25cde3 |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all rows: project type is non-web → `/verify` branch of
