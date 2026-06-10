@@ -98,15 +98,47 @@ def test_run_baseline_writes_report_and_traces(tmp_path: Path, capsys) -> None:
     )
 
     assert exit_code == 0
-    report = (out_dir / "baseline-local.md").read_text()
+    report = (out_dir / "baseline-local-qwen3-8b.md").read_text()
     assert "pass@1 (trial accuracy): 1.000" in report
     assert "pass^2 (task reliability): 1.000" in report
-    runs = (out_dir / "runs-local.jsonl").read_text().strip().splitlines()
+    runs = (out_dir / "runs-local-qwen3-8b.jsonl").read_text().strip().splitlines()
     assert len(runs) == 4  # 2 tasks x k=2
     first = json.loads(runs[0])
     assert first["task_id"] == "ws-001"
     assert first["grade"]["passed"] is True
-    assert str(out_dir / "baseline-local.md") in capsys.readouterr().out
+    assert str(out_dir / "baseline-local-qwen3-8b.md") in capsys.readouterr().out
+
+
+def test_artifacts_are_distinct_per_model_under_one_provider(tmp_path: Path) -> None:
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    for model in ("qwen3-8b", "qwen3-32b/awq"):
+        main(
+            [
+                "run-baseline",
+                "--dataset",
+                str(dataset),
+                "--provider",
+                "local",
+                "--model",
+                model,
+                "--k",
+                "1",
+                "--out",
+                str(out_dir),
+            ],
+            http_client=client,
+        )
+
+    names = sorted(path.name for path in out_dir.iterdir())
+    assert names == [
+        "baseline-local-qwen3-32b-awq.md",
+        "baseline-local-qwen3-8b.md",
+        "runs-local-qwen3-32b-awq.jsonl",
+        "runs-local-qwen3-8b.jsonl",
+    ]
 
 
 def _fail_second_task_handler(request: httpx.Request) -> httpx.Response:
@@ -138,7 +170,7 @@ def test_completed_runs_persist_when_later_task_fails(tmp_path: Path) -> None:
             http_client=client,
         )
 
-    runs = (out_dir / "runs-local.jsonl").read_text().strip().splitlines()
+    runs = (out_dir / "runs-local-qwen3-8b.jsonl").read_text().strip().splitlines()
     assert len(runs) == 2  # first task's k=2 runs survived the mid-dataset failure
     assert all(json.loads(line)["task_id"] == "ws-001" for line in runs)
 

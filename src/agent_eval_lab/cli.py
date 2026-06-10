@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -32,8 +33,10 @@ def run_baseline(
 ) -> Path:
     tasks = load_tasks(dataset_path)
     out_dir.mkdir(parents=True, exist_ok=True)
+    condition = condition_id(config)
+    slug = _slug(condition)
     results: list[RunResult] = []
-    with (out_dir / f"runs-{config.id}.jsonl").open("w") as runs_file:
+    with (out_dir / f"runs-{slug}.jsonl").open("w") as runs_file:
         for task in tasks:
             task_runs = run_task_k(
                 task=task,
@@ -49,13 +52,19 @@ def run_baseline(
     report = build_baseline_report(
         tuple(results),
         dataset_id=dataset_path.stem,
-        condition_id=condition_id(config),
+        condition_id=condition,
         k=k,
         price=price,
     )
-    report_path = out_dir / f"baseline-{config.id}.md"
+    report_path = out_dir / f"baseline-{slug}.md"
     report_path.write_text(render_markdown(report))
     return report_path
+
+
+def _slug(condition: str) -> str:
+    """Filesystem-safe artifact name: condition ids contain ':' and may
+    contain '/' (e.g. openrouter model ids)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", condition)
 
 
 def _append_runs(runs_file: TextIO, runs: Sequence[RunResult]) -> None:
