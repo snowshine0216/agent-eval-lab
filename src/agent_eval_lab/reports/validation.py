@@ -437,10 +437,17 @@ def render_markdown(report: ValidationReport) -> str:
         )
     if d.near_miss_pairs:
         for a_lbl, b_lbl, nm_ci in d.near_miss_pairs:
-            lines.append(
-                f"- Near-miss: {a_lbl} vs {b_lbl} — Δ pass^3 {_ci_str(nm_ci)} "
-                f"(CI touches 0; not decisive at n={report.expected_n_tasks})."
-            )
+            if nm_ci.point == 0.0 and nm_ci.lo == 0.0 and nm_ci.hi == 0.0:
+                lines.append(
+                    f"- No observed difference: {a_lbl} vs {b_lbl} — "
+                    f"both conditions identical on this dataset "
+                    f"(Δ {nm_ci.point:.3f})."
+                )
+            else:
+                lines.append(
+                    f"- Near-miss: {a_lbl} vs {b_lbl} — Δ pass^3 {_ci_str(nm_ci)} "
+                    f"(CI touches 0; not decisive at n={report.expected_n_tasks})."
+                )
     if d.skipped_pairs:
         for a_lbl, b_lbl in d.skipped_pairs:
             lines.append(

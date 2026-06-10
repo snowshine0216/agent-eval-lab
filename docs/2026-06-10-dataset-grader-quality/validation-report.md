@@ -121,7 +121,7 @@
 
 - Rung met: **weak** (weak=True, strong=False)
 - v2 is no longer saturated (≥1 hosted pass^3 < 1.000 and the hosted conditions differ on ≥1 task), but the separation is within noise at n=50.
-- Near-miss: C1 vs C2 — Δ pass^3 0.000 [0.000, 0.000] (CI touches 0; not decisive at n=50).
+- No observed difference: C1 vs C2 — both conditions identical on this dataset (Δ 0.000).
 - Near-miss: C1 vs C3 — Δ pass^3 -0.060 [-0.140, 0.000] (CI touches 0; not decisive at n=50).
 - Near-miss: C2 vs C3 — Δ pass^3 -0.060 [-0.140, 0.000] (CI touches 0; not decisive at n=50).
 - n=50 honesty: with near-ceiling rates and 50 tasks the intervals are wide; absence of a detectable separation is not evidence of no separation.
