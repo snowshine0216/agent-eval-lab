@@ -66,6 +66,9 @@ Each criterion is independently verifiable by a test or a command.
    against `trajectory.final_state`, computes the set of changed leaf paths, and
    fails with `failure_reason="forbidden_action"` if any changed path is not covered
    by (equal to or prefixed by) a declared path.
+   ~~"prefixed by" (raw string)~~ — corrected by grill: prefix coverage is
+   **dot-segment-aware**, not raw-string — a declared `tickets.T-1` covers
+   `tickets.T-1.status` but NOT `tickets.T-10.status` (see ADR-0002, Q3 below).
 5. **AllOf conjunction.** A pure interpreter evaluates `AllOf.specs` in declared
    order, recursing through `grade_trajectory`. `passed` is the logical AND of all
    sub-results. On failure, `failure_reason` is taken from the **first failing
@@ -78,6 +81,10 @@ Each criterion is independently verifiable by a test or a command.
    `OutputMatchSpec`/`ToolCallMatchSpec` branches are byte-for-byte unchanged and
    ignore `initial_state`. The `raise ValueError(f"unsupported verification spec…")`
    fallthrough remains for genuinely unknown specs (e.g. `LlmJudgeSpec`, item 003).
+   The `AllOf` branch recurses through `grade_trajectory` threading **both** the
+   existing required `registry` **and** `initial_state` to every sub-spec, so a
+   `ToolCallMatchSpec` nested inside an `AllOf` still receives its `registry` (see
+   Q8 below — `registry` stays required, `initial_state` is the only new param).
 7. **Runner pass-through.** `runners/multi_run.py` passes
    `initial_state=task.initial_state` into `grade_trajectory`. No other runner
    behavior changes.
@@ -111,8 +118,12 @@ Each criterion is independently verifiable by a test or a command.
     sub-results. Each case states its hand-verified expected `passed` and
     `failure_reason`.
 11. **Backward compatibility.** All 11 existing golden cases pass unchanged, and the
-    full suite stays green: `PYTHONPATH=src python -m pytest` reports ≥130 passing
-    with no regressions; `ruff check` and `ruff format --check` are clean.
+    full suite stays green: ~~`PYTHONPATH=src python -m pytest` reports ≥130 passing~~
+    — corrected by grill: the project's canonical gate (MASTER-PLAN) is
+    `uv run pytest -q`, `uv run ruff check .`, `uv run ruff format --check .`; the
+    current suite is **exactly 130** tests, so the new golden cases and pure-unit
+    tests push the total **above 130** with no regressions; `ruff check` and
+    `ruff format --check` are clean.
 
 ## Non-goals
 
@@ -236,3 +247,123 @@ None. Every open question listed in the orchestrator brief was resolvable from t
 locked design doc (§4.3–§4.6, §5, §6, §14) plus the current checkout; all are
 resolved above with code-grounded rationale. The auto-resolved recommendations stand
 as the design of record for implementation.
+
+## Resolved decisions
+
+Grill pass (autonomous, recommendations auto-accepted). Each pairs a question with
+the accepted answer, a one-line rationale, and its doc impact. Questions are
+code- and design-grounded; nothing here contradicts the locked design or current
+checkout.
+
+- **Q1. Where is the final world-state recorded?**
+  A: On `Trajectory` as an optional defaulted `final_state` field; the runner
+  populates it from its post-loop `state` local. Considered recompute-by-replay and
+  pass-as-separate-arg.
+  Rationale: keeps the trajectory the single self-contained replay artifact and
+  guarantees world/grader agreement (design §5) without duplicating runner logic.
+  Doc impact: ADR-0001; CONTEXT term `final_state`.
+
+- **Q2. Dot-path walk and missing-path grading.**
+  A: Walk nested mappings segment-by-segment; a missing key or non-mapping
+  intermediate yields a `_MISSING` sentinel that **fails the constraint, never
+  raises**. `StateContains` additionally fails (not raises) on a non-container
+  resolved value.
+  Rationale: MASTER-SPEC directive ("missing paths must FAIL, never crash"); keeps
+  the grader a total function — the executable form of "distinguish agent failures
+  from harness failures".
+  Doc impact: none (matches spec criteria 3/9 and the Constraints/robustness
+  section verbatim).
+
+- **Q3. `OnlyModifies` "modified" set and prefix granularity.**
+  A: Diff `initial_state` vs `final_state` into changed *leaf* dot-paths; permit a
+  change iff a declared path equals or is a **dot-segment prefix** of the changed
+  path. A declared `tickets.T-1` covers `tickets.T-1.status` but NOT
+  `tickets.T-10.status`. Considered exact-path matching.
+  Rationale: matches the design §4.3 example `OnlyModifies(paths=("tickets.T-1",))`,
+  which names a subtree the agent may touch; raw-string prefixing would wrongly let
+  `tickets.T-10` pass under a `tickets.T-1` allowance.
+  Doc impact: ADR-0002; strike on criterion 4.
+
+- **Q4. `AllOf` `failure_reason` precedence and short-circuit.**
+  A: Evaluate **every** sub-spec (no short-circuit); `passed` is the AND; report the
+  **first failing** sub-spec's `failure_reason`; `evidence` carries the ordered list
+  of all sub-results. Considered short-circuit-on-first-failure.
+  Rationale: the JD#4 failure taxonomy and audit trail need every co-occurring
+  breach visible; first-failure keeps the headline category deterministic and reads
+  as declared-order priority.
+  Doc impact: ADR-0003; CONTEXT term `AllOf`.
+
+- **Q5. Score semantics for composite/state/policy specs.**
+  A: All-or-nothing — `score = 1.0` iff `passed` else `0.0`; `passed` stays boolean.
+  Rationale: the headline metric is `pass^k` task-level reliability (design
+  §4.6/§7), which consumes the boolean; a fractional composite score has no consumer
+  and would invite partial-credit ambiguity. Mirrors every existing grader
+  (`grade_exact_match`, `ast_tool_match` emit `1.0`/`0.0`). YAGNI for fractional.
+  Doc impact: none (consistent with §4.5 and existing graders).
+
+- **Q6. Does the union extension corner `LlmJudgeSpec` (item 003)?**
+  A: No. Recursive `AllOf` already supports deterministic + judge coexistence on one
+  task (design §6 step 5); the optional-`initial_state` dispatch signature lets a
+  future judge branch ignore state.
+  Rationale: no commitment here blocks a clean `LlmJudgeSpec` branch; the
+  `raise ValueError` fallthrough still guards genuinely unknown specs.
+  Doc impact: none.
+
+- **Q7. What `failure_reason` do `FinalStateSpec` misses carry?**
+  A: `None` — a plain outcome assertion, like a failed `OutputMatchSpec`, with the
+  mismatch in `evidence`. `forbidden_action`/`step_limit_exceeded` are reserved for
+  *policy* breaches (`TrajectorySpec`).
+  Rationale: keeps the taxonomy semantically honest; a value not matching is a
+  missed expectation, not a forbidden action. No new `FailureCategory` member is
+  added (both are already declared in `records/grade.py`).
+  Doc impact: CONTEXT terms `FailureCategory`, `forbidden_action`,
+  `step_limit_exceeded`.
+
+- **Q8. Does `AllOf` recursion break the required `registry` argument?**
+  A: No, but it must be threaded. `grade_trajectory`'s `registry` stays a
+  **required** parameter (current signature; a nested `ToolCallMatchSpec` needs it);
+  `initial_state` is the **only** new (optional, defaulted) parameter. The `AllOf`
+  branch passes **both** `registry` and `initial_state` to every recursive
+  sub-call.
+  Rationale: grounded in `graders/dispatch.py` and `graders/tool_call.py` —
+  `grade_tool_call_match` requires `registry` for schema-violation detection;
+  dropping or defaulting it would regress v1 grading inside a composite.
+  Doc impact: clarification added to criterion 6.
+
+- **Q9. Do state/policy graders need `registry`?**
+  A: No. `graders/state.py` and `graders/policy.py` are pure functions of
+  `(spec, initial_state, trajectory)` and never touch the tool registry; only the
+  `ToolCallMatchSpec` branch (and `AllOf` threading it) consumes `registry`.
+  Rationale: state/policy grade world-state and call-name/count, none of which
+  require tool schemas; keeps the new modules minimal and the dependency explicit.
+  Doc impact: none.
+
+- **Q10. Should state-value comparison canonicalize like tool-call args do?**
+  A: No. `StateEquals` uses plain `==`; `StateContains` uses plain membership. The
+  `graders/canonical.py` pipeline (key-order / sequence-type normalization) is for
+  comparing *tool-call arguments* against `ExpectedToolCall`, not world-state.
+  Rationale: world-state is produced by the deterministic `apply` and compared
+  against an author-written expected value; introducing canonicalization here would
+  silently broaden equality and is unrequested by the design. Type coercion stays a
+  mismatch, consistent with the never-repair principle (design §6, decision 7).
+  Doc impact: none.
+
+- **Q11. Canonical verification command and current test count.**
+  A: `uv run pytest -q` / `uv run ruff check .` / `uv run ruff format --check .`
+  (MASTER-PLAN), not `PYTHONPATH=src python -m pytest`. Current suite is **exactly
+  130** tests; new golden + unit tests push the total above 130 with zero
+  regressions and all 11 existing golden cases unchanged.
+  Rationale: grounded in `docs/2026-06-10-dataset-grader-quality/MASTER-PLAN.md`
+  and a live `--collect-only` count of 130.
+  Doc impact: strike on criterion 11.
+
+- **Q12. Does serialization need a new top-level `final_state` round-trip path?**
+  A: Yes, and only in `records/serialize.py::trajectory_to_dict`/`_from_dict`:
+  emit `final_state` verbatim when present, omit-or-null when `None`. No new
+  serializer module; `tasks/parse.py` parses the *spec* discriminators
+  (`final_state`/`trajectory`/`all_of` + constraint sub-dicts), which is a distinct
+  concern from trajectory serialization.
+  Rationale: grounded in the two distinct round-trip surfaces — `serialize.py`
+  (records, incl. `Trajectory`) vs `tasks/parse.py` (`VerificationSpec`). Criterion
+  2 covers the former, criterion 8 the latter; they must not be conflated.
+  Doc impact: none (clarifies criteria 2 and 8 are separate surfaces).
