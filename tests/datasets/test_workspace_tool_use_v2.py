@@ -12,6 +12,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agent_eval_lab.graders.dispatch import grade_trajectory
+from agent_eval_lab.records.trajectory import Trajectory, Usage
+from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.tasks.loader import load_tasks
 from agent_eval_lab.tasks.schema import (
     AllOf,
@@ -53,6 +56,11 @@ _KNOBS = {
     "layered_constraint",
 }
 _DERIVED_KNOBS = {"multi_step_depth", "derived_argument"}
+
+# layered_constraint tasks that are also state-dependent: constraint-policed,
+# not knob-policed, so _DERIVED_KNOBS won't catch them.  Pin them explicitly
+# so future rote-ification of these two tasks is caught by the anti-rote check.
+_EXTRA_STATE_DEPENDENT_IDS = {"ws2-044", "ws2-049"}
 
 
 def _tasks() -> tuple[Task, ...]:
@@ -247,11 +255,15 @@ def test_distractors_never_expected_as_correct_path() -> None:
                 ".state"
             ):
                 assert constraint.expected != "draft", f"{task.id}: draft blessed"
-        # (3) distractors may only be forbidden via NoToolCall
+        # (3) distractors may only be NAMED in a NoToolCall (forbidding them is ok);
+        # no other constraint type may positively require a distractor by name.
         for tspec in _trajectory_specs(task.verification):
             for c in tspec.constraints:
-                if isinstance(c, NoToolCall):
-                    continue  # forbidding a distractor is allowed
+                if hasattr(c, "name") and c.name in _DISTRACTORS:
+                    assert isinstance(c, NoToolCall), (
+                        f"{task.id}: distractor {c.name!r} named in "
+                        f"{c.type!r} constraint (only NoToolCall is allowed)"
+                    )
 
 
 def test_initial_state_satisfies_preconditions() -> None:
@@ -283,6 +295,38 @@ def test_max_steps_floor_for_hard_tiers() -> None:
             assert task.metadata.max_steps >= 4, f"{task.id}: max_steps too low"
             if dependent:
                 assert task.metadata.max_steps >= dependent + 2, f"{task.id}: floor"
+
+
+def _make_noop_trajectory(task: Task) -> Trajectory:
+    """Synthetic trajectory: no tool calls, final_state == initial_state."""
+    return Trajectory(
+        turns=(MessageTurn(role="assistant", content="Done."),),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed",
+        final_state=task.initial_state,
+    )
+
+
+def test_no_task_verification_is_presatisfied_by_initial_state() -> None:
+    """P0 conformance: a do-nothing agent must score 0.000 on every task.
+
+    For every task, grade its verification against a synthetic no-op trajectory
+    (empty tool calls, final_state = initial_state) using the real graders.
+    Any task that passes this check is a dataset defect: a do-nothing agent
+    could inflate constraint_compliance pass^k statistics.
+    """
+    for task in _tasks():
+        result = grade_trajectory(
+            verification=task.verification,
+            trajectory=_make_noop_trajectory(task),
+            registry=WORKSPACE_TOOLS,
+            initial_state=task.initial_state,
+        )
+        assert not result.passed, (
+            f"{task.id}: verification is pre-satisfied by initial_state "
+            f"(no-op agent passes — dataset defect)"
+        )
 
 
 def _is_state_dependent(task: Task) -> bool:
@@ -319,14 +363,17 @@ def _is_state_dependent(task: Task) -> bool:
     }
 
     # Rule 1: classic minted / find-surfaced id
-    if any(r not in present and r not in prompt for r in referenced):
+    if any(
+        r not in present and not re.search(r"\b" + re.escape(r) + r"\b", prompt)
+        for r in referenced
+    ):
         return True
 
     # Rule 2: initial-state-derived target — id is in state but NOT in prompt,
     # with multiple same-type candidates in state (model must query + reason)
     state = task.initial_state or {}
     for r in referenced:
-        if r in present and r not in prompt:
+        if r in present and not re.search(r"\b" + re.escape(r) + r"\b", prompt):
             # entity type bucket: T- = tickets, u- = accounts, e- = emails
             if r.startswith("T-"):
                 bucket_size = len(state.get("tickets") or {})
@@ -344,7 +391,10 @@ def _is_state_dependent(task: Task) -> bool:
 
 def test_state_dependency_proxy_for_derived_tasks() -> None:
     for task in _tasks():
-        if task.metadata.difficulty_knob not in _DERIVED_KNOBS:
+        if (
+            task.metadata.difficulty_knob not in _DERIVED_KNOBS
+            and task.id not in _EXTRA_STATE_DEPENDENT_IDS
+        ):
             continue
         assert _is_state_dependent(task), (
             f"{task.id}: rote chain — every id is in state or prompt, "
@@ -432,6 +482,21 @@ def test_proxy_fails_for_literally_named_target() -> None:
     )
     assert not _is_state_dependent(task), (
         "literally-named target must fail proxy (no read needed to identify the target)"
+    )
+
+
+def test_proxy_negative_t1_not_matched_by_t10() -> None:
+    """Word-boundary check: 'T-1' in 'T-10 and T-12' must not count as T-1 mention."""
+    task = _make_final_state_task(
+        ticket_ids_in_state=["T-1", "T-10", "T-12"],
+        target_ticket_id="T-1",
+        # Prompt mentions T-10 and T-12 literally but NOT T-1 — substring matching
+        # ('T-1' in 'T-10 and T-12') would wrongly treat T-1 as mentioned.
+        prompt_user="Close the oldest ticket among T-10 and T-12.",
+    )
+    assert _is_state_dependent(task), (
+        "T-1 is not literally mentioned (T-10/T-12 are not T-1); "
+        "proxy must use word-boundary matching so T-1 is seen as absent from prompt"
     )
 
 
