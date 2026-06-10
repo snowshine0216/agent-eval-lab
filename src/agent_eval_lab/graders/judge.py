@@ -103,6 +103,18 @@ _SCORE_LINE = re.compile(r"(?mi)^\s*SCORE:\s*([+-]?\d+)\s*$")
 def parse_judge_response(
     text: str, scale: tuple[int, int]
 ) -> "JudgeVerdict | JudgeParseFailure":
+    """Parse the judge's text response and return a JudgeVerdict or JudgeParseFailure.
+
+    The SCORE line regex uses (?mi) — MULTILINE + IGNORECASE — so 'score: 4' and
+    'SCORE: 4' are both accepted.  This case-insensitive tolerance is deliberate: some
+    models emit lowercase, and the rubric contract only requires the integer to be on its
+    own line.  Specifically pinned behaviors:
+    - 'score: 4' (lowercase) → ACCEPTED (JudgeVerdict)
+    - '**SCORE: 4**' (bold markdown) → no_score (asterisks are non-whitespace)
+    - 'SCORE: 4.5' (float) → no_score (regex only matches integers)
+    - 'SCORE: 4\\nSCORE: 4' (identical duplicates) → single verdict (deduped)
+    - 'SCORE: 4\\nSCORE: 2' (conflicting) → conflicting_scores
+    """
     lo, hi = scale
     matches = _SCORE_LINE.findall(text)
     if not matches:

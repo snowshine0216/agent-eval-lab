@@ -246,6 +246,40 @@ def test_judge_error_preserved_through_all_of_sub_results() -> None:
     assert judge_sub["evidence"]["judge_error"]["kind"] == "parse"
 
 
+# Fix 6: parse_judge_response edge case pins
+
+
+def test_parse_accepts_lowercase_score_line() -> None:
+    """Case-insensitive regex: 'score: 4' is accepted as a valid score line.
+    This is deliberate tolerance ((?mi) flag) — documented and pinned here."""
+    out = parse_judge_response("The summary is faithful.\nscore: 4", scale=(1, 5))
+    assert isinstance(out, JudgeVerdict)
+    assert out.score == 4
+
+
+def test_parse_rejects_bold_markdown_score_line() -> None:
+    """'**SCORE: 4**' is NOT accepted: the asterisks are non-whitespace chars on the
+    line, so the strict ^\s*SCORE:\s*(\d+)\s*$ pattern does not match — no_score."""
+    out = parse_judge_response("The summary.\n**SCORE: 4**", scale=(1, 5))
+    assert isinstance(out, JudgeParseFailure)
+    assert out.error == "no_score"
+
+
+def test_parse_rejects_float_score_line() -> None:
+    """'SCORE: 4.5' is NOT accepted: the regex only matches integers (digit+), so a
+    float produces no_score JudgeParseFailure."""
+    out = parse_judge_response("The summary.\nSCORE: 4.5", scale=(1, 5))
+    assert isinstance(out, JudgeParseFailure)
+    assert out.error == "no_score"
+
+
+def test_parse_multiple_identical_score_lines_gives_single_verdict() -> None:
+    """Multiple identical SCORE lines collapse to a single verdict (not conflicting)."""
+    out = parse_judge_response("SCORE: 4\nSCORE: 4", scale=(1, 5))
+    assert isinstance(out, JudgeVerdict)
+    assert out.score == 4
+
+
 def test_judge_module_imports_no_http_client() -> None:
     import agent_eval_lab.graders.judge as judge_mod
 
