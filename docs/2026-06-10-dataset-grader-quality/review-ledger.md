@@ -25,26 +25,26 @@ checks passed under `rubric-v1`.
 | ws2-017 | T2 | multi_step_state | multi_step_depth | a-g:PASS | Create then close — straightforward 2-step chain; T2 floor for multi_step_state. |
 | ws2-018 | T3 | multi_step_state | multi_step_depth | a-g:PASS | Create then close the just-filed ticket (minted id) — state-dependency on minted T-1; strong models may slip on id tracking. |
 | ws2-019 | T3 | multi_step_state | derived_argument | a-g:PASS | get_account then file ticket titled with account name — argument derives from result; wrong_args if name not read correctly. |
-| ws2-020 | T3 | multi_step_state | distractor_count | a-g:PASS | list_tickets → close each for u-1 while archive_ticket is present — multi-step with distractor pressure; extra_call or forbidden_action possible. |
+| ws2-020 | T3 | multi_step_state | multi_step_depth | a-g:PASS | list_tickets → close each open ticket for u-1 — multi-step depth; model must query to discover ticket ids, not memorise them. |
 | ws2-021 | T3 | multi_step_state | multi_step_depth | a-g:PASS | Create two tickets then close both (two minted ids) — minted id tracking over 4 calls; extra_call or missing_call possible. |
 | ws2-022 | T3 | multi_step_state | derived_argument | a-g:PASS | get_account → email with plan name — derived argument from account result; wrong body if plan misread. |
 | ws2-023 | T3 | multi_step_state | derived_argument | a-g:PASS | list_tickets → count → email count — derived count argument; wrong body if count logic fails. |
 | ws2-024 | T3 | multi_step_state | multi_step_depth | a-g:PASS | Create, close, email (3-step with minted id) — minted id threading and send vs draft distractor. |
 | ws2-025 | T3 | multi_step_state | multi_step_depth | a-g:PASS | find_account → get_account → create ticket — 3-step where u-1 is surfaced by find_account result. |
-| ws2-026 | T3 | multi_step_state | distractor_count | a-g:PASS | list_tickets → close all high-priority; archive_ticket present — multi-step with persistent distractor; forbidden_action possible. |
+| ws2-026 | T3 | multi_step_state | multi_step_depth | a-g:PASS | list_tickets → close all high-priority open tickets — multi-step depth; ids unknown upfront, must be derived from list result. |
 | ws2-027 | T3 | multi_step_state | derived_argument | a-g:PASS | Create ticket then email the minted id — derived argument (ticket id from create result); wrong_args if id not tracked. |
-| ws2-028 | T3 | multi_step_state | argument_complexity | a-g:PASS | find_account → list_tickets → pick oldest → close — 4-step with date reasoning; wrong ticket if min-date not computed; strong models expected to sometimes fail. |
-| ws2-029 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → pick oldest open high-priority by date — min-by-date reasoning; wrong ticket if dates not compared. |
-| ws2-030 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → pick newest open ticket — max-by-date reasoning; wrong ticket if dates not compared correctly. |
+| ws2-028 | T3 | multi_step_state | derived_argument | a-g:PASS | find_account → list_tickets → pick oldest → close — 4-step where target ticket id is derived from list result by min-date; wrong ticket if reasoning fails. |
+| ws2-029 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → pick oldest open high-priority by date — target id derived from list result by min-date; wrong ticket if dates not compared. |
+| ws2-030 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → pick newest open ticket — target id derived from list result by max-date; wrong ticket if dates not compared correctly. |
 | ws2-031 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → count open for u-2 → email count — derived count; wrong body if count miscomputed. |
 | ws2-032 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets(high, u-1) → email titles — cross-reference; wrong body if titles not aggregated. |
-| ws2-033 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → pick oldest closed — min-by-date on closed status; wrong ticket if date logic fails. |
+| ws2-033 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → pick oldest closed — target id derived from list result by min-date on closed; wrong ticket if date logic fails. |
 | ws2-034 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → oldest open → get_account(assignee) → email — 3-step cross-reference; wrong email address if assignee not fetched. |
-| ws2-035 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → count gate (>2?) → close oldest — conditional reasoning; wrong ticket or no action if gate misread. |
+| ws2-035 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → count gate (>2?) → close oldest — target id derived from list result via count+min-date; wrong ticket or no action if gate misread. |
 | ws2-036 | T3 | derived_reasoning | derived_argument | a-g:PASS | find_account → list_tickets → pick oldest → email id — 3-step with min-by-date id to email; wrong id if date reasoning fails. |
-| ws2-037 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → pick two oldest high-priority → close both — rank-2 min-by-date; wrong pair if ordering misread. |
-| ws2-038 | T3 | derived_reasoning | argument_complexity | a-g:PASS | list_tickets → pick highest priority open ticket — priority hierarchy reasoning; wrong ticket if ordering logic fails. |
-| ws2-039 | T3 | derived_reasoning | argument_complexity | a-g:PASS | find_account → list_tickets → pick newest — max-by-date for grace@x; wrong ticket if find_account result misread. |
+| ws2-037 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → pick two oldest high-priority → close both — both ids derived from list result by rank-2 min-date; wrong pair if ordering misread. |
+| ws2-038 | T3 | derived_reasoning | derived_argument | a-g:PASS | list_tickets → pick highest-priority open ticket — id derived from list result by priority ranking; wrong ticket if priority ordering fails. |
+| ws2-039 | T3 | derived_reasoning | derived_argument | a-g:PASS | find_account → list_tickets → pick newest — id derived from list result by max-date after account lookup; wrong ticket if find_account or date reasoning fails. |
 | ws2-040 | T4 | distractor_resistance | distractor_count | a-g:PASS | send_email vs draft_email under direct instruction — draft_email distractor; forbidden_action if draft chosen. |
 | ws2-041 | T4 | distractor_resistance | distractor_count | a-g:PASS | update_ticket vs archive_ticket under explicit constraint — archive distractor; forbidden_action if archived. |
 | ws2-042 | T4 | distractor_resistance | distractor_count | a-g:PASS | send_email with id known; find_account forbidden explicitly — strong models may still call find_account as a confirm step. |
