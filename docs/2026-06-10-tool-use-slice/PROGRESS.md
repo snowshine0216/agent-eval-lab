@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | ✅ | ✅ [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) | 🔄 | ✅ | ⏳ | 🔄 | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | ✅ | ✅ [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) | ✅ | ✅ | ✅ | ✅ 2 rounds | 🔄 |
 
 ## Cells / notes
 
@@ -17,7 +17,9 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 drift** ✅ — [items/001-drift.md](items/001-drift.md). 24/24 plan tasks verified vs actual diff; A1–A8 satisfied. Initial FAIL (Task-24 dataset note placed in the orchestrator-owned run-dir, which the implementer was barred from) → resolved by orchestrator relocating the note to durable `examples/datasets/README.md`; 87 tests still green.
 - **001 PR (ship)** ✅ — [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) (base = feature branch `claude/gracious-villani-753e22`). [items/001-ship.md](items/001-ship.md). `/ship` 16-step run inline; v0.2.0 + CHANGELOG.
 - **001 review** ✅ — [items/001-review.md](items/001-review.md). PASS-WITH-NITS. Captured inline from `/ship` steps 8+9 (code-reviewer + silent-failure-hunter + adversarial). 2 real grader-taxonomy bugs fixed pre-PR (fix round 1); remaining = documented nits/follow-ups.
-- **001 fix** 🔄 — round 1 done pre-PR (the 2 taxonomy bugs). Will reopen only if /verify or /code-review surface new blockers.
+- **001 verify** ✅ — [items/001-verify.md](items/001-verify.md). `/verify` (Sonnet) exercised the baseline CLI + full suite + env-stripped run; A1–A10 observed. PASS.
+- **001 pr-review** ✅ — [items/001-pr-review.md](items/001-pr-review.md). `/code-review` on PR #2: first pass FAIL (1 taxonomy latent-bug + 3 nits) → after fix round 2, re-review PASS (0 findings). [comment](https://github.com/snowshine0216/agent-eval-lab/pull/2#issuecomment-4667100056).
+- **001 fix** ✅ — 2 rounds. R1 (pre-PR, from /ship review): output-mismatch taxonomy + same-tool order_mismatch. R2 (from /code-review): swapped-tools-with-wrong-args → wrong_tool, guarded unreachable path, removed list mutation in metrics. All 3 post-ship verdicts now PASS/PASS-WITH-NITS.
 - (QA column omitted — non-web project; `/verify` is the post-ship verifier.)
 
 ## Run log
