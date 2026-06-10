@@ -2,12 +2,15 @@
 
 import argparse
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import TextIO
 
 import httpx
 
 from agent_eval_lab.metrics.cost import TokenPrice
+from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.serialize import run_result_to_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig, condition_id
@@ -28,34 +31,36 @@ def run_baseline(
     http_client: httpx.Client,
 ) -> Path:
     tasks = load_tasks(dataset_path)
-    results = tuple(
-        run
-        for task in tasks
-        for run in run_task_k(
-            task=task,
-            registry=WORKSPACE_TOOLS,
-            config=config,
-            http_client=http_client,
-            k=k,
-            max_steps=max_steps,
-            temperature=temperature,
-        )
-    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results: list[RunResult] = []
+    with (out_dir / f"runs-{config.id}.jsonl").open("w") as runs_file:
+        for task in tasks:
+            task_runs = run_task_k(
+                task=task,
+                registry=WORKSPACE_TOOLS,
+                config=config,
+                http_client=http_client,
+                k=k,
+                max_steps=max_steps,
+                temperature=temperature,
+            )
+            _append_runs(runs_file, task_runs)
+            results.extend(task_runs)
     report = build_baseline_report(
-        results,
+        tuple(results),
         dataset_id=dataset_path.stem,
         condition_id=condition_id(config),
         k=k,
         price=price,
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    runs_path = out_dir / f"runs-{config.id}.jsonl"
-    runs_path.write_text(
-        "\n".join(json.dumps(run_result_to_dict(run)) for run in results) + "\n"
-    )
     report_path = out_dir / f"baseline-{config.id}.md"
     report_path.write_text(render_markdown(report))
     return report_path
+
+
+def _append_runs(runs_file: TextIO, runs: Sequence[RunResult]) -> None:
+    runs_file.write("".join(json.dumps(run_result_to_dict(run)) + "\n" for run in runs))
+    runs_file.flush()
 
 
 def _build_parser() -> argparse.ArgumentParser:
