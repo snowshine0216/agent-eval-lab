@@ -103,6 +103,8 @@ def _parse_metadata(data: Mapping[str, Any]) -> TaskMetadata:
         provenance=data["provenance"],
         world_template_id=data.get("world_template_id"),
         difficulty_knob=data.get("difficulty_knob"),
+        max_steps=data.get("max_steps"),
+        review=data.get("review"),
     )
 
 
