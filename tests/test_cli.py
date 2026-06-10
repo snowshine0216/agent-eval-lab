@@ -234,6 +234,90 @@ def test_default_client_is_direct_for_local(tmp_path: Path, monkeypatch) -> None
     assert captured["trust_env"] is False
 
 
+def test_calibrate_export_packet_writes_blind_jsonl_and_md(tmp_path: Path) -> None:
+    out = tmp_path / "packet.jsonl"
+    exit_code = main(
+        [
+            "calibrate", "export-packet",
+            "--fixtures", "examples/calibration/fixtures.jsonl",
+            "--rubric", "examples/calibration/rubric.md",
+            "--out", str(out),
+        ]
+    )
+    assert exit_code == 0
+    text = out.read_text()
+    assert "calib-packet-v1" in text
+    assert "intended_anchor" not in text  # blind: no intended labels
+    assert '"score": null' in text
+    assert (out.with_suffix(".md")).exists()  # sibling human-readable view
+
+
+def _write_filled_packet(
+    path: Path, fixtures_path: Path, rubric_path: Path, scores, annotator
+) -> Path:
+    import dataclasses
+
+    from agent_eval_lab.calibrate.packet import build_packet, packet_to_jsonl
+    from agent_eval_lab.records.serialize import trajectory_from_dict
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    spec = LlmJudgeSpec(rubric="(cal)", judge_model="(cal)", scale=(1, 5))
+    rows = [
+        json.loads(line)
+        for line in fixtures_path.read_text().splitlines()
+        if line.strip()
+    ]
+    fixtures = [(r["id"], trajectory_from_dict(r["trajectory"])) for r in rows]
+    blank = build_packet(fixtures=fixtures, spec=spec, rubric=rubric_path.read_text())
+    items = tuple(dataclasses.replace(i, score=s) for i, s in zip(blank.items, scores))
+    filled = dataclasses.replace(blank, items=items, annotator_id=annotator)
+    path.write_text(packet_to_jsonl(filled))
+    return path
+
+
+def test_calibrate_compute_reports_kappa_and_ci(tmp_path: Path, capsys) -> None:
+    fixtures = Path("examples/calibration/fixtures.jsonl")
+    rubric = Path("examples/calibration/rubric.md")
+    n = len([ln for ln in fixtures.read_text().splitlines() if ln.strip()])
+    a = _write_filled_packet(tmp_path / "a.jsonl", fixtures, rubric, [5] * n, "alice")
+    b = _write_filled_packet(tmp_path / "b.jsonl", fixtures, rubric, [5] * n, "bob")
+    report = tmp_path / "report.md"
+
+    exit_code = main(
+        [
+            "calibrate", "compute",
+            "--packets", str(a), str(b),
+            "--fixtures", str(fixtures),
+            "--rubric", str(rubric),
+            "--out", str(report),
+        ]
+    )
+
+    assert exit_code == 0
+    md = report.read_text()
+    assert "kappa" in md.lower()
+    assert "CI" in md
+    assert "Confusion matrix" in md
+
+
+def test_provisional_label_skips_cleanly_when_key_unset(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    out = tmp_path / "p.jsonl"
+    exit_code = main(
+        [
+            "calibrate", "provisional-label",
+            "--fixtures", "examples/calibration/fixtures.jsonl",
+            "--rubric", "examples/calibration/rubric.md",
+            "--provider", "deepseek", "--out", str(out),
+        ]
+    )
+    assert exit_code == 0
+    assert not out.exists()  # no partial packet written
+    assert "key unset" in capsys.readouterr().out.lower()
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 
