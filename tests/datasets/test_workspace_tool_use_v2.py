@@ -25,7 +25,11 @@ from agent_eval_lab.tasks.schema import (
     VerificationSpec,
 )
 from agent_eval_lab.tools.validation import validate_args
-from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS, _next_ticket_id
+from agent_eval_lab.tools.workspace import (
+    WORKSPACE_TOOLS,
+    _next_email_id,
+    _next_ticket_id,
+)
 
 _REPO = Path(__file__).parent.parent.parent
 DATASET = _REPO / "examples/datasets/workspace_tool_use_v2.jsonl"
@@ -112,6 +116,17 @@ def _minted_ticket_ids(initial_state: Mapping[str, Any] | None, n: int) -> set[s
         new_id = _next_ticket_id(tickets)
         minted.add(new_id)
         tickets[new_id] = {"title": "x", "priority": "low", "status": "open"}
+    return minted
+
+
+def _minted_email_ids(initial_state: Mapping[str, Any] | None, n: int) -> set[str]:
+    """The first n email ids the world will mint from this initial_state."""
+    emails = dict((initial_state or {}).get("emails") or {})
+    minted: set[str] = set()
+    for _ in range(n):
+        new_id = _next_email_id(emails)
+        minted.add(new_id)
+        emails[new_id] = {"to": "x", "subject": "x", "body": "x", "state": "sent"}
     return minted
 
 
@@ -204,7 +219,7 @@ def test_verification_histogram_dominated_by_state_and_all_of() -> None:
         types |= names
         if "final_state" in names or "all_of" in names:
             state_or_allof += 1
-    assert types <= {"tool_call_match", "final_state", "all_of"}
+    assert types <= {"tool_call_match", "final_state", "all_of", "trajectory"}
     assert state_or_allof >= 33  # T3 + T4 count
 
 
@@ -244,6 +259,8 @@ def test_initial_state_satisfies_preconditions() -> None:
         present = _ids_in_state(task.initial_state)
         # allow up to 4 minted ticket ids for create-then-act chains
         mintable = _minted_ticket_ids(task.initial_state, 4)
+        # allow up to 4 minted email ids for send-then-assert chains
+        mintable |= _minted_email_ids(task.initial_state, 4)
         referenced = _referenced_ids(task.verification)
         ticket_or_user_refs = {
             r for r in referenced if r.startswith(("T-", "u-", "doc-", "e-"))
