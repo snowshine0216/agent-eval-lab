@@ -19,7 +19,7 @@ GOLDEN_CASES = sorted(GOLDEN_DIR.glob("*.json"))
 
 
 def test_golden_suite_is_present() -> None:
-    assert len(GOLDEN_CASES) == 11
+    assert len(GOLDEN_CASES) == 23
 
 
 @pytest.mark.parametrize("path", GOLDEN_CASES, ids=lambda p: p.stem)
@@ -30,6 +30,7 @@ def test_golden_conformance(path: Path) -> None:
         verification=verification_from_dict(case["verification"]),
         trajectory=trajectory_from_dict(case["trajectory"]),
         registry=WORKSPACE_TOOLS,
+        initial_state=case.get("initial_state"),
     )
 
     assert grade.passed == case["expected"]["passed"], (

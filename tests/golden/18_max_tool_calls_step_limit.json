@@ -1,0 +1,11 @@
+{
+  "name": "max_tool_calls breach emits step_limit_exceeded",
+  "verification": {"type": "trajectory", "constraints": [{"type": "max_tool_calls", "n": 1}]},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "search_docs", "arguments": {"query": "a"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"doc_ids": []}}},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c2", "name": "search_docs", "arguments": {"query": "b"}}]},
+    {"type": "tool_result", "call_id": "c2", "outcome": {"type": "success", "result": {"doc_ids": []}}}
+  ], "final_state": {}},
+  "expected": {"passed": false, "failure_reason": "step_limit_exceeded"}
+}
