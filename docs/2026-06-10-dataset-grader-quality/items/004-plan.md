@@ -2257,6 +2257,8 @@ git commit -m "feat(cli): report-validation + compare-configs subcommands (pure 
 
 > **Gate before starting:** `uv run pytest -q && uv run ruff check . && uv run ruff format --check .` must all be green. Do NOT start live runs until they are.
 
+> **[AMENDED — 004-drift.md Finding 1]** The original commands used `uv run agent-eval-lab` but `pyproject.toml` has no `[project.scripts]` entry; that console-script form does not exist. No task in this plan adds it. The correct invocation is `uv run python -m agent_eval_lab.cli`. All occurrences below are corrected accordingly.
+
 These are the exact shell steps. **Run each in the repo root.** Secrets are sourced by env-var name in the SAME command that runs the tool (never logged, never a positional arg). `reports/` is gitignored, so the raw JSONL stays local.
 
 **Order:** hosted first (cents each, fast), local last (free, wall-clock-dominant). Hosted run order: deepseek default → deepseek planning → glm → minimax → then local.
@@ -2267,7 +2269,7 @@ These are the exact shell steps. **Run each in the repo root.** Secrets are sour
 
 ```bash
 set -a; . /Users/snow/Documents/Repository/.env; set +a; \
-uv run agent-eval-lab run-baseline \
+uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --provider deepseek --k 3 --temperature 0.0 --max-steps 6 \
   --out reports
@@ -2279,7 +2281,7 @@ Verify: `wc -l reports/runs-deepseek-deepseek-v4-pro.jsonl` → expect **150** (
 
 ```bash
 set -a; . /Users/snow/Documents/Repository/.env; set +a; \
-uv run agent-eval-lab run-baseline \
+uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --provider deepseek --k 3 --temperature 0.0 --max-steps 6 \
   --system-prompt-file examples/prompts/planning-v1.txt \
@@ -2292,7 +2294,7 @@ Verify: `wc -l reports/runs-deepseek-deepseek-v4-pro__planning-v1.jsonl` → exp
 
 ```bash
 set -a; . /Users/snow/Documents/Repository/.env; set +a; \
-uv run agent-eval-lab run-baseline \
+uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --provider glm --k 3 --temperature 0.0 --max-steps 6 \
   --out reports
@@ -2303,7 +2305,7 @@ Artifact: `reports/runs-glm-Pro-zai-org-GLM-5.1.jsonl`. Verify: `wc -l` → expe
 
 ```bash
 set -a; . /Users/snow/Documents/Repository/.env; set +a; \
-uv run agent-eval-lab run-baseline \
+uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --provider minimax --k 3 --temperature 0.0 --max-steps 6 \
   --out reports
@@ -2316,7 +2318,7 @@ The MLX server serves `Qwen/Qwen3-8B` (confirmed at `localhost:11434/v1/models`)
 
 ```bash
 set -a; . /Users/snow/Documents/Repository/.env; set +a; \
-uv run agent-eval-lab run-baseline \
+uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --provider local --model Qwen/Qwen3-8B --k 3 --temperature 0.0 --max-steps 6 \
   --out reports
@@ -2328,7 +2330,7 @@ Artifact: `reports/runs-local-Qwen-Qwen3-8B.jsonl`. Verify: `wc -l` → **150** 
 For each artifact written: confirm the file exists, `wc -l` is 150 (or note the partial tally), and a single render smoke-test renders without error. Example for deepseek default:
 
 ```bash
-uv run agent-eval-lab report-validation \
+uv run python -m agent_eval_lab.cli report-validation \
   --runs "C1=deepseek:deepseek-v4-pro=reports/runs-deepseek-deepseek-v4-pro.jsonl" \
   --dataset examples/datasets/workspace_tool_use_v2.jsonl \
   --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
@@ -2348,7 +2350,7 @@ Expected: writes `/tmp/smoke-validation.md`, prints the path, renders headline s
 Pass every condition that produced records. openrouter is OUT (SKIPPED.md) — do not include it; the report will simply not list it (or, if you want it shown as blocked, pass a non-existent path with its label and it renders `blocked`). Use the reachable four:
 
 ```bash
-uv run agent-eval-lab report-validation \
+uv run python -m agent_eval_lab.cli report-validation \
   --runs \
     "C1=deepseek:deepseek-v4-pro=reports/runs-deepseek-deepseek-v4-pro.jsonl" \
     "C2=glm:Pro/zai-org/GLM-5.1=reports/runs-glm-Pro-zai-org-GLM-5.1.jsonl" \
@@ -2364,7 +2366,7 @@ Verify: `head -40 docs/2026-06-10-dataset-grader-quality/validation-report.md` s
 - [ ] **Step 2: Generate the comparison report (deepseek default vs planning)**
 
 ```bash
-uv run agent-eval-lab compare-configs \
+uv run python -m agent_eval_lab.cli compare-configs \
   --config-a reports/runs-deepseek-deepseek-v4-pro.jsonl \
   --config-b reports/runs-deepseek-deepseek-v4-pro__planning-v1.jsonl \
   --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
@@ -2379,7 +2381,7 @@ Verify: `head -40 docs/2026-06-10-dataset-grader-quality/comparison-report.md` s
 Re-run BOTH commands to a temp path and diff against the committed output — same JSONL + seed must render byte-identically:
 
 ```bash
-uv run agent-eval-lab report-validation --runs \
+uv run python -m agent_eval_lab.cli report-validation --runs \
   "C1=deepseek:deepseek-v4-pro=reports/runs-deepseek-deepseek-v4-pro.jsonl" \
   "C2=glm:Pro/zai-org/GLM-5.1=reports/runs-glm-Pro-zai-org-GLM-5.1.jsonl" \
   "C3=minimax:MiniMax-M3=reports/runs-minimax-MiniMax-M3.jsonl" \
