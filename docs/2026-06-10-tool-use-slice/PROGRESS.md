@@ -26,3 +26,15 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 ## Run log
 
 - 2026-06-10 — Intake complete. Mode=spec, project=non-web, PR shape=A. Feature branch `claude/gracious-villani-753e22`; sub-branch will be `claude/tool-use-slice-001`. No provider keys in env → runner/client built test-first against fakes/cassettes.
+
+## Final status (Phase 3 — COMPLETE) ✅
+
+- **Run status:** COMPLETE. 1/1 IN-scope item merged. 0 SKIPPED, 0 BLOCKED.
+- **Workflow-completeness audit:** PASS — all verdict artifacts present (drift PASS · ship · review PASS-WITH-NITS · verify PASS · pr-review PASS); qa=0 + grill=0 (correct for non-web spec mode).
+- **Build/test sanity (merged feature branch):** `uv run pytest` = **89 passed**; `ruff check` + `ruff format --check` clean; env-stripped suite = 89 passed (no secrets/network); CLI baseline report renders pass^k + cost/latency + failure categories.
+- **Doc-sync:** PASS — `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` (`Weeks 1-2 … [done — slice 001]`), design §13 delta, and new `examples/datasets/README.md` + `CHANGELOG.md` all reflect the shipped code.
+- **Items merged:** 001 → PR [#2](https://github.com/snowshine0216/agent-eval-lab/pull/2) (squash `b071eda`).
+- **Feature branch:** `claude/gracious-villani-753e22`
+- **Feature-branch PR:** [#3](https://github.com/snowshine0216/agent-eval-lab/pull/3) — `claude/gracious-villani-753e22` → `main` (OPEN, roll-up review surface).
+- **Merged into protected branch:** no — PR #3 left **open** for the user to review and land (`main` is protected; no explicit opt-in given).
+- **Follow-up:** provider `_parse_arguments` `{"__raw__"}` fallback → unparseable tool-call args should map to `malformed_call`; unexercised this slice (no live calls; fails-closed for all shipped schemas). Address before Weeks 7–8 live model comparison. Cosmetic nits in `items/001-review.md`.
