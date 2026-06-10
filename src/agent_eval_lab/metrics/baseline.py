@@ -27,9 +27,8 @@ class BaselineSummary:
 
 def aggregate(runs: Sequence[RunResult]) -> BaselineSummary:
     """Aggregate RunResults into a deterministic baseline summary."""
-    by_task: dict[str, list[RunResult]] = {}
-    for run in runs:
-        by_task.setdefault(run.task_id, []).append(run)
+    task_ids = list(dict.fromkeys(r.task_id for r in runs))
+    by_task = {tid: [r for r in runs if r.task_id == tid] for tid in task_ids}
     per_task = {
         task_id: TaskSummary(
             task_id=task_id,
