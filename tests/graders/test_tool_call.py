@@ -1,4 +1,5 @@
 from agent_eval_lab.graders.tool_call import grade_tool_call_match
+from agent_eval_lab.records.grade import GradeResult
 from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn, ToolCall, ToolCallTurn
 from agent_eval_lab.tasks.schema import ExpectedToolCall, ToolCallMatchSpec
@@ -33,7 +34,7 @@ def _trajectory(
     )
 
 
-def _grade(spec: ToolCallMatchSpec, trajectory: Trajectory):
+def _grade(spec: ToolCallMatchSpec, trajectory: Trajectory) -> GradeResult:
     return grade_tool_call_match(
         spec=spec, trajectory=trajectory, registry=WORKSPACE_TOOLS
     )
@@ -73,6 +74,15 @@ def test_unknown_tool_name_grades_as_wrong_tool() -> None:
     result = _grade(_spec(SEARCH), _trajectory(observed))
 
     assert result.failure_reason == "wrong_tool"
+
+
+def test_unknown_tool_outranks_count_mismatch() -> None:
+    result = _grade(
+        _spec(SEARCH, CREATE), _trajectory(_call("send_email", {"to": "a@b.c"}))
+    )
+
+    assert result.failure_reason == "wrong_tool"
+    assert result.evidence["unknown_tool"] == "send_email"
 
 
 def test_same_position_name_mismatch_is_wrong_tool() -> None:

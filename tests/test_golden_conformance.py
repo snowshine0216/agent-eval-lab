@@ -32,5 +32,11 @@ def test_golden_conformance(path: Path) -> None:
         registry=WORKSPACE_TOOLS,
     )
 
-    assert grade.passed == case["expected"]["passed"], case["name"]
-    assert grade.failure_reason == case["expected"]["failure_reason"], case["name"]
+    assert grade.passed == case["expected"]["passed"], (
+        f"{case['name']}: passed={grade.passed!r}, "
+        f"expected={case['expected']['passed']!r}"
+    )
+    assert grade.failure_reason == case["expected"]["failure_reason"], (
+        f"{case['name']}: failure_reason={grade.failure_reason!r}, "
+        f"expected={case['expected']['failure_reason']!r}"
+    )

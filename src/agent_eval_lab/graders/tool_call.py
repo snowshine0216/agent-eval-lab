@@ -2,20 +2,21 @@
 
 Pipeline: parse failure -> malformed_call; raw args vs schema ->
 schema_violation; canonicalize proven-equivalent forms; structural compare.
-Precedence: malformed_call > schema_violation > missing_call/extra_call >
+Precedence: malformed_call > validation tier (unknown tool -> wrong_tool;
+invalid args -> schema_violation) > missing_call/extra_call >
 order_mismatch > wrong_tool > wrong_args.
 """
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from agent_eval_lab.graders.canonical import canonicalize
 from agent_eval_lab.records.grade import FailureCategory, GradeResult
 from agent_eval_lab.records.trajectory import Trajectory
-from agent_eval_lab.records.turns import ToolCallTurn
-from agent_eval_lab.tasks.schema import ToolCallMatchSpec
+from agent_eval_lab.records.turns import ToolCall, ToolCallTurn
+from agent_eval_lab.tasks.schema import ExpectedToolCall, ToolCallMatchSpec
 from agent_eval_lab.tools.validation import validate_args
 from agent_eval_lab.tools.workspace import ToolDef
 
@@ -44,7 +45,7 @@ def _passed(evidence: Mapping[str, Any]) -> GradeResult:
     )
 
 
-def _pairs(calls) -> tuple[Pair, ...]:
+def _pairs(calls: Iterable[ExpectedToolCall | ToolCall]) -> tuple[Pair, ...]:
     return tuple((call.name, canonicalize(call.arguments)) for call in calls)
 
 
@@ -83,7 +84,12 @@ def grade_tool_call_match(
         if error is not None:
             return _fail(
                 "schema_violation",
-                {**evidence, "call_id": call.call_id, "error": error},
+                {
+                    **evidence,
+                    "call_id": call.call_id,
+                    "tool_name": call.name,
+                    "error": error,
+                },
             )
     if spec.match == "multiset":
         return _grade_multiset(expected_pairs, observed_pairs, evidence)
