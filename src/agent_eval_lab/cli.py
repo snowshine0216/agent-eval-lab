@@ -75,6 +75,19 @@ def run_baseline(
     return report_path
 
 
+def _atomic_write(path: Path, content: str) -> None:
+    """Write `content` to `path` atomically: write to a sibling tmp file in the same
+    directory then os.replace so a crash never leaves a partial file at the target."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(content)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _slug(condition: str) -> str:
     """Filesystem-safe artifact name: condition ids contain ':' and may
     contain '/' (e.g. openrouter model ids)."""
@@ -125,9 +138,8 @@ def _run_export_packet(args: argparse.Namespace) -> int:
     fixtures = _load_calibration_fixtures(args.fixtures)
     rubric = args.rubric.read_text()
     packet = build_packet(fixtures=fixtures, spec=_CALIBRATION_SPEC, rubric=rubric)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(packet_to_jsonl(packet))
-    args.out.with_suffix(".md").write_text(_render_packet_markdown(packet))
+    _atomic_write(args.out, packet_to_jsonl(packet))
+    _atomic_write(args.out.with_suffix(".md"), _render_packet_markdown(packet))
     print(args.out)
     return 0
 
@@ -182,8 +194,7 @@ def _run_provisional_label(args: argparse.Namespace, http_client) -> int:
     finally:
         if http_client is None:
             client.close()
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(packet_to_jsonl(packet))
+    _atomic_write(args.out, packet_to_jsonl(packet))
     print(args.out)
     return 0
 

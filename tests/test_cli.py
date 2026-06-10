@@ -334,6 +334,44 @@ def test_provisional_label_skips_cleanly_when_key_unset(
     assert "key unset" in capsys.readouterr().out.lower()
 
 
+# Fix 4: atomic writes — _atomic_write helper, tested with tmp_path
+
+
+def test_atomic_write_helper_writes_content(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    _atomic_write(target, "hello\n")
+    assert target.read_text() == "hello\n"
+
+
+def test_atomic_write_leaves_no_tmp_file_behind(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    _atomic_write(target, "data")
+    # Only the target file should exist after the replace
+    files = list(tmp_path.iterdir())
+    assert files == [target]
+
+
+def test_atomic_write_replaces_existing_file(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "out.jsonl"
+    target.write_text("old content")
+    _atomic_write(target, "new content")
+    assert target.read_text() == "new content"
+
+
+def test_atomic_write_creates_parent_dirs(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _atomic_write
+
+    target = tmp_path / "sub" / "deep" / "out.jsonl"
+    _atomic_write(target, "x")
+    assert target.read_text() == "x"
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 
