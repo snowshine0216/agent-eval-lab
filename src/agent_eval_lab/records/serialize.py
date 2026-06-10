@@ -17,6 +17,15 @@ from agent_eval_lab.records.turns import (
 )
 
 
+def _deep_to_plain(value: Any) -> Any:
+    """Recursively convert Mapping → dict and list/tuple → list; scalars pass."""
+    if isinstance(value, Mapping):
+        return {k: _deep_to_plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_deep_to_plain(v) for v in value]
+    return value
+
+
 def outcome_to_dict(outcome: ToolOutcome) -> dict[str, Any]:
     if isinstance(outcome, ToolSuccess):
         return {"type": "success", "result": outcome.result}
@@ -86,7 +95,9 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
             else {"raw": parse_failure.raw, "error": parse_failure.error}
         ),
         "final_state": (
-            None if trajectory.final_state is None else dict(trajectory.final_state)
+            None
+            if trajectory.final_state is None
+            else _deep_to_plain(trajectory.final_state)
         ),
     }
 
