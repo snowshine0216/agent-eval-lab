@@ -214,7 +214,9 @@ def test_judge_error_grade_carries_judge_error_nested_dict() -> None:
     from agent_eval_lab.runners.judge_edge import JudgeError
 
     h = prompt_hash(build_judge_prompt(spec=SPEC, trajectory=TRAJ))
-    err = JudgeError(kind="http", error="500 Internal Server Error", prompt_hash=h, judge_model="m")
+    err = JudgeError(
+        kind="http", error="500 Internal Server Error", prompt_hash=h, judge_model="m"
+    )
     result = grade_llm_judge(spec=SPEC, trajectory=TRAJ, verdicts={h: err})
     assert result.passed is False
     assert result.failure_reason is None

@@ -386,7 +386,9 @@ def test_provisional_label_prints_scored_and_errored_counts(
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"role": "assistant", "content": "I cannot score."}}],
+                "choices": [
+                    {"message": {"role": "assistant", "content": "I cannot score."}}
+                ],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
             },
         )

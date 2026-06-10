@@ -107,8 +107,8 @@ def parse_judge_response(
 
     The SCORE line regex uses (?mi) — MULTILINE + IGNORECASE — so 'score: 4' and
     'SCORE: 4' are both accepted.  This case-insensitive tolerance is deliberate: some
-    models emit lowercase, and the rubric contract only requires the integer to be on its
-    own line.  Specifically pinned behaviors:
+    models emit lowercase, and the rubric contract only requires the integer to be on
+    its own line.  Specifically pinned behaviors:
     - 'score: 4' (lowercase) → ACCEPTED (JudgeVerdict)
     - '**SCORE: 4**' (bold markdown) → no_score (asterisks are non-whitespace)
     - 'SCORE: 4.5' (float) → no_score (regex only matches integers)

@@ -221,7 +221,9 @@ def test_compute_agreement_rejects_unscored_items_in_first_packet() -> None:
     a = dataclasses.replace(blank, items=items_with_none, annotator_id="A")
     b = _filled(blank, [5, 3], "B")
     with pytest.raises(ValueError, match="cf-01"):
-        compute_agreement([a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05)
+        compute_agreement(
+            [a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05
+        )
 
 
 def test_compute_agreement_poisoned_kappa_two_none_items_rejected() -> None:
@@ -253,7 +255,9 @@ def test_compute_agreement_poisoned_kappa_two_none_items_rejected() -> None:
         annotator_id="B",
     )
     with pytest.raises(ValueError, match="unscored"):
-        compute_agreement([a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05)
+        compute_agreement(
+            [a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05
+        )
 
 
 def test_render_agreement_report_contains_kappa_and_ci() -> None:
