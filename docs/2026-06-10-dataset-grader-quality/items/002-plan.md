@@ -1423,6 +1423,24 @@ def test_state_dependency_proxy_for_derived_tasks() -> None:
         ]
         assert external, f"{task.id}: rote chain — every id is in state or prompt"
 
+# NOTE — corrected by fix round: proxy under-recognized initial-state-derived targets.
+# The original proxy above only passes a task when a referenced entity id is absent from
+# BOTH initial_state AND the prompt (covering minted-id chains like ws2-018 and
+# find-surfaced chains like ws2-019).  It incorrectly failed tasks where the target id
+# IS in initial_state but is NOT named literally in the prompt — e.g. "Close the oldest
+# open ticket" when T-1..T-3 are all in state; the model must call list_tickets and
+# reason over returned fields to identify the target.  The proxy was thus blind to the
+# entire class of initial-state-derived-target tasks (ws2-020, 026, 028-030, 033, 035,
+# 037-039).  The fix adds a second recognition rule: a task also passes the proxy when a
+# referenced entity id (a) exists in initial_state, (b) does NOT appear literally in the
+# prompt text, and (c) has multiple same-type candidates in initial_state — the
+# multiple-candidates guard ensures a single-entity state does not pass falsely.  The
+# negative discriminator is preserved: a prompt that literally names the target id (e.g.
+# "close T-3") still fails the proxy because rule (b) rejects it.  The implementation
+# lives in the _is_state_dependent helper in the shipped test module; the corpus-level
+# test is rewritten to delegate to that helper.  Coverage after fix: 22/33 T3+T4 tasks
+# carry a derived knob and pass the proxy (before fix: 12/33).
+
 
 def test_every_task_has_review_field() -> None:
     for task in _tasks():

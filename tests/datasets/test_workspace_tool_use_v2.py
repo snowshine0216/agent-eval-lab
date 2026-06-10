@@ -285,21 +285,154 @@ def test_max_steps_floor_for_hard_tiers() -> None:
                 assert task.metadata.max_steps >= dependent + 2, f"{task.id}: floor"
 
 
+def _is_state_dependent(task: Task) -> bool:
+    """Proxy predicate: returns True iff the task is genuinely state-dependent.
+
+    A task is state-dependent when at least one of the following holds:
+
+    Rule 1 — minted/surfaced ID: A referenced entity id (T-/u-/e-) is absent from
+    BOTH initial_state AND the prompt text.  This covers create-then-act chains
+    (minted next-id) and tasks where a read call like find_account surfaces an id
+    that is not even in initial_state.
+
+    Rule 2 — initial-state-derived target: A referenced entity id exists in
+    initial_state, does NOT appear literally in the prompt text, AND there are
+    multiple entities of that same type in initial_state.  This recognises tasks
+    where the model must call list_tickets / find_account / get_account and
+    reason over results to determine *which* entity in a pre-populated set to
+    act on (e.g. "close the oldest open ticket" when T-1…T-3 are all in state).
+    The multiple-candidates guard ensures a single-entity state does not pass
+    falsely — if there is only one ticket, any sensible prompt is unambiguous.
+
+    A task whose prompt literally names every target id (e.g. "close T-3") fails
+    both rules: Rule 1 fails because T-3 is in state; Rule 2 fails because T-3 is
+    in the prompt.
+
+    corrected by fix round: proxy under-recognized initial-state-derived targets.
+    """
+    present = _ids_in_state(task.initial_state)
+    prompt = _prompt_text(task)
+    referenced = {
+        r
+        for r in _referenced_ids(task.verification)
+        if r.startswith(("T-", "u-", "e-"))
+    }
+
+    # Rule 1: classic minted / find-surfaced id
+    if any(r not in present and r not in prompt for r in referenced):
+        return True
+
+    # Rule 2: initial-state-derived target — id is in state but NOT in prompt,
+    # with multiple same-type candidates in state (model must query + reason)
+    state = task.initial_state or {}
+    for r in referenced:
+        if r in present and r not in prompt:
+            # entity type bucket: T- = tickets, u- = accounts, e- = emails
+            if r.startswith("T-"):
+                bucket_size = len(state.get("tickets") or {})
+            elif r.startswith("u-"):
+                bucket_size = len(state.get("accounts") or {})
+            elif r.startswith("e-"):
+                bucket_size = len(state.get("emails") or {})
+            else:
+                bucket_size = 0
+            if bucket_size > 1:
+                return True
+
+    return False
+
+
 def test_state_dependency_proxy_for_derived_tasks() -> None:
     for task in _tasks():
         if task.metadata.difficulty_knob not in _DERIVED_KNOBS:
             continue
-        present = _ids_in_state(task.initial_state)
-        prompt = _prompt_text(task)
-        referenced = {
-            r
-            for r in _referenced_ids(task.verification)
-            if r.startswith(("T-", "u-", "e-"))
-        }
-        # at least one referenced entity id must be absent from BOTH initial_state
-        # and the prompt text (a minted next-id or a list/find-surfaced id)
-        external = [r for r in referenced if r not in present and r not in prompt]
-        assert external, f"{task.id}: rote chain — every id is in state or prompt"
+        assert _is_state_dependent(task), (
+            f"{task.id}: rote chain — every id is in state or prompt, "
+            "or only one candidate exists so no read needed"
+        )
+
+
+# ---- focused proxy unit tests (pinning proxy semantics) --------------------
+# These tests exercise _is_state_dependent directly so the proxy's discriminator
+# semantics are pinned independently of the full task corpus.
+
+
+def _make_final_state_task(
+    *,
+    ticket_ids_in_state: list[str],
+    target_ticket_id: str,
+    prompt_user: str,
+    knob: str = "derived_argument",
+) -> "Task":
+    """Build a minimal Task with a final_state verification for proxy unit tests."""
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.tasks.schema import (
+        FinalStateSpec,
+        StateEquals,
+        TaskInput,
+        TaskMetadata,
+    )
+
+    tickets = {
+        tid: {"title": f"Ticket {tid}", "priority": "high", "status": "open"}
+        for tid in ticket_ids_in_state
+    }
+    initial_state = {"docs": {}, "tickets": tickets, "accounts": {}, "emails": {}}
+    verification = FinalStateSpec(
+        constraints=(
+            StateEquals(path=f"tickets.{target_ticket_id}.status", expected="closed"),
+        )
+    )
+    messages = (
+        MessageTurn(role="system", content="You are an agent."),
+        MessageTurn(role="user", content=prompt_user),
+    )
+    return Task(
+        id="proxy-test",
+        capability="derived_reasoning",
+        input=TaskInput(
+            messages=messages,
+            available_tools=("list_tickets", "update_ticket"),
+        ),
+        verification=verification,
+        metadata=TaskMetadata(
+            split="dev",
+            version="2",
+            provenance="hand_written",
+            world_template_id="workspace-v2",
+            difficulty_knob=knob,
+            max_steps=6,
+            review="passed:rubric-v1",
+        ),
+        initial_state=initial_state,
+    )
+
+
+def test_proxy_passes_for_property_described_target() -> None:
+    """Property-described target (e.g. 'oldest') is state-dependent."""
+    task = _make_final_state_task(
+        ticket_ids_in_state=["T-1", "T-2", "T-3"],
+        target_ticket_id="T-2",
+        # Prompt describes target by date-property, never mentions T-2 literally
+        prompt_user="Close the oldest open high-priority ticket.",
+    )
+    assert _is_state_dependent(task), (
+        "property-described target must pass proxy "
+        "(id lives in state but not in prompt)"
+    )
+
+
+def test_proxy_fails_for_literally_named_target() -> None:
+    """A task where the prompt literally names the target id is NOT state-dependent."""
+    task = _make_final_state_task(
+        ticket_ids_in_state=["T-2"],
+        target_ticket_id="T-2",
+        # Prompt literally contains 'T-2' — no read call needed
+        prompt_user="Close ticket T-2.",
+    )
+    assert not _is_state_dependent(task), (
+        "literally-named target must fail proxy (no read needed to identify the target)"
+    )
 
 
 def test_every_task_has_review_field() -> None:
