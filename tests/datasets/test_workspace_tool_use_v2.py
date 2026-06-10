@@ -513,3 +513,21 @@ def test_review_ledger_has_one_entry_per_task() -> None:
     # parity: no ledger row for a non-existent task id
     ledger_ids = set(re.findall(r"ws2-\d{3}", text))
     assert ledger_ids == ids
+
+
+def test_tier_sidecar_covers_every_v2_task_id() -> None:
+    import json
+    from pathlib import Path
+
+    from agent_eval_lab.tasks.loader import load_tasks
+
+    tasks = load_tasks(Path("examples/datasets/workspace_tool_use_v2.jsonl"))
+    tiers = json.loads(
+        Path("examples/datasets/workspace_tool_use_v2_tiers.json").read_text()
+    )
+    assert set(tiers) == {t.id for t in tasks}
+    assert set(tiers.values()) == {"T1", "T2", "T3", "T4"}
+    # Range integrity (matches review-ledger.md).
+    assert tiers["ws2-005"] == "T1" and tiers["ws2-006"] == "T2"
+    assert tiers["ws2-017"] == "T2" and tiers["ws2-018"] == "T3"
+    assert tiers["ws2-039"] == "T3" and tiers["ws2-040"] == "T4"
