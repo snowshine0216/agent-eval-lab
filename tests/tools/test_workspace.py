@@ -104,3 +104,9 @@ def test_unknown_tool_fails() -> None:
     assert new_state == STATE
     assert isinstance(outcome, ToolFailure)
     assert "unknown tool" in outcome.error
+
+
+def test_every_registered_tool_has_an_implementation() -> None:
+    from agent_eval_lab.tools.workspace import _IMPLS
+
+    assert set(WORKSPACE_TOOLS) == set(_IMPLS)
