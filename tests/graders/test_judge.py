@@ -174,7 +174,6 @@ def test_grade_missing_verdict_is_judge_not_run() -> None:
     assert result.evidence["judge"] == "not_run"
 
 
-@pytest.mark.skip(reason="JudgeError defined in Task 9")
 def test_grade_judge_error_at_key_is_structured_nonpass() -> None:
     from agent_eval_lab.runners.judge_edge import JudgeError
 
