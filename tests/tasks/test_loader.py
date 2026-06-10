@@ -47,3 +47,10 @@ def test_load_tasks_rejects_duplicate_ids(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="duplicate task id"):
         load_tasks(dataset)
+
+
+def test_load_tasks_returns_empty_tuple_for_empty_file(tmp_path: Path) -> None:
+    dataset = tmp_path / "tasks.jsonl"
+    dataset.write_text("")
+
+    assert load_tasks(dataset) == ()

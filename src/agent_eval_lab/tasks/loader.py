@@ -8,7 +8,7 @@ from agent_eval_lab.tasks.schema import Task
 
 
 def load_tasks(path: Path) -> tuple[Task, ...]:
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     tasks = tuple(parse_task(json.loads(line)) for line in lines if line.strip())
     seen: set[str] = set()
     for task in tasks:

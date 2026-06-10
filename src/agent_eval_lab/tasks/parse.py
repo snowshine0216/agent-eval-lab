@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from agent_eval_lab.records.serialize import turn_from_dict
-from agent_eval_lab.records.turns import MessageTurn
+from agent_eval_lab.records.turns import MessageTurn, Turn
 from agent_eval_lab.tasks.schema import (
     ExpectedToolCall,
     OutputMatchSpec,
@@ -40,14 +40,14 @@ def verification_from_dict(data: Mapping[str, Any]) -> VerificationSpec:
     raise ValueError(f"unknown verification type: {kind!r}")
 
 
+def _require_message(turn: Turn) -> MessageTurn:
+    if not isinstance(turn, MessageTurn):
+        raise ValueError(f"task input turns must be message turns, got {turn.type!r}")
+    return turn
+
+
 def _parse_messages(raw: list[Mapping[str, Any]]) -> tuple[MessageTurn, ...]:
-    messages = tuple(turn_from_dict(m) for m in raw)
-    for turn in messages:
-        if not isinstance(turn, MessageTurn):
-            raise ValueError(
-                f"task input turns must be message turns, got {turn.type!r}"
-            )
-    return messages
+    return tuple(_require_message(turn_from_dict(m)) for m in raw)
 
 
 def _parse_metadata(data: Mapping[str, Any]) -> TaskMetadata:

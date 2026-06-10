@@ -93,3 +93,14 @@ def test_verification_from_dict_parses_output_match() -> None:
 def test_verification_from_dict_rejects_unknown_type() -> None:
     with pytest.raises(ValueError, match="unknown verification type"):
         verification_from_dict({"type": "final_state", "constraints": []})
+
+
+def test_verification_from_dict_rejects_unknown_match_mode() -> None:
+    with pytest.raises(ValueError, match="unknown match mode"):
+        verification_from_dict(
+            {
+                "type": "tool_call_match",
+                "expected_tool_calls": [{"name": "f", "arguments": {}}],
+                "match": "partial",
+            }
+        )
