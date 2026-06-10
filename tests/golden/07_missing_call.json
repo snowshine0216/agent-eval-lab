@@ -1,0 +1,10 @@
+{
+  "name": "stopping after the first of two expected calls is missing_call",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "create_ticket", "arguments": {"title": "Data export failing", "priority": "high"}}, {"name": "update_ticket", "arguments": {"ticket_id": "T-1", "status": "closed"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "create_ticket", "arguments": {"title": "Data export failing", "priority": "high"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"ticket_id": "T-1"}}},
+    {"type": "message", "role": "assistant", "content": "Created T-1."}
+  ]},
+  "expected": {"passed": false, "failure_reason": "missing_call"}
+}

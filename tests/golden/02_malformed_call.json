@@ -1,0 +1,8 @@
+{
+  "name": "unparseable tool-call arguments grade as malformed_call",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "search_docs", "arguments": {"query": "refund policy"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Search the docs for 'refund policy'."}
+  ], "stop_reason": "parse_failure", "parse_failure": {"raw": "{\"query\": ", "error": "arguments not valid JSON"}},
+  "expected": {"passed": false, "failure_reason": "malformed_call"}
+}

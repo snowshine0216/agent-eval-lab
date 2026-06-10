@@ -1,0 +1,8 @@
+{
+  "name": "value outside the enum is a schema_violation",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "create_ticket", "arguments": {"title": "Printer offline", "priority": "low"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "create_ticket", "arguments": {"title": "Printer offline", "priority": "urgent"}}]}
+  ]},
+  "expected": {"passed": false, "failure_reason": "schema_violation"}
+}

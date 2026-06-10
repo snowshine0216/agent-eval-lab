@@ -1,0 +1,63 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added — Weeks 1–2 tool-use vertical slice
+
+- Immutable record spine (`records/`): conversation turns, runtime tool calls,
+  trajectories with usage/stop-reason/parse-failure capture, grade results with
+  the structured failure taxonomy, and dict round-trip serialization.
+- Locked `VerificationSpec` subset (`OutputMatchSpec | ToolCallMatchSpec`) with
+  task schema, pure parser, and JSONL dataset loader.
+- Synthetic `workspace-world` (`tools/`): three JSON-Schema-validated tools
+  (`search_docs`, `create_ticket`, `update_ticket`) implemented as pure
+  `apply(tool, args, state) -> (state', outcome)`; the world and the grader
+  share one validator, so "schema-invalid" means the same thing to both.
+- Schema-first AST tool-call grader (`graders/tool_call.py`) emitting
+  `malformed_call`, `schema_violation`, `wrong_tool`, `wrong_args`,
+  `missing_call`, `extra_call`, `order_mismatch`; canonicalization is
+  value-preserving and never repairs arguments.
+- OpenAI-compatible provider client with a six-provider registry
+  (DeepSeek, GLM, MiniMax, Qwen, OpenRouter, local), retry, and latency capture.
+- Model↔tool loop with step limits and a multi-run executor (`run_task_k`)
+  producing graded `RunResult` records — multi-run from day one.
+- Pure metrics: `pass@1` (trial accuracy), `pass^k` (task-level reliability,
+  validated against the actual runs per task), failure counts, token totals,
+  and derived cost from explicit `TokenPrice` inputs.
+- Baseline report (pure build + markdown render) and the
+  `run-baseline` CLI writing the report plus full graded JSONL traces.
+- 20-task workspace tool-use dataset (tool selection, argument extraction,
+  multi-step) replacing the legacy seed dataset.
+- Golden conformance suite: 11 hand-verified trajectories as the harness
+  correctness oracle, plus Hypothesis property tests (canonicalization
+  idempotency; schema-invalid arguments never succeed).
+
+### Fixed
+
+- Run artifacts are now named by the full condition id (provider **and**
+  model), so evaluating two models under the same provider no longer
+  overwrites each other's traces and reports.
+- Tool-call argument parsing no longer crashes when a provider returns
+  arguments as an already-decoded JSON object (dialect quirk — accepted
+  value-for-value); genuinely unsupported argument types are recorded as
+  parse failures (graded `malformed_call`) instead of raising.
+- Run results stream to the JSONL trace file per task, so completed runs
+  survive a mid-dataset provider failure.
+- Harness misconfiguration (registered tool without implementation, task
+  referencing unknown tools, malformed provider responses) fails loudly or is
+  recorded explicitly instead of being silently graded as an agent failure.
+- Half-specified `--input-price-per-mtok`/`--output-price-per-mtok` flag pairs
+  are rejected instead of silently skipping cost estimation.
+
+## [0.1.0] - 2026-06-09
+
+### Added
+
+- Initial scaffold: pure exact-match grader with tests, seed tool-selection
+  dataset, pytest + ruff CI, architecture and roadmap docs, and the eval
+  pipeline design spec.

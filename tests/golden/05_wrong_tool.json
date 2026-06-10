@@ -1,0 +1,8 @@
+{
+  "name": "schema-valid call to the wrong tool is wrong_tool",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "search_docs", "arguments": {"query": "refund policy"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "create_ticket", "arguments": {"title": "Refund policy", "priority": "low"}}]}
+  ]},
+  "expected": {"passed": false, "failure_reason": "wrong_tool"}
+}

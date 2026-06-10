@@ -1,0 +1,8 @@
+{
+  "name": "same calls in any order pass in multiset mode",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "search_docs", "arguments": {"query": "refund policy"}}, {"name": "create_ticket", "arguments": {"title": "Refund question", "priority": "low"}}], "match": "multiset"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "create_ticket", "arguments": {"title": "Refund question", "priority": "low"}}, {"call_id": "c2", "name": "search_docs", "arguments": {"query": "refund policy"}}]}
+  ]},
+  "expected": {"passed": true, "failure_reason": null}
+}

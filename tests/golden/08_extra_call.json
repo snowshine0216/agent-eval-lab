@@ -1,0 +1,10 @@
+{
+  "name": "an unrequested extra call is extra_call",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "search_docs", "arguments": {"query": "refund policy"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "search_docs", "arguments": {"query": "refund policy"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"doc_ids": ["doc-1"]}}},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c2", "name": "create_ticket", "arguments": {"title": "Refund question", "priority": "low"}}]}
+  ]},
+  "expected": {"passed": false, "failure_reason": "extra_call"}
+}

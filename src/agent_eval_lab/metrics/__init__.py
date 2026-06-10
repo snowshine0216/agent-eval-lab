@@ -1,0 +1,1 @@
+"""Pure aggregation over RunResults."""
