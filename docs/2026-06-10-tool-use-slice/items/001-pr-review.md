@@ -1,8 +1,5 @@
-Verdict: FAIL
-Source: /code-review on PR #2
-PR comment URL: https://github.com/snowshine0216/agent-eval-lab/pull/2#issuecomment-4667042662
-Findings: 4
-  - src/agent_eval_lab/graders/ast_tool_match.py:76-78 — latent-bug — `order_mismatch` reported when tools are swapped AND args are wrong. The inner name-Counter check (`Counter(o.name for o in observed) == Counter(e.name for e in expected)`) fires before inspecting argument correctness, so a scenario like expected=[search_docs(q=a), create_ticket(title=x)], observed=[create_ticket(title=WRONG), search_docs(q=a)] returns `failure_reason=order_mismatch` instead of `wrong_tool`. `passed=False` is correct (no false-pass), but `failure_counts` in the baseline report will misclassify the failure category. Reproduces on current HEAD (verified: `_grade_exact_sequence` with swapped-tool + wrong-args inputs → `order_mismatch`).
-  - src/agent_eval_lab/graders/ast_tool_match.py:82 — nit — unreachable `return _passed()` at end of `_grade_exact_sequence`; dead code (all reachable paths return before this line once `exp_keys != obs_keys`).
-  - src/agent_eval_lab/metrics/baseline.py:36 — nit — `by_task.setdefault(..., []).append(run)` mutates an internally-owned list; violates CLAUDE.md FP principle ("use map/filter/reduce instead of push/append"). No external state mutation; not a correctness bug.
-  - src/agent_eval_lab/runners/provider.py:86-110 — nit — `ProviderClient` class uses `self.x = y` mutation in `__init__`; CLAUDE.md prefers modules of pure functions over stateful classes when polymorphism is not needed. Style concern for the Weeks 7-8 live-model phase.
+Verdict: PASS
+Source: /code-review on PR #2 (re-review after fixes)
+PR comment URL: https://github.com/snowshine0216/agent-eval-lab/pull/2#issuecomment-4667100056
+Prior findings: 3 fixed (a1361d4, 1185b26), 1 accepted (ProviderClient edge class)
+Findings (this pass): 0
