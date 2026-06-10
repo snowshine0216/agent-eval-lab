@@ -2,6 +2,7 @@ import pytest
 
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
+from agent_eval_lab.records.turns import ToolCall, ToolCallTurn
 from agent_eval_lab.reports.validation import (
     ConditionInput,
     build_validation_report,
@@ -364,3 +365,231 @@ def test_render_nonzero_delta_ci_touches_zero_as_near_miss() -> None:
     # If the CI separates (strong rung), C1 vs C2 won't be a near-miss at all —
     # just verify the zero-delta wording is absent.
     assert "both conditions identical on this dataset" not in md
+
+
+# ── Finding 1 (AC2): budget-floor section ────────────────────────────────────
+
+
+def _run_with_stop(
+    condition, task_id, run_index, passed, stop_reason="completed", failure_reason=None
+):
+    return RunResult(
+        task_id=task_id,
+        condition_id=condition,
+        run_index=run_index,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+            run_index=run_index,
+            stop_reason=stop_reason,
+        ),
+        grade=GradeResult(
+            grader_id="g",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=failure_reason,
+        ),
+    )
+
+
+def test_budget_floor_section_rendered_with_zero_suspects() -> None:
+    """With no runs that hit max_steps, the budget-floor section must be present
+    and must explicitly say zero starvation suspects."""
+    runs = (
+        *_all("A", "ws2-001", 3, True),
+        *_all("A", "ws2-018", 3, False, "wrong_args"),
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-001": "T1", "ws2-018": "T3"},
+        capabilities={"ws2-001": "tool_selection", "ws2-018": "multi_step_state"},
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    md = render_markdown(report)
+    assert "budget" in md.lower() or "step" in md.lower()
+    # Zero exhausted runs -> zero starvation suspects
+    assert "starvation suspect" in md.lower() or "suspects" in md.lower()
+
+
+def test_budget_floor_section_counts_exhausted_runs() -> None:
+    """Runs with stop_reason='max_steps' are counted per condition in the
+    budget-floor section. A failing run that exhausted the budget is a starvation
+    suspect (listed by task id)."""
+    runs = (
+        _run_with_stop("A", "ws2-001", 0, True, stop_reason="completed"),
+        _run_with_stop("A", "ws2-001", 1, True, stop_reason="completed"),
+        _run_with_stop("A", "ws2-001", 2, True, stop_reason="completed"),
+        # ws2-018: exhausted budget AND failed -> starvation suspect
+        _run_with_stop(
+            "A",
+            "ws2-018",
+            0,
+            False,
+            stop_reason="max_steps",
+            failure_reason="wrong_args",
+        ),
+        _run_with_stop(
+            "A",
+            "ws2-018",
+            1,
+            False,
+            stop_reason="max_steps",
+            failure_reason="wrong_args",
+        ),
+        _run_with_stop(
+            "A",
+            "ws2-018",
+            2,
+            False,
+            stop_reason="max_steps",
+            failure_reason="wrong_args",
+        ),
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-001": "T1", "ws2-018": "T3"},
+        capabilities={"ws2-001": "tool_selection", "ws2-018": "multi_step_state"},
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    md = render_markdown(report)
+    # ws2-018 runs exhausted budget and failed -> must be listed as suspect
+    assert "ws2-018" in md
+    # The budget section must mention exhausted count
+    cond = report.conditions[0]
+    assert cond.budget_exhausted_count == 3  # 3 runs hit max_steps
+    assert cond.starvation_suspects == ("ws2-018",)
+
+
+def test_budget_floor_section_no_suspect_if_exhausted_but_passed() -> None:
+    """A run that hit max_steps but PASSED is NOT a starvation suspect."""
+    runs = (
+        _run_with_stop("A", "ws2-001", 0, True, stop_reason="max_steps"),
+        _run_with_stop("A", "ws2-001", 1, True, stop_reason="max_steps"),
+        _run_with_stop("A", "ws2-001", 2, True, stop_reason="max_steps"),
+        *_all("A", "ws2-018", 3, True),
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-001": "T1", "ws2-018": "T3"},
+        capabilities={"ws2-001": "tool_selection", "ws2-018": "multi_step_state"},
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    cond = report.conditions[0]
+    assert cond.budget_exhausted_count == 3
+    assert cond.starvation_suspects == ()
+
+
+# ── Finding 2 (AC6): exemplar trace excerpts ─────────────────────────────────
+
+
+def _run_with_tool_calls(
+    condition, task_id, run_index, passed, tool_calls_data, failure_reason=None
+):
+    call_turns = tuple(
+        ToolCallTurn(
+            tool_calls=tuple(
+                ToolCall(call_id=f"c{i}", name=tc["name"], arguments=tc.get("args", {}))
+                for i, tc in enumerate(call_list)
+            )
+        )
+        for call_list in tool_calls_data
+    )
+    return RunResult(
+        task_id=task_id,
+        condition_id=condition,
+        run_index=run_index,
+        trajectory=Trajectory(
+            turns=call_turns,
+            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+            run_index=run_index,
+            stop_reason="completed",
+        ),
+        grade=GradeResult(
+            grader_id="g",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence=(
+                {"expected": "search_docs", "observed": "create_ticket"}
+                if not passed
+                else {}
+            ),
+            failure_reason=failure_reason,
+        ),
+    )
+
+
+# Compact tool-call data for exemplar tests
+_CREATE_TICKET = [[{"name": "create_ticket", "args": {"title": "x"}}]]
+_UPDATE_18 = [[{"name": "update_ticket", "args": {"id": 1}}]]
+_UPDATE_40 = [[{"name": "update_ticket", "args": {"id": 2}}]]
+
+
+def test_exemplar_traces_rendered_for_top_failure_mode() -> None:
+    """For the top failure mode, one exemplar trace excerpt is rendered
+    (lex-first failing task, compact format)."""
+    runs = (
+        _run_with_tool_calls("A", "ws2-001", 0, False, _CREATE_TICKET, "wrong_tool"),
+        _run_with_tool_calls("A", "ws2-001", 1, False, _CREATE_TICKET, "wrong_tool"),
+        _run_with_tool_calls("A", "ws2-001", 2, False, _CREATE_TICKET, "wrong_tool"),
+        _run_with_tool_calls("A", "ws2-018", 0, False, _UPDATE_18, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-018", 1, False, _UPDATE_18, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-018", 2, False, _UPDATE_18, "wrong_args"),
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-001": "T1", "ws2-018": "T3"},
+        capabilities={"ws2-001": "tool_selection", "ws2-018": "multi_step_state"},
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    md = render_markdown(report)
+    assert "Exemplar" in md or "exemplar" in md.lower()
+    # At least one exemplar task id is rendered
+    assert "ws2-001" in md or "ws2-018" in md
+
+
+def test_exemplar_trace_picks_lex_first_failing_task() -> None:
+    """Exemplar selection is deterministic: lex-first failing task per failure mode."""
+    # wrong_args failures on two tasks; lex-first is ws2-018 (< ws2-040)
+    runs = (
+        _run_with_tool_calls("A", "ws2-018", 0, False, _UPDATE_18, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-018", 1, False, _UPDATE_18, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-018", 2, False, _UPDATE_18, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-040", 0, False, _UPDATE_40, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-040", 1, False, _UPDATE_40, "wrong_args"),
+        _run_with_tool_calls("A", "ws2-040", 2, False, _UPDATE_40, "wrong_args"),
+    )
+    report = build_validation_report(
+        conditions=(ConditionInput(label="A", results=runs),),
+        tiers={"ws2-018": "T3", "ws2-040": "T4"},
+        capabilities={
+            "ws2-018": "multi_step_state",
+            "ws2-040": "distractor_resistance",
+        },
+        k=3,
+        expected_n_tasks=2,
+        seed=20260610,
+        n_resamples=200,
+        alpha=0.05,
+    )
+    md = render_markdown(report)
+    # Lex-first failing task for wrong_args is ws2-018 (< ws2-040)
+    idx_018 = md.find("ws2-018")
+    idx_040 = md.find("ws2-040")
+    assert idx_018 < idx_040

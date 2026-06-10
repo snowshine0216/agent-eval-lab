@@ -4,9 +4,11 @@ Inputs: per-condition RunResult sequences (read from streamed JSONL at the
 edge), the committed tier sidecar, and a capability map. Produces per-condition
 pass@1 / pass^k with cluster-bootstrap-by-task CIs, the failure taxonomy crossed
 by tier and capability, the per-task pass matrix, the deterministic-vs-flaky
-split, per-tier pass^k curves, and the mechanical discriminativeness verdict
-(Resolved Q9). A partial condition is `incomplete` (graded over present records,
-never blocked); a zero-record condition is `blocked` (no fabricated numbers).
+split, per-tier pass^k curves, the budget-floor section (AC2), exemplar trace
+excerpts for top failure modes (AC6), and the mechanical discriminativeness
+verdict (Resolved Q9). A partial condition is `incomplete` (graded over present
+records, never blocked); a zero-record condition is `blocked` (no fabricated
+numbers).
 """
 
 from collections.abc import Mapping, Sequence
@@ -14,6 +16,7 @@ from dataclasses import dataclass, field
 
 from agent_eval_lab.metrics.agreement import BootstrapCI
 from agent_eval_lab.metrics.reliability import (
+    paired_pass_pow_k_diff_ci,
     pass_at_1,
     pass_pow_k_bootstrap_ci,
     pass_pow_k_by_tier,
@@ -51,6 +54,12 @@ class ConditionReport:
     tier_monotone: bool
     # tasks with run-count < k, excluded from pass^k
     incomplete_task_ids: tuple[str, ...]
+    # AC2: budget-floor section
+    budget_exhausted_count: int  # runs with stop_reason="max_steps"
+    starvation_suspects: tuple[str, ...]  # task ids where failing run hit max_steps
+    # AC6: exemplar trace excerpts (top 2-3 failure modes, one exemplar each)
+    exemplar_excerpts: tuple[tuple[str, str, str, str], ...]
+    # (failure_category, task_id, tier_capability, tool_call_sequence)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -83,6 +92,87 @@ def _task_all_fail(results: Sequence[RunResult]) -> dict[str, bool]:
     for run in results:
         by_task.setdefault(run.task_id, []).append(run.grade.passed)
     return {tid: not any(passes) for tid, passes in by_task.items()}
+
+
+def _budget_exhausted_count(results: Sequence[RunResult]) -> int:
+    """Count runs whose trajectory exhausted the step budget.
+
+    Detects via stop_reason='max_steps' (set by the loop at exhaustion).
+    """
+    return sum(1 for r in results if r.trajectory.stop_reason == "max_steps")
+
+
+def _starvation_suspects(results: Sequence[RunResult]) -> tuple[str, ...]:
+    """Task ids where at least one run both failed AND hit stop_reason='max_steps'.
+
+    A task that exhausted its budget and failed is a starvation suspect — the
+    failure may be harness starvation rather than genuine agent failure.
+    Returns task ids sorted lexicographically for determinism.
+    """
+    suspects: set[str] = set()
+    for run in results:
+        if not run.grade.passed and run.trajectory.stop_reason == "max_steps":
+            suspects.add(run.task_id)
+    return tuple(sorted(suspects))
+
+
+def _tool_call_sequence(run: RunResult) -> str:
+    """Compact one-line rendering of the observed tool-call sequence from the
+    trajectory."""
+    from agent_eval_lab.records.turns import ToolCallTurn
+
+    calls = []
+    for turn in run.trajectory.turns:
+        if isinstance(turn, ToolCallTurn):
+            for tc in turn.tool_calls:
+                args_str = ", ".join(
+                    f"{k}={v!r}" for k, v in list(tc.arguments.items())[:2]
+                )
+                calls.append(f"{tc.name}({args_str})")
+    return " → ".join(calls) if calls else "(no tool calls)"
+
+
+def _build_exemplar_excerpts(
+    results: Sequence[RunResult],
+    *,
+    capabilities: Mapping[str, str],
+    tiers: Mapping[str, str],
+    max_modes: int = 3,
+) -> tuple[tuple[str, str, str, str], ...]:
+    """For each of the top failure modes (by count, capped at max_modes), pick the
+    lex-first failing task and extract one exemplar excerpt: (category, task_id,
+    tier/capability, tool_call_sequence). Deterministic: lex-first task, first
+    run_index.
+    """
+    # Count failures per category
+    cat_counts: dict[str, int] = {}
+    for run in results:
+        if not run.grade.passed:
+            cat = run.grade.failure_reason or "unclassified"
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+    # Top modes by count, tie-broken by category name (lex) for determinism
+    top_modes = sorted(cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:max_modes]
+    excerpts: list[tuple[str, str, str, str]] = []
+    for cat, _ in top_modes:
+        # Collect lex-first failing task with this category
+        failing_runs = sorted(
+            (
+                r
+                for r in results
+                if not r.grade.passed
+                and (r.grade.failure_reason or "unclassified") == cat
+            ),
+            key=lambda r: (r.task_id, r.run_index),
+        )
+        if not failing_runs:
+            continue
+        exemplar = failing_runs[0]
+        cap = capabilities.get(exemplar.task_id, "unknown")
+        tier = tiers.get(exemplar.task_id, "?")
+        tier_cap = f"{tier}/{cap}"
+        tool_seq = _tool_call_sequence(exemplar)
+        excerpts.append((cat, exemplar.task_id, tier_cap, tool_seq))
+    return tuple(excerpts)
 
 
 def _run_counts(results: Sequence[RunResult]) -> dict[str, int]:
@@ -120,6 +210,9 @@ def _build_condition(
             flaky_tasks=(),
             tier_monotone=False,
             incomplete_task_ids=(),
+            budget_exhausted_count=0,
+            starvation_suspects=(),
+            exemplar_excerpts=(),
         )
     # P1-3: split results into complete-tasks (run-count == k) and deficit-tasks
     # (run-count < k).  Deficit tasks are EXCLUDED from pass^k and from the
@@ -152,6 +245,11 @@ def _build_condition(
     by_tier = pass_pow_k_by_tier(complete_results, tiers) if complete_results else {}
     present = [by_tier[t] for t in TIER_ORDER if t in by_tier]
     monotone = all(a >= b for a, b in zip(present, present[1:]))
+    budget_exhausted = _budget_exhausted_count(cond.results)
+    suspects = _starvation_suspects(cond.results)
+    exemplars = _build_exemplar_excerpts(
+        cond.results, capabilities=capabilities, tiers=tiers
+    )
     return ConditionReport(
         label=cond.label,
         hosted=cond.hosted,
@@ -172,6 +270,9 @@ def _build_condition(
         flaky_tasks=flaky,
         tier_monotone=monotone and len(present) >= 2,
         incomplete_task_ids=deficit_ids,
+        budget_exhausted_count=budget_exhausted,
+        starvation_suspects=suspects,
+        exemplar_excerpts=exemplars,
     )
 
 
@@ -189,8 +290,6 @@ def _discriminativeness(
     n_resamples: int,
     alpha: float,
 ) -> Discriminativeness:
-    from agent_eval_lab.metrics.reliability import paired_pass_pow_k_diff_ci
-
     hosted = [c for c in conditions if c.hosted and c.status != "blocked"]
     # Weak rung: ≥1 task where hosted pass^3 differ AND ≥1 hosted pass^3 < 1.000.
     any_sub_one = any(
@@ -394,6 +493,53 @@ def render_markdown(report: ValidationReport) -> str:
             f"- **{c.label}** — Deterministic failures (all-3-fail): {det}",
             f"  - Flaky (mixed pass/fail across k): {flk}",
         ]
+    # AC2: budget-floor section
+    lines += [
+        "",
+        "## Budget-floor assertion (AC2 — step-starvation check)",
+        "",
+        "Every task ran with at least its declared `metadata.max_steps` budget "
+        "(per-task budget honored by `effective_max_steps`; stop_reason='max_steps' "
+        "only when the loop exhausts the budget, not when the grader emits "
+        "`step_limit_exceeded`).",
+        "",
+        "| condition | runs hitting max_steps "
+        "| starvation suspects (failing + exhausted) |",
+        "| --- | --- | --- |",
+    ]
+    for c in report.conditions:
+        if c.status == "blocked":
+            continue
+        suspects_str = (
+            "none" if not c.starvation_suspects else ", ".join(c.starvation_suspects)
+        )
+        lines.append(f"| {c.label} | {c.budget_exhausted_count} | {suspects_str} |")
+    lines.append("")
+    # AC6: exemplar trace excerpts
+    lines += [
+        "## Exemplar trace excerpts (top failure modes)",
+        "",
+        "For each condition, the top failure mode(s) are illustrated with one "
+        "exemplar (lex-first failing task, run_index=0). Compact: task id, "
+        "tier/capability, grade evidence, observed tool-call sequence.",
+        "",
+    ]
+    for c in report.conditions:
+        if c.status == "blocked":
+            continue
+        lines.append(f"### {c.label}")
+        lines.append("")
+        if not c.exemplar_excerpts:
+            lines.append("*(no failures — no exemplars)*")
+            lines.append("")
+        else:
+            for cat, task_id, tier_cap, tool_seq in c.exemplar_excerpts:
+                lines += [
+                    f"**Failure mode: `{cat}`** — "
+                    f"exemplar task `{task_id}` ({tier_cap})",
+                    f"- Observed tool-call sequence: `{tool_seq}`",
+                    "",
+                ]
     lines += [
         "",
         "## Per-task pass matrix (task → reliable on each condition)",
