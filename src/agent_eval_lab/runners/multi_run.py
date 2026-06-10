@@ -35,7 +35,10 @@ def run_task_k(
             temperature=temperature,
         )
         grade = grade_trajectory(
-            verification=task.verification, trajectory=trajectory, registry=registry
+            verification=task.verification,
+            trajectory=trajectory,
+            registry=registry,
+            initial_state=task.initial_state,
         )
         results.append(
             RunResult(

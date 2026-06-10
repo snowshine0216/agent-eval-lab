@@ -5,6 +5,13 @@ import httpx
 from agent_eval_lab.runners.config import ProviderConfig
 from agent_eval_lab.runners.multi_run import run_task_k
 from agent_eval_lab.tasks.parse import parse_task
+from agent_eval_lab.tasks.schema import (
+    OnlyModifies,
+    Task,
+    TaskInput,
+    TaskMetadata,
+    TrajectorySpec,
+)
 from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS
 
 CONFIG = ProviderConfig(
@@ -67,6 +74,77 @@ def _handler(request: httpx.Request) -> httpx.Response:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5},
         },
     )
+
+
+def test_run_task_k_grades_final_state_spec() -> None:
+    """Verify initial_state is threaded: OnlyModifies(paths=()) forbids any change."""
+    from agent_eval_lab.records.turns import MessageTurn
+
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {
+                                    "name": "create_ticket",
+                                    "arguments": json.dumps(
+                                        {"title": "Bug", "priority": "low"}
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        {
+            "choices": [{"message": {"role": "assistant", "content": "done"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+    ]
+    remaining = list(responses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=remaining.pop(0))
+
+    # initial_state has T-1 open; the run creates T-2.
+    # With initial_state threaded: T-2 is a new leaf, T-1.status is unchanged.
+    #   Only T-2.* changed -> covered by paths=("tickets.T-2",) -> passes.
+    # Without threading (initial_state=None): T-1.status also looks "added"
+    #   -> violation -> fails. This discriminates the two code paths.
+    task = Task(
+        id="ws-init-state",
+        capability="tool_selection",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="Create a ticket."),),
+            available_tools=("create_ticket",),
+        ),
+        verification=TrajectorySpec(
+            constraints=(OnlyModifies(paths=("tickets.T-2",)),)
+        ),
+        metadata=TaskMetadata(split="dev", version="1", provenance="hand_written"),
+        initial_state={"tickets": {"T-1": {"status": "open"}}},
+    )
+
+    results = run_task_k(
+        task=task,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        k=1,
+        max_steps=4,
+        temperature=0.0,
+    )
+
+    # With initial_state threaded, only T-2.* changed and it is covered.
+    assert results[0].grade.passed is True
 
 
 def test_runs_k_times_and_grades_each_run() -> None:
