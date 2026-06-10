@@ -1,0 +1,9 @@
+{
+  "name": "final_state state_equals matches the closed ticket",
+  "verification": {"type": "final_state", "constraints": [{"type": "state_equals", "path": "tickets.T-1.status", "expected": "closed"}]},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "update_ticket", "arguments": {"ticket_id": "T-1", "status": "closed"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"ticket_id": "T-1", "status": "closed"}}}
+  ], "final_state": {"tickets": {"T-1": {"title": "Bug", "priority": "high", "status": "closed"}}}},
+  "expected": {"passed": true, "failure_reason": null}
+}

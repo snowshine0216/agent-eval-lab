@@ -27,6 +27,18 @@ def test_trajectory_records_parse_failure() -> None:
     assert trajectory.parse_failure.error == "arguments not valid JSON"
 
 
+def test_trajectory_defaults_to_no_final_state() -> None:
+    trajectory = _trajectory()
+
+    assert trajectory.final_state is None
+
+
+def test_trajectory_records_final_state() -> None:
+    trajectory = _trajectory(final_state={"tickets": {"T-1": {"status": "closed"}}})
+
+    assert trajectory.final_state == {"tickets": {"T-1": {"status": "closed"}}}
+
+
 def test_run_result_links_task_condition_and_grade() -> None:
     grade = GradeResult(
         grader_id="ast_tool_match",

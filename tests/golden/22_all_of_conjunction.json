@@ -1,0 +1,13 @@
+{
+  "name": "all_of: passing output_match then two failing policy sub-specs; first-failure reason wins",
+  "verification": {"type": "all_of", "specs": [
+    {"type": "final_state", "constraints": [{"type": "state_equals", "path": "tickets.T-1.status", "expected": "closed"}]},
+    {"type": "trajectory", "constraints": [{"type": "no_tool_call", "name": "update_ticket"}]},
+    {"type": "trajectory", "constraints": [{"type": "max_tool_calls", "n": 0}]}
+  ]},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "update_ticket", "arguments": {"ticket_id": "T-1", "status": "closed"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"ticket_id": "T-1", "status": "closed"}}}
+  ], "final_state": {"tickets": {"T-1": {"status": "closed"}}}},
+  "expected": {"passed": false, "failure_reason": "forbidden_action"}
+}

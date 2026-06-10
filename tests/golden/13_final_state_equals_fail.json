@@ -1,0 +1,6 @@
+{
+  "name": "final_state state_equals misses when ticket still open (failure_reason null)",
+  "verification": {"type": "final_state", "constraints": [{"type": "state_equals", "path": "tickets.T-1.status", "expected": "closed"}]},
+  "trajectory": {"turns": [], "final_state": {"tickets": {"T-1": {"title": "Bug", "priority": "high", "status": "open"}}}},
+  "expected": {"passed": false, "failure_reason": null}
+}

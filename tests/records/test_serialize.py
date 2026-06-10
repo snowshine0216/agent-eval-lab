@@ -92,3 +92,62 @@ def test_grade_result_to_dict_keeps_none_failure_reason() -> None:
     grade = GradeResult(grader_id="output_match", passed=True, score=1.0, evidence={})
 
     assert grade_result_to_dict(grade)["failure_reason"] is None
+
+
+def test_trajectory_to_dict_omits_final_state_when_none() -> None:
+    trajectory = Trajectory(
+        turns=TURNS,
+        usage=Usage(prompt_tokens=1, completion_tokens=2, latency_s=0.1),
+        run_index=0,
+        stop_reason="completed",
+    )
+
+    data = trajectory_to_dict(trajectory)
+
+    assert data["final_state"] is None
+
+
+def test_trajectory_round_trips_final_state() -> None:
+    state = {"tickets": {"T-1": {"status": "closed"}}}
+    trajectory = Trajectory(
+        turns=TURNS,
+        usage=Usage(prompt_tokens=1, completion_tokens=2, latency_s=0.1),
+        run_index=0,
+        stop_reason="completed",
+        final_state=state,
+    )
+
+    restored = trajectory_from_dict(trajectory_to_dict(trajectory))
+
+    assert restored.final_state == state
+
+
+def test_trajectory_final_state_with_nested_mappingproxytype_is_json_serializable() -> (
+    None
+):
+    """Nested MappingProxyType (and tuples) must deep-convert to plain dicts/lists
+    so json.dumps never raises, and the round-trip value equals the plain-Python
+    equivalent structure."""
+    import json
+    import types
+
+    nested_proxy = types.MappingProxyType({"status": "open", "tags": ("bug", "urgent")})
+    state = types.MappingProxyType(
+        {"tickets": types.MappingProxyType({"T-1": nested_proxy})}
+    )
+    trajectory = Trajectory(
+        turns=TURNS,
+        usage=Usage(prompt_tokens=1, completion_tokens=2, latency_s=0.1),
+        run_index=0,
+        stop_reason="completed",
+        final_state=state,
+    )
+
+    data = trajectory_to_dict(trajectory)
+    # Must not raise TypeError
+    serialized = json.dumps(data)
+    assert serialized  # non-empty
+
+    restored = trajectory_from_dict(data)
+    expected = {"tickets": {"T-1": {"status": "open", "tags": ["bug", "urgent"]}}}
+    assert restored.final_state == expected

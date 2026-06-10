@@ -1,0 +1,20 @@
+Verdict: PASS
+
+Subagent: sonnet
+Source: Fallback used: direct integration script + targeted spot-checks (no /verify skill invoked)
+Entry point exercised: uv run python <integration_script> (exercises load_tasks → run_task_k → grade_trajectory → run_result_to_dict end-to-end); uv run pytest -q (191 tests, 0 failures); uv run ruff check .; uv run ruff format --check .
+
+Observed behavior:
+  - AC1 Union extension — `FinalStateSpec`, `TrajectorySpec`, `AllOf`, `StateEquals`, `StateContains`, `NoToolCall`, `OnlyModifies`, `MaxToolCalls` all present as `@dataclass(frozen=True, kw_only=True)` with correct discriminators and field shapes; `VerificationSpec` alias spans all 5 types; `AllOf.specs` typed as `tuple[VerificationSpec, ...]` — CONFIRMED via dataclasses.is_dataclass + frozen + kw_only checks.
+  - AC2 Final-state threading — `Trajectory.final_state: Mapping[str, Any] | None = None` present and defaulted; `runners/loop.py` sets `final_state=state` in final `Trajectory(...)` constructor; `trajectory_to_dict` serializes it verbatim; `trajectory_from_dict` restores it; None round-trips as None — CONFIRMED via serialize round-trip script.
+  - AC3 Pure state grader — `graders/state.py` present; missing dot-path returns `_MISSING` sentinel, fails constraint, never raises; `StateEquals` uses `==`; `StateContains` fails (not raises) on missing path/non-container; `failure_reason=None` on miss — CONFIRMED: golden case 14 (missing path) and case 13 (equals fail) both produce `passed=False, failure_reason=None` without exception.
+  - AC4 Pure trajectory grader — `graders/policy.py` present; `NoToolCall` breach → `failure_reason="forbidden_action"` (golden 17); `MaxToolCalls` breach → `failure_reason="step_limit_exceeded"` (golden 18); `OnlyModifies` breach → `failure_reason="forbidden_action"` (golden 19); dot-segment-aware prefix coverage confirmed in source — CONFIRMED.
+  - AC5 AllOf conjunction — evaluates every sub-spec (no short-circuit); `passed` is AND; `failure_reason` is first failing sub-spec's (`"forbidden_action"` from golden 22 which has 3 sub-results in evidence); score = 1.0 iff passed; all-pass case (golden 23) → `passed=True, score=1.0` — CONFIRMED.
+  - AC6 Dispatch wiring — `grade_trajectory` signature: `(verification, trajectory, registry, initial_state=None)`; `registry` is required (no default); `isinstance` branches for `FinalStateSpec`, `TrajectorySpec`, `AllOf`; `AllOf` branch passes both `registry` and `initial_state` to sub-calls; `raise ValueError` fallthrough intact — CONFIRMED via `inspect.signature`.
+  - AC7 Runner pass-through — `multi_run.py` calls `grade_trajectory(..., initial_state=task.initial_state)`; integration test with `OnlyModifies(paths=("tickets.T-2",))` and pre-existing T-1 state passes correctly — CONFIRMED.
+  - AC8 JSONL parsing — `tasks/parse.py::verification_from_dict` parses `final_state`, `trajectory`, `all_of` plus all constraint sub-dicts; recursive `all_of.specs`; unknown spec type → `ValueError: unknown verification type: 'llm_judge_spec'`; unknown constraint type → `ValueError: unknown state constraint: 'bad_constraint_type'` — CONFIRMED.
+  - AC9 Failure-category mapping — `FailureCategory` contains `'forbidden_action'` and `'step_limit_exceeded'` (already declared, not newly added); `FinalStateSpec` misses carry `failure_reason=None`; no new `FailureCategory` member added — CONFIRMED: `typing.get_args(FailureCategory)` shows both present alongside v1 categories.
+  - AC10 Golden conformance extension — suite-size assertion bumped to 23 (11 original + 12 new); `initial_state=case.get("initial_state")` threaded; 12 new cases cover: final_state equals pass/fail, missing path, state_contains pass/fail, no_tool_call, max_tool_calls, only_modifies breach, path_independence (a+b), all_of conjunction, all_of all-pass — CONFIRMED: all 23 pass via `uv run pytest`.
+  - AC11 Backward compatibility — all 11 original golden cases pass unchanged (confirmed via targeted loop); full suite = 191 tests (up from 130), 0 failures; `ruff check` clean; `ruff format --check` clean — CONFIRMED: `uv run pytest -q` → `191 passed in 0.33s`.
+
+Failures: none
