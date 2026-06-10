@@ -78,8 +78,13 @@ artifact.
 
 4. **`workspace_tool_use_v2.jsonl` has exactly 50 tasks, version `"2"`, hard-tier
    majority.** Every line parses via `tasks/loader.load_tasks` into a `Task`; every
-   `metadata.version == "2"`, `metadata.provenance == "hand_authored"`,
-   `metadata.world_template_id == "workspace-v2"`, `metadata.split == "dev"`. The tier
+   `metadata.version == "2"`, ~~`metadata.provenance == "hand_authored"`~~
+   **`metadata.provenance == "hand_written"`** (see Resolved decision Q7 — match v1's
+   canonical value; a synonym would fracture the §9 provenance count),
+   `metadata.world_template_id == "workspace-v2"`, `metadata.split == "dev"`. **Task
+   ids follow the `ws2-001`…`ws2-050` scheme** (distinct prefix from v1's `ws-NNN`,
+   so v1 and v2 task ids never collide when their runs/traces coexist in one report —
+   see Resolved decision Q6). The tier
    mix is **T1 sanity 5 (10%), T2 moderate 12 (24%), T3 hard 22 (44%), T4 adversarial
    11 (22%)** — T3+T4 = 33/50 = 66% (the "majority hard" directive). The mix is
    asserted by the conformance test, not merely documented.
@@ -117,15 +122,38 @@ artifact.
    intended chain plus the model's read/confirm turns; the harness already streams per
    task, so longer chains are a wall-clock cost, not a correctness risk.
 
+   **State-dependency is enforced, not asserted (anti–rote-chain proxy).** A task can
+   be *long yet easy* (eight independent `create_ticket` calls is a rote chain, not a
+   capability boundary). To make "step N derives from step N-1's result" an *auditable*
+   property rather than prose, the conformance test (AC 12) applies a pure structural
+   proxy: **every task whose `difficulty_knob` is `multi_step_depth` or
+   `derived_argument` must reference at least one entity id that exists in neither
+   `initial_state` nor the user-message text** — i.e. an id that is only obtainable as
+   the deterministic minted next-id of a prior create, or as an id/field surfaced by a
+   `list_tickets`/`find_account` result. A rote chain (all args present up front) fails
+   this proxy; a genuinely state-dependent chain passes it. This is a *necessary*
+   structural witness of dependence (a pure test cannot prove the *sufficient* semantic
+   property without a live model — that is item 004's job), and the rubric (AC 9) adds
+   the human gate "the stated `difficulty_knob` is actually the thing that makes the
+   task hard" (rubric item g).
+
 8. **`max_steps` is per-task data, not a global.** `TaskMetadata` gains an optional
    `max_steps: int | None = None` (additive, defaulted ⇒ every existing v1 task and
    call site is unaffected; `tasks/parse.py` reads it when present). The v2 conformance
    test asserts every T3/T4 task sets `max_steps` and that it is ≥ the number of
    expected dependent calls + 2 (headroom for the model's reasoning/confirm turns).
-   The runner already takes `max_steps`; wiring the per-task value through
-   `runners/multi_run.py` is **noted as a downstream need for item 004** and is *not*
+   The runner already takes a *global* `max_steps` (CLI default `6`, consumed by
+   `runners/loop.py` as `for _ in range(max_steps)`); wiring the per-task value through
+   `runners/multi_run.py`/`cli.py` is a **blocking contract for item 004**, *not*
    implemented here unless the conformance test cannot otherwise be satisfied — this
-   item ships the *data* and the schema field, not runner changes.
+   item ships the *data* and the schema field, not runner changes. **Item 002's verify
+   gate is scoped to parse + schema + conformance (pure, no live model)**; the T3/T4
+   chains exceed the global default of 6 and so *cannot* be exercised end-to-end until
+   004 threads the per-task budget. Without that wiring every T3/T4 task would stop at
+   `max_steps` and grade as a step-limit failure that *looks like* an agent failure but
+   is harness starvation — the exact confound AC 12 exists to prevent. The conformance
+   floor (`max_steps >= dependent_calls + 2`) proves the dataset is *runnable once
+   wired* without running it. Recorded as ADR 0004 and Resolved decision Q2.
 
 9. **Taxonomy doc and rubric doc exist and are self-consistent with the data.** Two
    committed docs under the run dir:
@@ -158,7 +186,13 @@ artifact.
     conformance test asserts every task carries `review` and that the ledger has one
     entry per task id (count and id-set match the dataset). Format chosen:
     metadata-field-plus-ledger (both), so the dataset is self-describing *and* the
-    review is human-auditable in one place.
+    review is human-auditable in one place. **The `metadata.review` field — riding the
+    append-only row — is the source of truth for review coverage; the `review-ledger.md`
+    is a regenerable human-audit view, never the gate.** This keeps the binding record
+    inside the append-only dataset row (§9: "provenance on every item; append-only
+    versions"): re-reviewing under a new rubric version is a *new dataset version*, not
+    an in-place row edit, and a ledger edit can never silently un-gate a row (see
+    Resolved decision Q4).
 
 11. **Determinism is enforced, not asserted in prose.** Every new tool impl is a pure
     function of `(args, state)`; a property/conformance test feeds each v2 tool a fixed
@@ -179,8 +213,20 @@ artifact.
     id, or doc id the expected calls/final-state reference exists in `initial_state`
     (or, for create-then-act chains, is the deterministic next id the world will mint);
     (f) the tier-mix, capability-set, verification-histogram, `review`-present, and
-    ledger-parity assertions from AC 4/5/6/10. The module is pure (no network, no
-    model), runs in CI, and is written test-first.
+    ledger-parity assertions from AC 4/5/6/10;
+    (g) **distractor-never-expected** — no distractor tool name
+    (`archive_ticket`, `find_account`, `draft_email`) appears in any
+    `ExpectedToolCall` (including those nested inside `AllOf`), **and** no
+    `StateEquals`/`StateContains` asserts a distractor's signature value
+    (`status:"archived"`, `emails.*.state:"draft"`) as a *passing* outcome; a
+    distractor may appear only inside a `NoToolCall` (forbidding it) or as the
+    wrong-path state a correct `FinalStateSpec` discriminates against — so a
+    task-author slip can never bless a distractor path (see Resolved decision Q3);
+    (h) **state-dependency proxy** (AC 7) — every `multi_step_depth`/`derived_argument`
+    task references at least one entity id absent from both `initial_state` and the
+    user-message text, computing the minted next-id from `initial_state` exactly as the
+    world will (reusing the AC 12e precondition machinery). The module is pure (no
+    network, no model), runs in CI, and is written test-first.
 
 13. **Harness gates stay green and v1 is untouched.** `uv run pytest -q`,
     `uv run ruff check .`, `uv run ruff format --check .` are all clean. `v1.jsonl`,
@@ -342,3 +388,97 @@ a single run-level `max_steps` argument. It is resolved *for this item* (ship th
 + field; do not change the runner) and explicitly handed to item 004, which performs the
 live v2 runs and will need to thread the per-task budget. Recording it here so item 004
 inherits the decision rather than rediscovering it.
+
+## Resolved decisions
+
+Output of the `grill-with-docs` pass (subagent: opus) hardening this spec against the
+domain model *before* the plan phase. Autonomy override in effect: each question is
+auto-resolved to the reviewer's recommended answer. Corrections are applied as inline
+strike-throughs above; nothing is deleted.
+
+**Q1 — Does the hard-tier design *actually* discriminate, or can a task be "long yet
+easy"?** A rote chain (e.g. eight independent `create_ticket` calls) is long but
+trivially parallelizable and discriminates nothing. The spec's prose demanded
+state-dependence but the original AC 12 did *not* check it.
+- **A:** AC 7 now mandates a pure **anti–rote-chain proxy** and AC 12(h) enforces it:
+  every `multi_step_depth`/`derived_argument` task must reference ≥1 entity id absent
+  from both `initial_state` and the user-message text (a minted next-id or a
+  `list_tickets`/`find_account`-surfaced id). Rubric item (g) adds the human gate.
+- **Rationale:** A pure test cannot prove the *sufficient* semantic property (needs a
+  live model — item 004), but it *can* enforce a *necessary* structural witness that
+  every rote chain fails. This converts "designed to discriminate" from assertion to
+  auditable property using machinery AC 12e already needs (deterministic next-id).
+- **Doc impact:** spec AC 7 + AC 12(h); CONTEXT.md adds **State-dependent chain**,
+  **Difficulty knob**, **Tier**.
+
+**Q2 — `max_steps`: does deferring runner wiring to item 004 leave T3/T4 unrunnable for
+002's verify gate?** Confirmed the runner's loop budget is a *global* `max_steps`,
+defaulting to `6` (`cli.py --max-steps`; `runners/loop.py` `for _ in range(max_steps)`).
+A dependent 8-call chain needs ≥8 iterations + a confirm turn ⇒ 9–10, far above 6.
+- **A:** **Defer wiring to 004; scope item 002's verify gate to parse + schema +
+  conformance (pure, no live model).** Item 002 ships the `metadata.max_steps` field +
+  data + a conformance floor (`max_steps >= dependent_calls + 2`) that *proves the
+  dataset is runnable once wired* without running it. Wiring per-task `max_steps`
+  through `multi_run.py`/`cli.py` is a **blocking contract for item 004** (which owns
+  the live v2 runs and needs it regardless).
+- **Rationale:** AC 13 already forbids a live run in 002, so there is no live gate to
+  fail; wiring now would ship untestable runner code (violating TDD). The danger — if
+  004 forgets the contract, every T3/T4 task stops at `max_steps` and grades as a
+  *step-limit* failure masquerading as an agent failure — is mitigated structurally by
+  the conformance floor in 002 + the blocking note to 004.
+- **Doc impact:** **ADR 0004** (per-task `max_steps` is data; wiring deferred); spec
+  AC 8 rewritten; CONTEXT.md adds **max_steps (task hint)**.
+
+**Q3 — Can a task-author slip bless a distractor path?** Original AC 12 checked tools
+are registered and args valid, but *not* that a distractor is never the correct path.
+- **A:** AC 12(g) now asserts **distractor-never-expected**: no distractor name
+  (`archive_ticket`/`find_account`/`draft_email`) in any `ExpectedToolCall` (incl.
+  nested in `AllOf`), and no `StateEquals`/`StateContains` asserting a distractor's
+  signature value (`status:"archived"`, `emails.*.state:"draft"`) as a *passing*
+  outcome. A distractor may appear only inside a `NoToolCall` or as the wrong-path
+  state a correct `FinalStateSpec` discriminates against.
+- **Rationale:** The distractor signature set is closed and enumerable, so the check is
+  pure and total; it makes `distractor_resistance` a scorable capability that a typo
+  cannot silently invert. No ADR (the obvious correct check, no real alternative).
+- **Doc impact:** spec AC 12(g); CONTEXT.md adds **Distractor tool**.
+
+**Q4 — Review evidence: metadata field, ledger, or both — against §9 append-only?**
+- **A:** **Both**, with the **`metadata.review` field (riding the append-only row) as
+  the source of truth** and the `review-ledger.md` as a regenerable human-audit view,
+  never the gate.
+- **Rationale:** §9 append-only governs the *rows*; the field is part of the row, so it
+  is frozen-with-the-row and re-review under a new rubric is a *new version*, not an
+  in-place edit. The ledger is a doc, not versioned data — its only obligation is
+  id-parity (already asserted). A ledger edit can never un-gate a row.
+- **Doc impact:** spec AC 10 hardened; CONTEXT.md adds **review (task)**.
+
+**Q5 — Does `world_template_id` need adding for the Weeks 9-10 splits?** **No — it
+already exists** on `TaskMetadata` and v1 populates it (`workspace-v1`); v2 sets
+`workspace-v2`. Zero retrofit. §7 confirms it is the isolation boundary.
+- **Doc impact:** CONTEXT.md adds **world_template_id** (records it as the §7 isolation
+  boundary so future split work does not reinvent it). No spec change.
+
+**Q6 — Task-id scheme / file name / `version` semantics.** Spec fixed the file name and
+`version:"2"` but was silent on the *task-id scheme*.
+- **A:** Task ids are **`ws2-001`…`ws2-050`** (distinct prefix from v1's `ws-NNN`);
+  file `workspace_tool_use_v2.jsonl` (unchanged); `metadata.version` is the
+  **dataset/world generation string**, co-varying with `world_template_id`, NOT a
+  per-row revision number.
+- **Rationale:** Reusing `ws-NNN` would collide v1 and v2 ids when their runs/traces
+  coexist in one report or the §9 flywheel — task id is the join key. A distinct prefix
+  is the cheap, sortable fix.
+- **Doc impact:** spec AC 4 (id scheme added); CONTEXT.md adds **version (dataset)**.
+
+**Q7 — `provenance`: spec said `"hand_authored"`, but v1 + every test use
+`"hand_written"`.** A second spelling for "a human wrote it".
+- **A:** v2 uses **`provenance:"hand_written"`** (match v1); `"hand_authored"` struck.
+- **Rationale:** Provenance values are *counted* in the dataset card (§9 "provenance
+  counts"); a synonym fractures the aggregate and forces every counter to know both
+  spellings. One concept, one canonical term — glossary discipline.
+- **Doc impact:** spec AC 4 (strike-through correction); CONTEXT.md adds **provenance**
+  with `hand_authored`/`hand-authored`/`manual` listed under _Avoid_.
+
+**Q8 — Does v2 need new `VerificationSpec`/constraint variants?** **No** (confirmed
+against item 001's shipped union and the grader code). Unchanged from brainstorming;
+the parser-gap escape hatch stands.
+- **Doc impact:** none.
