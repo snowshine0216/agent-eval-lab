@@ -1,0 +1,9 @@
+{
+  "name": "output match grades the final assistant message",
+  "verification": {"type": "output_match", "expected_output": "All done.", "normalizer": null},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Say 'All done.'"},
+    {"type": "message", "role": "assistant", "content": "All done."}
+  ]},
+  "expected": {"passed": true, "failure_reason": null}
+}

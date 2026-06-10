@@ -1,0 +1,8 @@
+{
+  "name": "right tool with wrong argument value is wrong_args",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "search_docs", "arguments": {"query": "refund policy"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "search_docs", "arguments": {"query": "billing"}}]}
+  ]},
+  "expected": {"passed": false, "failure_reason": "wrong_args"}
+}

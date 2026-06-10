@@ -1,0 +1,9 @@
+{
+  "name": "integer where the enum string is required is a schema_violation, never coerced",
+  "verification": {"type": "tool_call_match", "expected_tool_calls": [{"name": "create_ticket", "arguments": {"title": "Printer offline", "priority": "low"}}], "match": "exact_sequence"},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Create a ticket titled 'Printer offline' with priority low."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "create_ticket", "arguments": {"title": "Printer offline", "priority": 1}}]}
+  ]},
+  "expected": {"passed": false, "failure_reason": "schema_violation"}
+}
