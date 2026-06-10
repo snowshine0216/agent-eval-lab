@@ -1,21 +1,23 @@
-"""Deterministic exact-match grading."""
+"""OutputMatchSpec scorer (formerly the standalone exact-match grader)."""
 
-from dataclasses import dataclass
+from agent_eval_lab.tasks.grading import GradeResult
 
-
-@dataclass(frozen=True)
-class GradeResult:
-    """Immutable result produced by a grader."""
-
-    passed: bool
-    score: float
-    feedback: str
+_GRADER_ID = "output_match"
 
 
 def grade_exact_match(*, expected: str, actual: str) -> GradeResult:
-    """Grade values that match exactly."""
+    """Grade values that match exactly. Survives as the OutputMatchSpec scorer."""
     if expected == actual:
-        return GradeResult(passed=True, score=1.0, feedback="Values match exactly.")
-
-    feedback = f"Expected {expected!r}, received {actual!r}."
-    return GradeResult(passed=False, score=0.0, feedback=feedback)
+        return GradeResult(
+            grader_id=_GRADER_ID,
+            passed=True,
+            score=1.0,
+            evidence={"message": "Values match exactly."},
+        )
+    return GradeResult(
+        grader_id=_GRADER_ID,
+        passed=False,
+        score=0.0,
+        evidence={"message": f"Expected {expected!r}, received {actual!r}."},
+        failure_reason="wrong_tool",
+    )
