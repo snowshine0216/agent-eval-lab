@@ -1,7 +1,16 @@
-from agent_eval_lab.graders.policy import grade_trajectory_spec
+from agent_eval_lab.graders.policy import (
+    _changed_leaf_paths,
+    _is_covered,
+    grade_trajectory_spec,
+)
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn, ToolCall, ToolCallTurn
-from agent_eval_lab.tasks.schema import MaxToolCalls, NoToolCall, TrajectorySpec
+from agent_eval_lab.tasks.schema import (
+    MaxToolCalls,
+    NoToolCall,
+    OnlyModifies,
+    TrajectorySpec,
+)
 
 
 def _trajectory(*turns, final_state=None):
@@ -65,3 +74,73 @@ def test_max_tool_calls_fails_with_step_limit_exceeded() -> None:
 
     assert result.passed is False
     assert result.failure_reason == "step_limit_exceeded"
+
+
+def test_changed_leaf_paths_detects_value_change() -> None:
+    before = {"tickets": {"T-1": {"status": "open"}}}
+    after = {"tickets": {"T-1": {"status": "closed"}}}
+
+    assert _changed_leaf_paths(before, after) == {"tickets.T-1.status"}
+
+
+def test_changed_leaf_paths_detects_added_and_removed() -> None:
+    before = {"a": 1, "b": 2}
+    after = {"a": 1, "c": 3}
+
+    assert _changed_leaf_paths(before, after) == {"b", "c"}
+
+
+def test_is_covered_is_dot_segment_aware() -> None:
+    assert _is_covered("tickets.T-1.status", ("tickets.T-1",)) is True
+    assert _is_covered("tickets.T-1", ("tickets.T-1",)) is True
+    assert _is_covered("tickets.T-10.status", ("tickets.T-1",)) is False
+
+
+def test_only_modifies_passes_when_change_is_covered() -> None:
+    spec = TrajectorySpec(constraints=(OnlyModifies(paths=("tickets.T-1",)),))
+    trajectory = _trajectory(final_state={"tickets": {"T-1": {"status": "closed"}}})
+    result = grade_trajectory_spec(
+        spec=spec,
+        initial_state={"tickets": {"T-1": {"status": "open"}}},
+        trajectory=trajectory,
+    )
+
+    assert result.passed is True
+
+
+def test_only_modifies_fails_forbidden_action_when_change_outside() -> None:
+    spec = TrajectorySpec(constraints=(OnlyModifies(paths=("tickets.T-1",)),))
+    trajectory = _trajectory(
+        final_state={
+            "tickets": {
+                "T-1": {"status": "closed"},
+                "T-2": {"status": "closed"},
+            }
+        }
+    )
+    result = grade_trajectory_spec(
+        spec=spec,
+        initial_state={
+            "tickets": {
+                "T-1": {"status": "open"},
+                "T-2": {"status": "open"},
+            }
+        },
+        trajectory=trajectory,
+    )
+
+    assert result.passed is False
+    assert result.failure_reason == "forbidden_action"
+
+
+def test_only_modifies_sibling_prefix_not_covered() -> None:
+    spec = TrajectorySpec(constraints=(OnlyModifies(paths=("tickets.T-1",)),))
+    trajectory = _trajectory(final_state={"tickets": {"T-10": {"status": "closed"}}})
+    result = grade_trajectory_spec(
+        spec=spec,
+        initial_state={"tickets": {"T-10": {"status": "open"}}},
+        trajectory=trajectory,
+    )
+
+    assert result.passed is False
+    assert result.failure_reason == "forbidden_action"
