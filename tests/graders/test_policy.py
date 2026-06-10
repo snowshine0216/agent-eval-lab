@@ -1,6 +1,7 @@
 from agent_eval_lab.graders.policy import (
     _changed_leaf_paths,
     _is_covered,
+    _leaf_paths,
     grade_trajectory_spec,
 )
 from agent_eval_lab.records.trajectory import Trajectory, Usage
@@ -144,3 +145,52 @@ def test_only_modifies_sibling_prefix_not_covered() -> None:
 
     assert result.passed is False
     assert result.failure_reason == "forbidden_action"
+
+
+# --- Amendment (2026-06-10): empty-mapping leaf semantics ---
+
+
+def test_leaf_paths_empty_mapping_at_root_yields_no_leaves() -> None:
+    """Root empty mapping contributes no leaves (not a phantom key)."""
+    assert _leaf_paths({}) == {}
+
+
+def test_leaf_paths_empty_mapping_nested_yields_no_leaves() -> None:
+    """Nested empty mapping also contributes no leaves (root/nested consistency)."""
+    assert _leaf_paths({"tickets": {}}) == {}
+
+
+def test_changed_leaf_paths_empty_to_populated_detects_only_new_leaves() -> None:
+    """Empty-to-populated subtree: only real leaf paths detected, no phantom keys."""
+    before = {"tickets": {}}
+    after = {"tickets": {"T-1": {"status": "closed"}}}
+
+    changed = _changed_leaf_paths(before, after)
+
+    assert changed == {"tickets.T-1.status"}
+
+
+def test_only_modifies_phantom_path_repro() -> None:
+    """Repro 001-ship-blocked: empty initial subtree must not produce phantom-fail."""
+    spec = TrajectorySpec(constraints=(OnlyModifies(paths=("tickets.T-1",)),))
+    trajectory = _trajectory(final_state={"tickets": {"T-1": {"status": "closed"}}})
+    result = grade_trajectory_spec(
+        spec=spec,
+        initial_state={"tickets": {}},
+        trajectory=trajectory,
+    )
+
+    assert result.passed is True
+    assert result.failure_reason is None
+
+
+def test_leaf_to_empty_mapping_still_detected_as_change() -> None:
+    """Replacing a leaf value with an empty mapping is still detected as a change."""
+    before = {"a": 1}
+    after = {"a": {}}
+
+    changed = _changed_leaf_paths(before, after)
+
+    # "a" was a leaf in before (value 1); in after it's an empty mapping (no leaves).
+    # The union of key sets includes "a" from before, absent from after → changed.
+    assert "a" in changed

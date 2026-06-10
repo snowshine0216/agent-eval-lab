@@ -26,3 +26,17 @@ dot-segment boundaries, not raw string prefixes. Dataset authors declare the
 *subtree* an agent may touch; the grader treats every leaf outside those
 subtrees as a forbidden modification. This makes `OnlyModifies` the side-effect
 allowlist the composite-verification design depends on.
+
+## Amendment (2026-06-10)
+
+Empty mappings contribute no leaves at any depth: `_leaf_paths` treats an empty
+Mapping as nothing (no entry emitted), whether at the root or nested. As a
+consequence, creation or deletion of an *empty* container is invisible to
+`OnlyModifies` (e.g. `{}` → `{"tickets": {}}` detects no change). This is a
+known, accepted blind spot of leaf-diff semantics. The rationale: the previous
+asymmetric behaviour (empty mapping at root → no leaves; nested → phantom leaf
+`{prefix: {}}`) produced false FAILs (wrong grades) when an agent correctly
+populated a subtree whose initial value was an empty container — suppressing
+`pass^k` signal on valid runs. Eliminating phantom-path false FAILs is the
+higher-priority correctness property; not policing unobservable empty-container
+creation is the accepted trade-off.

@@ -51,11 +51,14 @@ def _check_max_tool_calls(
 
 
 def _leaf_paths(state: Any, prefix: str = "") -> dict[str, Any]:
-    """Flatten a nested mapping into {dot_path: leaf_value}. Non-mappings are leaves."""
+    """Flatten a nested mapping into {dot_path: leaf_value}. Non-mappings are leaves.
+
+    Empty mappings contribute no leaves at any depth (consistent root/nested
+    behaviour). Blind spot: creation or deletion of an *empty* container is
+    invisible to leaf-diff (e.g. {} → {"tickets": {}} detects no change).
+    """
     if not isinstance(state, Mapping):
-        return {prefix: state}
-    if not state:
-        return {prefix: {}} if prefix else {}
+        return {prefix: state} if prefix else {}
     leaves: dict[str, Any] = {}
     for key, value in state.items():
         child_prefix = f"{prefix}.{key}" if prefix else str(key)
