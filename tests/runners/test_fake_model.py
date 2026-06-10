@@ -3,10 +3,18 @@ from agent_eval_lab.tasks.turns import MessageTurn, ToolCallTurn
 
 
 def test_scripted_steps_replayed_in_order():
-    model = FakeModel(scripts={"t1": [
-        {"type": "tool_call", "name": "search_docs", "arguments": {"query": "x"}},
-        {"type": "message", "content": "done"},
-    ]})
+    model = FakeModel(
+        scripts={
+            "t1": [
+                {
+                    "type": "tool_call",
+                    "name": "search_docs",
+                    "arguments": {"query": "x"},
+                },
+                {"type": "message", "content": "done"},
+            ]
+        }
+    )
     first = model.respond(task_id="t1", step=0)
     second = model.respond(task_id="t1", step=1)
     assert isinstance(first, ToolCallTurn)
@@ -15,7 +23,11 @@ def test_scripted_steps_replayed_in_order():
 
 
 def test_deterministic_same_inputs_same_call_id():
-    script = {"t1": [{"type": "tool_call", "name": "search_docs", "arguments": {"query": "x"}}]}
+    script = {
+        "t1": [
+            {"type": "tool_call", "name": "search_docs", "arguments": {"query": "x"}}
+        ]
+    }
     a = FakeModel(scripts=script).respond(task_id="t1", step=0)
     b = FakeModel(scripts=script).respond(task_id="t1", step=0)
     assert a.tool_calls[0].call_id == b.tool_calls[0].call_id
