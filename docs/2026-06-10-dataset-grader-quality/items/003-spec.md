@@ -95,7 +95,10 @@ step 5).
 | 1 | Summary materially misrepresents what happened (multiple fabrications/contradictions, or claims success on a failed run). |
 
 **κ is computed on a pass-threshold binarization, not the raw 5-point scale**
-(threshold: `score >= 4` ⇒ "faithful", else "unfaithful"). Rationale: the roadmap
+(threshold: `score >= 4` ⇒ "faithful", else "unfaithful"). **The `>=4` cut is defined by the
+anchors, not free** (**Resolved D5**): the 4↔3 boundary is the only place in the scale where
+"a fabrication or a material omission" first appears — exactly the faithful/unfaithful line — so
+re-anchoring the rubric forces re-examining the threshold. Rationale: the roadmap
 deliverable names *Cohen's* κ (a categorical statistic) and the project's stats focus is
 *estimators + CIs*, not the ordinal-weighting theory weighted κ requires; binarizing to the
 pass/fail decision the grader actually emits keeps κ measuring *the decision we ship*
@@ -116,33 +119,60 @@ at the edge; the pure state grader only *reads* it, never replays the world).
 Pure core (`graders/judge.py`), no I/O, deterministic:
 
 - `build_judge_prompt(spec: LlmJudgeSpec, trajectory: Trajectory) -> tuple[Message, ...]`
-  — renders the rubric + the trajectory-derived evidence (the final assistant message and
-  a structured digest of the tool calls/results actually taken) into provider-shaped chat
-  messages. Pure ⇒ unit-testable, and the **prompt hash** (canonical-JSON sha256 over the
-  rendered messages) is a pure function of `(spec, trajectory)`.
-- `parse_judge_response(text: str, scale: tuple[int, int]) -> JudgeVerdict` — pure parse of
-  the model's reply into a `JudgeVerdict{score: int, rationale: str, raw: str}`;
-  out-of-range/unparseable score is a structured parse error, never a silent default.
+  — renders the rubric + the trajectory-derived evidence into provider-shaped chat messages.
+  The digest is a **deterministic, canonical** rendering (**Resolved D8**) of, in trajectory
+  order: every `ToolCallTurn` as `name(canonical-JSON args)` reusing `graders/canonical.py:
+  canonicalize` + `json.dumps(sort_keys=True)`; each paired `ToolResultTurn` outcome rendered
+  with its `ToolSuccess`/`ToolFailure` discriminator (`ok:<result>` / `error:<error>`); and the
+  final assistant `MessageTurn.content`. **`scale` is rendered into the prompt** ("score 1-5…")
+  so the prompt hash is a faithful key for *interpretation*, not just the reply (**Resolved D4**).
+  The judge is instructed to emit a final `SCORE: <int>` line (**Resolved D6**). Pure ⇒
+  unit-testable, and the **prompt hash** (sha256 over the canonical-JSON of the rendered
+  messages, `sort_keys=True`) is a pure function of `(spec, trajectory)`. Result-blob truncation
+  for large live trajectories is **out of scope** (fixtures are authored small; item 004 owns
+  the live v2 run) — **Resolved D8**.
+- `parse_judge_response(text: str, scale: tuple[int, int]) -> JudgeVerdict | JudgeParseFailure`
+  — pure parse of the model's reply into a `JudgeVerdict{score: int, rationale: str, raw: str,
+  ~~}~~ judge_model: str, prompt_hash: str}` (**Resolved D3** — the verdict is the *only*
+  channel to the pure grader, so it carries `judge_model`+`prompt_hash`; the edge stamps them).
+  The score is extracted from a required `SCORE: <int>` final line (**Resolved D6**); the three
+  pure failure cases — (a) no extractable integer (refusal/prose-only), (b) integer out of
+  `[lo, hi]`, (c) conflicting integers with no designated answer — each yield a structured
+  `JudgeParseFailure{raw, error}`, **never** clamped, defaulted, or first-wins-silently.
 - `grade_llm_judge(*, spec, trajectory, verdicts) -> GradeResult` — **reads a pre-computed
-  verdict** from the threaded `verdicts: Mapping[str, JudgeVerdict]` keyed by the pure
-  prompt hash; binarizes `score >= 4` ⇒ `passed`; records `score`, `judge_model`,
-  `prompt_hash`, and the raw response in `evidence` for auditability. If the key is absent
-  (runner did not pre-compute it) it returns a structured non-pass with an explicit
-  "judge not run" evidence marker — it **never** performs the call itself.
+  verdict** from the threaded `verdicts: Mapping[str, JudgeVerdict ~~}~~ | JudgeError]` keyed by
+  the pure prompt hash; binarizes `score >= 4` ⇒ `passed`; records `judge_model`, `prompt_hash`,
+  `score`, `scale`, `threshold`, `binary_label`, `rationale`, and `raw` in `evidence` for
+  auditability (**Resolved D3**). If the key is absent **or holds a `JudgeError`/`JudgeParseFailure`**
+  (runner did not pre-compute it, or the call/parse failed) it returns a structured non-pass
+  (`passed=False`, `failure_reason=None`) with an explicit "judge not run" / error evidence
+  marker (**Resolved D2**) — it **never** performs the call itself and **never** coerces a failure
+  into a pass or a policy-breach.
 
 Edge (`runners/judge_edge.py`), the *only* I/O:
 
-- `run_judge(*, spec, trajectory, config, http_client) -> JudgeVerdict` — builds the prompt
-  (pure), calls `runners/client.chat_completion` with the judge's `ProviderConfig` (reusing
-  the existing OpenAI-compatible client; the judge is just another provider/model), parses
-  the reply (pure). Returns plain serializable data.
+- `run_judge(*, spec, trajectory, config, http_client) -> JudgeVerdict ~~`~~ | JudgeError` —
+  builds the prompt (pure), calls `runners/client.chat_completion` with the judge's
+  `ProviderConfig` (reusing the existing OpenAI-compatible client; the judge is just another
+  provider/model), parses the reply (pure), and **stamps `judge_model` (from the config) +
+  `prompt_hash` onto the returned `JudgeVerdict`**. It **never lets an exception escape into the
+  verdict map** (**Resolved D2**): a transport/HTTP failure or a `JudgeParseFailure` from the
+  pure parser is captured as a serializable `JudgeError{kind, error, prompt_hash, judge_model}`
+  — the same explicit-sum-type discipline the runtime uses for `ToolFailure`/`ParseFailure`.
+  Returns plain serializable data.
 
 Dispatch (`graders/dispatch.py`): `grade_trajectory` gains an optional
-`verdicts: Mapping[str, JudgeVerdict] = {}` parameter, threaded unchanged through
-`grade_all_of` so a judge leg can live **inside** an `AllOf` beside deterministic legs
-(§6.5 step 5 coexistence). For an `LlmJudgeSpec`, dispatch calls the pure
-`grade_llm_judge`. The runner pre-computes the verdict map (one `run_judge` per
-`LlmJudgeSpec` reachable in the task's verification tree) before calling `grade_trajectory`.
+`verdicts: Mapping[str, JudgeVerdict ~~] = {}~~ | JudgeError] = {}` parameter; `grade_all_of`'s
+signature **also** gains `verdicts` and threads it unchanged into every recursive sub-call
+(**Resolved D1** — exactly as item 001 added `initial_state` and threaded it through
+`grade_all_of`; the spec's "threaded unchanged" understated that `grade_all_of`'s own signature
+changes). So a judge leg can live **inside** an `AllOf` beside deterministic legs (§6.5 step 5
+coexistence). For an `LlmJudgeSpec`, dispatch calls the pure `grade_llm_judge`. The runner
+pre-computes the verdict map by **first walking the spec tree with a pure
+`collect_judge_specs(verification) -> tuple[LlmJudgeSpec, ...]`** (recursing `AllOf` exactly as
+`grade_all_of` does, in the pure core — **Resolved D1**), running one `run_judge` per *distinct
+rendered prompt* (identical prompts dedup to one call — **Resolved D4**), then calling
+`grade_trajectory(..., verdicts=...)`.
 
 **Why not the alternatives:** (a) a `"needs_judge"` marker `GradeResult` returned mid-grade
 and re-graded later forces a two-pass grade and a mutable "fill in the verdict" step that
@@ -166,15 +196,21 @@ Each criterion is independently verifiable by a test, a command, or a committed 
    (dict → spec → grade-with-stubbed-verdict) passes.
 
 2. **The pure judge core is pure and total.** `graders/judge.py` exposes
-   `build_judge_prompt`, `parse_judge_response`, `grade_llm_judge`, and the `JudgeVerdict`
-   record. Unit tests (no mocks, no network) prove: identical `(spec, trajectory)` ⇒
-   identical prompt and identical prompt hash (determinism); a well-formed reply parses to
-   the right `JudgeVerdict`; an out-of-range or unparseable score yields a structured parse
-   error (not a default, not an exception that escapes); `grade_llm_judge` binarizes
-   at the documented threshold (`score >= 4` ⇒ `passed`, per the rubric section)
-   correctly and records `score`/`judge_model`/`prompt_hash`/`raw`
-   in `evidence`; a missing verdict key yields a structured non-pass with a "judge not run"
-   marker (never an outbound call — provably, since the module imports no http client).
+   `build_judge_prompt`, `parse_judge_response`, `grade_llm_judge`, the `JudgeVerdict` record,
+   ~~and~~ the `JudgeParseFailure` record, and the pure `collect_judge_specs` collector
+   (**Resolved D1/D2**). Unit tests (no mocks, no network) prove: identical `(spec, trajectory)`
+   ⇒ identical prompt and identical prompt hash (determinism, with `scale` rendered into the
+   prompt — **Resolved D4**); a well-formed reply (with its `SCORE: <int>` line) parses to the
+   right `JudgeVerdict`; each of the **three** parse-failure cases — no extractable integer,
+   out-of-range integer, conflicting integers (**Resolved D6**) — yields a structured
+   `JudgeParseFailure` (not a default, not a clamp, not an escaped exception); `grade_llm_judge`
+   binarizes at the documented threshold (`score >= 4` ⇒ `passed`, per the rubric section)
+   correctly and records ~~`score`/`judge_model`/`prompt_hash`/`raw`~~
+   `judge_model`/`prompt_hash`/`score`/`scale`/`threshold`/`binary_label`/`rationale`/`raw`
+   in `evidence` (**Resolved D3**); a missing verdict key **or a `JudgeError`/`JudgeParseFailure`
+   at the key** yields a structured non-pass (`failure_reason=None`) with a "judge not run" /
+   error marker (**Resolved D2**) — never an outbound call (provably, since the module imports no
+   http client) and never a coerced pass/policy-breach.
 
 3. **Dispatch threads verdicts purely and supports a judge leg inside `AllOf`.**
    `grade_trajectory(..., verdicts=...)` dispatches `LlmJudgeSpec` to `grade_llm_judge`;
@@ -188,9 +224,11 @@ Each criterion is independently verifiable by a test, a command, or a committed 
 4. **The edge runs the judge and records auditable evidence.** `runners/judge_edge.py`
    `run_judge` builds the prompt (pure), calls `chat_completion` with a judge
    `ProviderConfig`, parses the reply (pure), returns a `JudgeVerdict` carrying
-   `judge_model`, `prompt_hash`, raw response text, and `score`. An integration test with a
-   **recorded/stubbed** http client (no live call) asserts the verdict round-trips and the
-   evidence is complete. No live API call is in this AC's verify gate.
+   `judge_model`, `prompt_hash`, raw response text, and `score` — **or a `JudgeError` on
+   transport/HTTP/parse failure, never an escaped exception** (**Resolved D2**). Integration
+   tests with a **recorded/stubbed** http client (no live call) assert both the success
+   round-trip *and* that a stubbed transport error / a refusal reply produce a serializable
+   `JudgeError` (not a crash, not a coerced score). No live API call is in this AC's verify gate.
 
 5. **Cohen's κ + bootstrap CI are pure, with hand-verified test vectors.**
    `metrics/agreement.py` provides pure functions over two raters' label sequences:
@@ -206,16 +244,26 @@ Each criterion is independently verifiable by a test, a command, or a committed 
    note (§6.5 step 4):** the report surfaces observed agreement and the confusion matrix
    alongside κ so a high-agreement/low-κ base-rate artifact is visible; per-class agreement
    is reported. (Krippendorff α / Gwet AC1 are **out of scope** — noted as future, per the
-   roadmap naming Cohen's κ only.)
+   roadmap naming Cohen's κ only.) **A separate hand-verified test vector for quadratic-weighted
+   κ** over a small ordinal table (3×3 or 5×5), computed by hand or against a published worked
+   example, is **required** — the 2×2 unweighted literature vectors do not exercise the weighting
+   (**Resolved D6b**). **Degenerate bootstrap resamples** (a resample drawing a single category
+   for one rater) take the same structured path as degenerate top-level input (κ=0 with a flag);
+   `kappa_bootstrap_ci` **counts and reports** how many resamples were degenerate, never silently
+   dropping them or crashing (**Resolved D7**).
 
 6. **Blind annotation packet — export, import, validate.** `calibrate/packet.py` (pure)
-   builds a packet from the calibration fixtures with: a rubric header (the anchored scale
-   verbatim), a fixed deterministic item order, one entry per trajectory showing the
-   *trajectory only* (final assistant message + tool-call/result digest) and an **empty
-   score field** — the packet **never shows any judge score** (blind labeling, §6.5 step 1).
+   builds a packet from the calibration fixtures with: a `packet_format` version field + a
+   `rubric_version` (**Resolved D11** — `import_packet` rejects a mismatched `packet_format`
+   rather than mis-parsing), a rubric header (the anchored scale verbatim), a fixed deterministic
+   item order, one entry per trajectory showing the *trajectory only* (final assistant message +
+   tool-call/result digest) and an **empty score field** — the packet **never shows any judge
+   score nor any fixture's intended label** (blind labeling, §6.5 step 1; intended labels live in
+   the AC-7 fixture design table, **outside** the packet — **Resolved D9**).
    `import_packet` parses a filled packet and **validates completeness** (every item scored,
-   every score in range, item-set and order match the exported packet — a partial or
-   reordered packet is a structured error). When **≥2** filled annotator files are present,
+   every score in range, `packet_format` matches, item-set and order match the exported packet —
+   a partial, reordered, or version-mismatched packet is a structured error). When **≥2** filled
+   annotator files are present,
    it computes **human–human κ + bootstrap CI + confusion matrix** purely. Format: JSONL
    (one object per item; machine-checkable, diffable, fixed order) with a sibling
    human-readable markdown view; JSONL is the source of truth. Tests cover export
@@ -230,10 +278,17 @@ Each criterion is independently verifiable by a test, a command, or a committed 
    claims-success-on-failure case) so κ is not dominated by one base rate, and is
    **separate** from `workspace_tool_use_v2.jsonl` (AC 12). A pure conformance test asserts:
    every fixture parses, every `LlmJudgeSpec` parses, the count is in `[12, 20]`, and the
-   intended-label distribution spans ≥3 of the 5 anchors.
+   intended-label distribution spans ≥3 of the 5 anchors. **A fixture design table is a required
+   deliverable** (**Resolved D9**) — one row per fixture: `fixture_id | intended_anchor (1–5) |
+   planted failure type (faithful / minor-omission / material-omission / fabrication /
+   claims-success-on-failure) | one-line description`, committed in the runbook or a fixtures
+   README. Discrimination lives in this design; the table makes "balanced by design" auditable.
+   The intended label is **never** shipped inside the blind packet.
 
-8. **CLI: `calibrate export-packet` and `calibrate compute`.** Two argparse subcommands on
-   the existing parser (mirroring `run-baseline`'s shape): `calibrate export-packet
+8. **CLI: `calibrate export-packet` and `calibrate compute`.** A ~~Two argparse subcommands on
+   the existing parser (mirroring `run-baseline`'s shape)~~ **nested** `calibrate` subparser
+   (a sub-subparser group hanging off the top-level `dest="command"`, coexisting with the flat
+   `run-baseline` — **Resolved D11**): `calibrate export-packet
    --fixtures <dir> --out <packet.jsonl>` writes the blind packet; `calibrate compute
    --packets <file...> [--out <report.md>]` validates each filled packet and, with ≥2,
    computes human–human κ + CI + confusion matrix and renders a report. Both delegate all
@@ -257,9 +312,16 @@ Each criterion is independently verifiable by a test, a command, or a committed 
    recruiting annotator #2 (per SKIPPED.md), then re-running `calibrate compute` to replace
    these numbers. **The live two-model run executes here** (keys available; deepseek/glm
    cost cents; it is a *cheap* run over ≤20 fixtures, single-shot per fixture, not k-repeated)
-   — see Resolved Q5 for why here and not item 004. The **harness + all unit/integration
-   tests are pure or stubbed** and form the verify gate; the provisional live run is a
-   committed artifact, not a test dependency (no network in CI).
+   — see Resolved Q5 for why here and not item 004. **`provisional-label` pre-flights the
+   provider key** (checks `os.environ` for the config's `api_key_env` before any call) and exits
+   with a documented "key unset; provisional run skipped" message rather than crashing mid-corpus
+   or emitting a partial packet (**Resolved D12**); the committed report records which models
+   actually ran and whether any was skipped for a missing key. Keys live in `../.env`
+   (`DEEPSEEK_API_KEY` + `SILICONFLOW_API_KEY` confirmed present) and are read by env-var *name*
+   via `ProviderConfig.api_key_env`, never inlined. The **harness + all unit/integration tests
+   are pure or stubbed** and form the verify gate; the provisional live run is a committed
+   artifact, not a test dependency (no network in CI) — absent keys never break CI, only skip the
+   artifact.
 
 10. **Calibration runbook is committed and self-consistent.**
     `docs/.../calibration-runbook.md` documents the §6.5 six-step protocol *as operated by
@@ -272,7 +334,12 @@ Each criterion is independently verifiable by a test, a command, or a committed 
     **recalibrate whenever `judge_model` changes** (the verdict's recorded `judge_model` is
     the trigger). The runbook names the κ acceptance threshold to be used (κ ≥ 0.6
     substantial, as the documented bar) and states the threshold is the human's gate, not
-    an autonomous one. It cross-references SKIPPED.md for the human-label unblock path.
+    an autonomous one. **It states honestly that at n≈12–20 the bootstrap CI is wide and
+    n-dominated — a plumbing/feasibility number, not a reliability verdict** (**Resolved D7**),
+    reinforcing the PROVISIONAL framing; it justifies **percentile** CI over BCa (BCa's
+    bias/acceleration adds complexity for little gain when sample size dominates the error, and
+    percentile matches the §4.6 idiom). It cross-references SKIPPED.md for the human-label
+    unblock path.
 
 11. **The judge is NOT added to `workspace_tool_use_v2` and coexists, never replaces.**
     `workspace_tool_use_v2.jsonl` is **byte-for-byte unchanged** (asserted by leaving its
@@ -326,10 +393,11 @@ Each criterion is independently verifiable by a test, a command, or a committed 
   global). `grade_trajectory` stays pure: it gains only an immutable `Mapping` of
   pre-computed verdicts and never acquires an I/O dependency. The pure/edge boundary is
   identical to the existing `final_state` precedent.
-- **Records stay frozen + serializable.** `LlmJudgeSpec` and `JudgeVerdict` are frozen
-  `kw_only` dataclasses round-tripping to JSONL via the existing `serialize.py` patterns.
-  `GradeResult` is unchanged (the judge writes into the existing `evidence` mapping); no new
-  field on `GradeResult`.
+- **Records stay frozen + serializable.** `LlmJudgeSpec`, `JudgeVerdict`, `JudgeError`, and
+  `JudgeParseFailure` are frozen `kw_only` dataclasses round-tripping to JSONL via the existing
+  `serialize.py` patterns; `JudgeVerdict` carries `judge_model`+`prompt_hash` (self-describing —
+  **Resolved D3**). `GradeResult` is unchanged (the judge writes into the existing `evidence`
+  mapping); no new field on `GradeResult`.
 - **Provider-client reuse, no new client.** The judge calls the *existing*
   `runners/client.chat_completion` with a judge `ProviderConfig` from the existing registry.
   No second HTTP path, no SDK. API keys are read by env-var **name** (never inlined), exactly
@@ -439,3 +507,123 @@ demonstrate coexistence — never as a sole or added grader on a v2 row.
   certification to a completed human calibration, which is OPEN. The provisional run uses
   `deepseek`/`glm` as *annotators*, which is a separate role from a *certified judge_model*;
   the runbook records that certifying a `judge_model` requires the human calibration first.
+
+## Resolved decisions (grill, 2026-06-10)
+
+Eight adversarial angles grilled against the live codebase; all resolved, auto-accepted (no user
+in the autonomous loop). `D` ids cross-reference the inline strike-throughs above.
+
+**D1 — When does the runner know a task needs a judge, and is the spec-tree walk pure?**
+- A: A **pure `collect_judge_specs(verification) -> tuple[LlmJudgeSpec, ...]`** in the core
+  recurses `AllOf` exactly as `grade_all_of` does; the edge runs one `run_judge` per distinct
+  rendered prompt, then calls `grade_trajectory(..., verdicts=...)`. `grade_all_of`'s own
+  signature gains `verdicts` (the spec said "threaded unchanged" but understated this) — the
+  exact precedent is item 001 adding `initial_state` and threading it through `grade_all_of`.
+- Rationale: the "what needs a judge" decision must be a pure function of the spec tree; burying
+  the walk in the edge would put grading logic in the shell. Verified: no collector exists yet;
+  `grade_all_of` (composite.py) injects `grade` and recurses with a fixed keyword set.
+- Doc impact: spec architecture + AC 2/3; ADR 0005; CONTEXT.md (JudgeVerdict, prompt hash).
+
+**D2 — Judge call/parse failure: explicit state, never silent pass/fail.**
+- A: Mirror `ToolOutcome`. `parse_judge_response -> JudgeVerdict | JudgeParseFailure` (pure);
+  `run_judge -> JudgeVerdict | JudgeError` (edge, never lets an exception escape). Verdict map
+  value type is `JudgeVerdict | JudgeError`. A `JudgeError`/`JudgeParseFailure` at a key (or a
+  missing key) ⇒ structured non-pass (`failure_reason=None`) with the error in `evidence` —
+  never a coerced pass, never a faked policy breach.
+- Rationale: the codebase already enforces explicit-sum-type failures (`ToolSuccess|ToolFailure`,
+  `ParseFailure`, `parse.py` never raising on bad args). The judge is the same discipline.
+- Doc impact: spec architecture + AC 2/4; constraints; ADR 0005; CONTEXT.md (JudgeVerdict).
+
+**D3 — What is in evidence for a judge leg, and where does it come from?**
+- A: `JudgeVerdict` must carry `judge_model` + `prompt_hash` (the edge stamps them) because the
+  pure grader has **no other source** — the verdict is the only edge→core channel. Evidence =
+  `{judge_model, prompt_hash, score, scale, threshold, binary_label, rationale, raw}`.
+- Rationale: the spec's original `JudgeVerdict{score, rationale, raw}` could not populate the
+  evidence its own AC 4 demands. Self-describing verdict is the load-bearing consequence of the
+  purity boundary.
+- Doc impact: spec architecture + AC 2; constraints; ADR 0005; CONTEXT.md (JudgeVerdict).
+
+**D4 — Is the verdict map keyed robustly (collisions)?**
+- A: Key = prompt hash over canonical-JSON rendered messages. Two legs with byte-identical
+  prompts legitimately share one verdict (correct dedup). The reverse hazard (same hash, should
+  differ) is prevented by **rendering every interpretation-affecting field — notably `scale` —
+  into the prompt**, so legs that should differ render different prompts and hash apart.
+- Rationale: a hash that omitted `scale` would be an unsound key for binarization. Rendering it
+  makes the hash faithful to interpretation, not just to the reply.
+- Doc impact: spec architecture + AC 2; CONTEXT.md (prompt hash).
+
+**D5 — Justify the `score >= 4` binarization threshold.**
+- A: Not a free parameter — **defined by the anchors**: the 4↔3 boundary is the only place in
+  the scale where "a fabrication or material omission" first appears, which is exactly the
+  faithful/unfaithful line. Re-anchoring the rubric forces re-examining the cut.
+- Rationale: couples the threshold to the rubric, so the binarization can't drift from the
+  scale's semantics. Strengthens ADR 0006.
+- Doc impact: spec rubric section; ADR 0006.
+
+**D6 — Parse contract + weighted-κ test vector.**
+- A: (D6) The judge emits a final `SCORE: <int>` line; the parser extracts exactly that and
+  structurally fails on (a) no integer, (b) out-of-range, (c) conflicting integers — never
+  clamps/defaults. (D6b) Quadratic-weighted κ needs its **own** hand-verified ordinal test
+  vector (3×3 or 5×5); the 2×2 unweighted literature vectors do not exercise the weighting.
+- Rationale: a named extraction contract makes the parse deterministic and the failure modes
+  enumerable/testable; weighted κ would otherwise ship untested against a known value (TDD gap).
+- Doc impact: spec architecture + AC 2/5.
+
+**D7 — Bootstrap CI: percentile vs BCa; n-dependence; degenerate resamples.**
+- A: Keep **percentile** (BCa's bias/acceleration adds complexity for little gain when sample
+  size dominates the error; percentile matches the §4.6 idiom). Runbook states honestly that
+  n≈12–20 ⇒ wide, n-dominated CI = a feasibility number, not a verdict. Degenerate *resamples*
+  (single-category draw) take the same structured κ=0-with-flag path as degenerate top-level
+  input; `kappa_bootstrap_ci` **counts and reports** them, never silently drops or crashes.
+- Rationale: the dominant error at this n is sample size, not the CI method; consistency with
+  the documented idiom beats marginal small-sample accuracy. No ADR — swapping CI method is
+  local to one function and follows the documented idiom (not a surprising deviation).
+- Doc impact: spec AC 5/10.
+
+**D8 — Judge prompt: which turns; pure deterministic rendering.**
+- A: Canonical rendering in trajectory order: each `ToolCallTurn` as `name(canonical-JSON args)`
+  (reuse `graders/canonical.py:canonicalize` + `sort_keys=True`), each paired `ToolResultTurn`
+  with its `ToolSuccess`/`ToolFailure` discriminator, then the final assistant message. Result
+  truncation for large live trajectories is out of scope (fixtures are small; item 004 owns the
+  live v2 run).
+- Rationale: reuse the existing canonicalization idiom rather than invent one; `sort_keys`
+  guarantees dict ordering can't perturb the prompt hash. Verified `canonicalize` exists.
+- Doc impact: spec architecture + AC 2.
+
+**D9 — Fixture design table; discrimination lives in fixture design.**
+- A: A **fixture design table** is a required deliverable (one row per fixture: id, intended
+  anchor, planted failure type, description). The intended label lives in the table/runbook,
+  **never** in the blind packet (§6.5 step 1).
+- Rationale: "balanced by design" is only auditable if each fixture's planted intent is
+  recorded; that design is where κ's discrimination power comes from.
+- Doc impact: spec AC 6/7; CONTEXT.md (Annotation packet).
+
+**D11 — CLI nesting + versioned packet format.**
+- A: `calibrate` is a **nested** subparser group (export-packet / compute / provisional-label),
+  coexisting with the flat `run-baseline`. The packet JSONL carries `packet_format` +
+  `rubric_version`; `import_packet` rejects a version mismatch rather than mis-parsing.
+- Rationale: argparse supports nested subparsers; a versioned packet format prevents silent
+  mis-parse of an old packet after a schema change.
+- Doc impact: spec AC 6/8; CONTEXT.md (Annotation packet).
+
+**D12 — Provisional run feasibility + key-absent failure mode.**
+- A: deepseek+glm over ≤20 fixtures single-shot ≈ trivial cost; both keys (`DEEPSEEK_API_KEY`,
+  `SILICONFLOW_API_KEY`) confirmed present in `../.env`. `provisional-label` **pre-flights the
+  key** and exits with a documented skip message (never crashes mid-corpus / writes a partial
+  packet). Absent keys never break CI (verify gate is pure/stubbed) — they only skip the
+  artifact; the committed report records which models ran.
+- Rationale: `chat_completion._headers` raises on a missing key; pre-flighting turns a mid-run
+  crash into a clean, documented skip.
+- Doc impact: spec AC 9; constraints.
+
+### ADRs adjudicated (three-of-three bar)
+
+- **ADR 0005 (purity boundary — edge pre-computes verdicts, pure grader reads)** — **CLEARS.**
+  Hard to reverse (architectural shape; sets the precedent for `ExecutionSpec` too), surprising
+  (a reader asks "why not call the judge inline?"), real trade-off (two named rejected
+  alternatives). **Written.**
+- **ADR 0006 (binary Cohen's κ headline, weighted κ secondary)** — **CLEARS.** Surprising (the
+  textbook ordinal choice is weighted κ; binarizing + demoting it needs the "measures the shipped
+  decision" rationale), real trade-off (raw / binarized / weighted-headline are three genuine
+  options), and the rubric-anchor coupling (D5) makes the fixture-authoring half hard to reverse.
+  **Written.**

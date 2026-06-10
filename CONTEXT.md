@@ -177,6 +177,79 @@ coverage.
 _Avoid_: "rubric" alone (the *rubric* is the author's task-validity checklist —
 distinct from the item-003 judge rubric, a known naming hazard).
 
+### Model-based grading & calibration
+
+**Judge rubric**:
+The anchored 1-5 scoring guide a `LlmJudgeSpec` carries (`spec.rubric`) telling a
+model how to score one *irreducibly subjective* quality. This is the *third*
+distinct sense of "rubric" in the project, and the only one CONTEXT.md endorses
+unqualified-as "judge rubric": the **authoring rubric** (a task author's
+task-validity checklist, recorded in `metadata.review`) and the
+**`VerificationSpec`** (the tagged-union grading config) are both separate things.
+_Avoid_: "scoring config", "grader config" (those name the `VerificationSpec`);
+bare "rubric" (always qualify: *judge* rubric vs *authoring* rubric).
+
+**Summary fidelity**:
+The first judged quality: does the final assistant message *truthfully and
+completely* reflect the tool actions actually taken in the trajectory, without
+claiming actions that did not happen? It is the irreducible subjective residue
+*after* `FinalStateSpec` (outcome) and `TrajectorySpec` (policy) have graded what
+a deterministic check can reach. A judge non-pass here is a *missed expectation*
+(`failure_reason=None`), never a policy breach.
+_Avoid_: "helpfulness", "clarity" (too subjective to anchor); "correctness"
+(that is the deterministic legs' job).
+
+**JudgeVerdict**:
+The serializable record an edge `run_judge` produces and threads into the pure
+grader: `score` (the 1-5 integer), `rationale`, `raw` (the model reply verbatim),
+`judge_model`, and `prompt_hash`. It is the *only* channel from the I/O edge to
+the pure grader, so it is self-describing — the pure grader copies its fields into
+`GradeResult.evidence` and never learns `judge_model`/`prompt_hash` any other way.
+A failed judge call yields a `JudgeError` (edge) or `JudgeParseFailure` (pure)
+instead — never a coerced score — exactly as the runtime emits `ToolFailure`
+rather than a faked result.
+_Avoid_: "judge result" (collides with `GradeResult`), "score" alone (the verdict
+carries more than the score).
+
+**prompt hash**:
+The `sha256` over the canonical-JSON rendering of a judge prompt — a pure function
+of `(LlmJudgeSpec, Trajectory)`. It keys the verdict map the edge pre-computes and
+the pure grader reads. Because every interpretation-affecting field (notably
+`scale`) is *rendered into the prompt*, two judge legs sharing a hash provably
+share a verdict (correct dedup), and two legs that should differ render different
+prompts and hash apart.
+_Avoid_: "cache key" (it *would* key a cache, but no cache ships in item 003;
+recording it for auditability is the point).
+
+**Annotation packet**:
+The blind, rubric-anchored, fixed-item-order JSONL artifact an annotator (human or
+LLM) scores against. It shows *only* the trajectory (final message + tool-call/
+result digest) with an empty score field and carries a `packet_format` version and
+a `rubric_version`-it **never** contains any judge score (blind labeling, §6.5
+step 1). The intended-label of each fixture lives in the *fixture design table*,
+outside the packet.
+_Avoid_: "label file" (a *filled* packet is the label file), "dataset" (the packet
+is derived from the calibration corpus, not a task set).
+
+**Cohen's κ (headline, binary)**:
+The project's headline judge-reliability statistic: Cohen's κ computed on the
+*binarized* label (`score >= 4` -> "faithful"), with a seeded percentile bootstrap
+CI resampling *items*. Binary because κ then measures the pass/fail decision the
+grader actually ships (`GradeResult.passed`). Quadratic-**weighted κ** over the raw
+1-5 scale is reported *secondary/descriptive* (near-miss vs gross disagreement),
+never as the headline.
+_Avoid_: "agreement" alone (observed agreement is a *separate* reported number);
+"accuracy" (κ is chance-corrected).
+
+**Provisional calibration**:
+An LLM-LLM agreement run (two registry models as annotators, e.g. `deepseek` +
+`glm`) over the calibration corpus that proves the packet -> κ pipeline end-to-end.
+It is **not** the human-human reliability §6.5 step 2 requires; every artifact it
+produces is loudly labeled PROVISIONAL and protocol steps 2-3 stay OPEN until a
+human fills the packet.
+_Avoid_: "calibration" unqualified (the real calibration is human-human first);
+treating LLM-LLM κ as a reliability verdict.
+
 ## Example dialogue
 
 > **Dev:** The task says "close ticket T-1 and don't email anyone". Is that one
@@ -226,3 +299,24 @@ distinct from the item-003 judge rubric, a known naming hazard).
 > calls + 2. It's *data*; the runner still takes a global default of 6 today, so
 > item 004 must thread the per-task value or every T3/T4 task starves at the step
 > limit. We ship the contract now and prove it with the conformance floor.
+>
+> **Dev:** The ticket closed, no email sent — but the agent's final message says
+> "I closed T-1 and emailed the owner." `FinalStateSpec` passes. Is the run good?
+>
+> **Domain expert:** Outcome and policy pass, but **summary fidelity** fails — it
+> claimed an email it never sent. No deterministic check reaches that; it's the
+> Tier-3 residue. So we add a `LlmJudgeSpec` *inside* the `AllOf`, beside the
+> deterministic legs — the judge scores the **judge rubric** 1-5, the edge returns
+> a **JudgeVerdict** keyed by **prompt hash**, and the pure grader reads it. That
+> fabrication is anchor 2, well below the `score >= 4` faithful cut.
+>
+> **Dev:** So the headline reliability number is the average 1-5 score?
+>
+> **Domain expert:** No-the headline is **binary Cohen's κ** on the `>=4`
+> binarization, because κ measures the pass/fail decision we actually ship.
+> Weighted κ over the raw 1-5 is a *secondary* near-miss-vs-gross diagnostic. And
+> κ means nothing until it's calibrated: ≥2 humans label a blind **annotation
+> packet** first, human-human κ before judge-human κ. We can't recruit humans in
+> an autonomous run, so we ship a **provisional calibration** — `deepseek` vs
+> `glm` as annotators — loudly labeled NOT the human reliability the protocol
+> requires, just proof the pipeline runs.
