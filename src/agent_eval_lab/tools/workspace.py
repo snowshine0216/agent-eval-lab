@@ -59,6 +59,81 @@ WORKSPACE_TOOLS: Mapping[str, ToolDef] = {
             "additionalProperties": False,
         },
     ),
+    "get_account": ToolDef(
+        name="get_account",
+        description="Look up an account by its exact user_id; returns the account.",
+        parameters={
+            "type": "object",
+            "properties": {"user_id": {"type": "string", "minLength": 1}},
+            "required": ["user_id"],
+            "additionalProperties": False,
+        },
+    ),
+    "list_tickets": ToolDef(
+        name="list_tickets",
+        description=(
+            "List tickets, optionally filtered by status, assignee, or priority; "
+            "returns matching ticket ids and their fields."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["open", "closed", "archived"]},
+                "assignee": {"type": "string", "minLength": 1},
+                "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    ),
+    "send_email": ToolDef(
+        name="send_email",
+        description="Send an email; appends a sent email and returns its id.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "minLength": 1},
+                "subject": {"type": "string", "minLength": 1},
+                "body": {"type": "string", "minLength": 1},
+            },
+            "required": ["to", "subject", "body"],
+            "additionalProperties": False,
+        },
+    ),
+    "archive_ticket": ToolDef(
+        name="archive_ticket",
+        description="Archive a ticket (sets status to archived).",
+        parameters={
+            "type": "object",
+            "properties": {"ticket_id": {"type": "string"}},
+            "required": ["ticket_id"],
+            "additionalProperties": False,
+        },
+    ),
+    "find_account": ToolDef(
+        name="find_account",
+        description="Search accounts by email; returns candidate user_ids.",
+        parameters={
+            "type": "object",
+            "properties": {"email": {"type": "string", "minLength": 1}},
+            "required": ["email"],
+            "additionalProperties": False,
+        },
+    ),
+    "draft_email": ToolDef(
+        name="draft_email",
+        description="Stage a draft email (does NOT send); appends a draft.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "minLength": 1},
+                "subject": {"type": "string", "minLength": 1},
+                "body": {"type": "string", "minLength": 1},
+            },
+            "required": ["to", "subject", "body"],
+            "additionalProperties": False,
+        },
+    ),
 }
 
 
@@ -102,12 +177,100 @@ def _update_ticket(args: Mapping[str, Any], state: State) -> tuple[State, ToolOu
     )
 
 
+def _next_email_id(emails: Mapping[str, Any]) -> str:
+    numbers = [
+        int(email_id.split("-")[1])
+        for email_id in emails
+        if email_id.startswith("e-") and email_id.split("-")[1].isdigit()
+    ]
+    return f"e-{max(numbers, default=0) + 1}"
+
+
+def _get_account(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    accounts = state.get("accounts", {})
+    user_id = args["user_id"]
+    account = accounts.get(user_id)
+    if account is None:
+        return state, ToolFailure(error=f"unknown user_id: {user_id}")
+    return state, ToolSuccess(result={"user_id": user_id, **account})
+
+
+def _list_tickets(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    tickets = state.get("tickets", {})
+    status = args.get("status")
+    assignee = args.get("assignee")
+    priority = args.get("priority")
+    matched = {
+        ticket_id: ticket
+        for ticket_id, ticket in tickets.items()
+        if (status is None or ticket.get("status") == status)
+        and (assignee is None or ticket.get("assignee") == assignee)
+        and (priority is None or ticket.get("priority") == priority)
+    }
+    return state, ToolSuccess(
+        result={"ticket_ids": sorted(matched), "tickets": matched}
+    )
+
+
+def _send_email(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    emails = state.get("emails", {})
+    email_id = _next_email_id(emails)
+    email = {
+        "to": args["to"],
+        "subject": args["subject"],
+        "body": args["body"],
+        "state": "sent",
+    }
+    new_state = {**state, "emails": {**emails, email_id: email}}
+    return new_state, ToolSuccess(result={"email_id": email_id})
+
+
+def _archive_ticket(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    tickets = state.get("tickets", {})
+    ticket_id = args["ticket_id"]
+    if ticket_id not in tickets:
+        return state, ToolFailure(error=f"unknown ticket_id: {ticket_id}")
+    updated = {**tickets[ticket_id], "status": "archived"}
+    new_state = {**state, "tickets": {**tickets, ticket_id: updated}}
+    return new_state, ToolSuccess(result={"ticket_id": ticket_id, "status": "archived"})
+
+
+def _find_account(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    accounts = state.get("accounts", {})
+    email = args["email"]
+    candidates = sorted(
+        user_id
+        for user_id, account in accounts.items()
+        if account.get("email") == email
+    )
+    return state, ToolSuccess(result={"candidates": candidates})
+
+
+def _draft_email(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    emails = state.get("emails", {})
+    email_id = _next_email_id(emails)
+    email = {
+        "to": args["to"],
+        "subject": args["subject"],
+        "body": args["body"],
+        "state": "draft",
+    }
+    new_state = {**state, "emails": {**emails, email_id: email}}
+    return new_state, ToolSuccess(result={"email_id": email_id})
+
+
 _IMPLS: Mapping[
     str, Callable[[Mapping[str, Any], State], tuple[State, ToolOutcome]]
 ] = {
     "search_docs": _search_docs,
     "create_ticket": _create_ticket,
     "update_ticket": _update_ticket,
+    "get_account": _get_account,
+    "list_tickets": _list_tickets,
+    "send_email": _send_email,
+    "archive_ticket": _archive_ticket,
+    "find_account": _find_account,
+    "draft_email": _draft_email,
 }
 
 

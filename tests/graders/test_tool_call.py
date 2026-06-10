@@ -69,7 +69,7 @@ def test_schema_invalid_args_grade_as_schema_violation_never_repaired() -> None:
 
 
 def test_unknown_tool_name_grades_as_wrong_tool() -> None:
-    observed = _call("send_email", {"to": "a@b.c"})
+    observed = _call("no_such_tool", {"to": "a@b.c"})
 
     result = _grade(_spec(SEARCH), _trajectory(observed))
 
@@ -78,11 +78,11 @@ def test_unknown_tool_name_grades_as_wrong_tool() -> None:
 
 def test_unknown_tool_outranks_count_mismatch() -> None:
     result = _grade(
-        _spec(SEARCH, CREATE), _trajectory(_call("send_email", {"to": "a@b.c"}))
+        _spec(SEARCH, CREATE), _trajectory(_call("no_such_tool", {"to": "a@b.c"}))
     )
 
     assert result.failure_reason == "wrong_tool"
-    assert result.evidence["unknown_tool"] == "send_email"
+    assert result.evidence["unknown_tool"] == "no_such_tool"
 
 
 def test_same_position_name_mismatch_is_wrong_tool() -> None:
