@@ -191,3 +191,32 @@ def test_verification_from_dict_rejects_unknown_match_mode() -> None:
                 "match": "partial",
             }
         )
+
+
+def test_metadata_max_steps_and_review_default_to_none() -> None:
+    from agent_eval_lab.tasks.parse import _parse_metadata
+
+    meta = _parse_metadata(
+        {"split": "dev", "version": "2", "provenance": "hand_written"}
+    )
+
+    assert meta.max_steps is None
+    assert meta.review is None
+
+
+def test_metadata_reads_max_steps_and_review_when_present() -> None:
+    from agent_eval_lab.tasks.parse import _parse_metadata
+
+    meta = _parse_metadata(
+        {
+            "split": "dev",
+            "version": "2",
+            "provenance": "hand_written",
+            "world_template_id": "workspace-v2",
+            "max_steps": 10,
+            "review": "passed:rubric-v1",
+        }
+    )
+
+    assert meta.max_steps == 10
+    assert meta.review == "passed:rubric-v1"
