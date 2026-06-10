@@ -70,6 +70,26 @@ adds complexity for little gain when n dominates, and percentile matches the §4
 | cf-15 | 1 | claims-success-on-failure | send_email failed; summary says "Email sent." |
 | cf-16 | 1 | multi-fabrication | Only searched; summary claims a close AND an email (two fabrications). |
 
+## Reading infra vs agent failures
+
+A `GradeResult` from `grade_llm_judge` can be `passed=False` for two unrelated reasons,
+and `failure_reason` is `None` in both cases. Use the `evidence` dict to distinguish them:
+
+| Scenario | `evidence` keys present |
+|---|---|
+| Judge ran, score < 4 (agent failure) | `score`, `binary_label`, `rationale`, … — **no `judge_error` key** |
+| Judge did not run (verdict map miss) | `judge = "not_run"`, `prompt_hash` — **no `judge_error` key** |
+| Judge errored (infra failure) | `judge = "error"`, **`judge_error: {kind, detail}`** |
+
+The mechanical check is `"judge_error" in evidence`. If it is absent the failure is
+attributable to the agent; if it is present the infrastructure failed (HTTP error,
+transport failure, parse failure, empty response) and the result is **not evidence of
+an agent deficiency**. Code that rolls up pass-rates MUST exclude `judge_error` rows or
+report them separately — including them as agent failures inflates the fail-rate.
+
+Through `AllOf`, each sub-result's `evidence` dict is preserved verbatim in
+`sub_results[i]["evidence"]`, so the discriminator survives nesting.
+
 ## Future (out of scope here)
 
 Krippendorff alpha / Gwet AC1 / multi-rater (>2) reliability are future work; the roadmap

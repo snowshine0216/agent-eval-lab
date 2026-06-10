@@ -189,7 +189,61 @@ def test_grade_judge_error_at_key_is_structured_nonpass() -> None:
     assert result.passed is False
     assert result.failure_reason is None
     assert result.evidence["judge"] == "error"
-    assert result.evidence["kind"] == "http"
+    # "kind" moved into the nested "judge_error" discriminator dict (fix 3)
+    assert result.evidence["judge_error"]["kind"] == "http"
+
+
+# Fix 3: judge_error evidence marker — infra vs agent failure distinction
+
+
+def test_judge_error_grade_never_passes() -> None:
+    """An errored judge can NEVER produce passed=True, regardless of error kind."""
+    from agent_eval_lab.runners.judge_edge import JudgeError
+
+    for kind in ("http", "transport", "parse", "empty_response"):
+        h = prompt_hash(build_judge_prompt(spec=SPEC, trajectory=TRAJ))
+        err = JudgeError(kind=kind, error="boom", prompt_hash=h, judge_model="m")
+        result = grade_llm_judge(spec=SPEC, trajectory=TRAJ, verdicts={h: err})
+        assert result.passed is False, f"kind={kind!r} must not pass"
+
+
+def test_judge_error_grade_carries_judge_error_nested_dict() -> None:
+    """An errored judge must produce evidence with a 'judge_error' nested dict
+    containing 'kind' and 'detail' — mechanically distinguishable from an agent
+    failure which carries no 'judge_error' key."""
+    from agent_eval_lab.runners.judge_edge import JudgeError
+
+    h = prompt_hash(build_judge_prompt(spec=SPEC, trajectory=TRAJ))
+    err = JudgeError(kind="http", error="500 Internal Server Error", prompt_hash=h, judge_model="m")
+    result = grade_llm_judge(spec=SPEC, trajectory=TRAJ, verdicts={h: err})
+    assert result.passed is False
+    assert result.failure_reason is None
+    assert "judge_error" in result.evidence
+    je = result.evidence["judge_error"]
+    assert je["kind"] == "http"
+    assert "500" in je["detail"]
+
+
+def test_judge_error_preserved_through_all_of_sub_results() -> None:
+    """Through AllOf, the sub_results evidence must preserve the judge_error marker."""
+    from agent_eval_lab.graders.dispatch import grade_trajectory
+    from agent_eval_lab.runners.judge_edge import JudgeError
+    from agent_eval_lab.tasks.schema import AllOf, FinalStateSpec, StateEquals
+
+    h = prompt_hash(build_judge_prompt(spec=SPEC, trajectory=TRAJ))
+    err = JudgeError(kind="parse", error="no_score", prompt_hash=h, judge_model="m")
+    det = FinalStateSpec(constraints=(StateEquals(path="x.y", expected=1),))
+    all_of_spec = AllOf(specs=(det, SPEC))
+    result = grade_trajectory(
+        verification=all_of_spec,
+        trajectory=TRAJ,
+        registry={},
+        verdicts={h: err},
+    )
+    sub_results = result.evidence["sub_results"]
+    judge_sub = next(r for r in sub_results if r["grader_id"] == "llm_judge")
+    assert "judge_error" in judge_sub["evidence"]
+    assert judge_sub["evidence"]["judge_error"]["kind"] == "parse"
 
 
 def test_judge_module_imports_no_http_client() -> None:

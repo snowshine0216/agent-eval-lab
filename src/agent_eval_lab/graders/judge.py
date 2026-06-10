@@ -152,11 +152,16 @@ def _non_pass(key: str, value: Any) -> GradeResult:
         evidence: dict[str, Any] = {"judge": "not_run", "prompt_hash": key}
     else:
         # A JudgeError (or any non-verdict) at the key: structured error evidence.
+        # The nested "judge_error" dict is the MECHANICAL DISCRIMINATOR between an
+        # infra failure (this path) and an agent failure (no "judge_error" key).
+        # Callers reading results can do: "judge_error" in evidence to tell them apart.
         evidence = {
             "judge": "error",
             "prompt_hash": key,
-            "kind": getattr(value, "kind", "unknown"),
-            "error": getattr(value, "error", repr(value)),
+            "judge_error": {
+                "kind": getattr(value, "kind", "unknown"),
+                "detail": getattr(value, "error", repr(value)),
+            },
         }
     return GradeResult(
         grader_id="llm_judge",
