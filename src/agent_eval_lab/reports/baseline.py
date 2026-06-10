@@ -33,6 +33,8 @@ def _validate_k(results: Sequence[RunResult], k: int) -> None:
     runs_per_task: dict[str, int] = {}
     for run in results:
         runs_per_task[run.task_id] = runs_per_task.get(run.task_id, 0) + 1
+    if not runs_per_task:
+        raise ValueError("no results to aggregate")
     counts = set(runs_per_task.values())
     if len(counts) > 1:
         raise ValueError(f"unequal runs per task: {sorted(counts)}")

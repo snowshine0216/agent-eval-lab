@@ -100,3 +100,8 @@ def test_build_report_rejects_unequal_runs_per_task() -> None:
 
     with pytest.raises(ValueError, match="unequal runs per task"):
         build_baseline_report(lopsided, dataset_id="d", condition_id="c", k=2)
+
+
+def test_build_report_rejects_empty_results() -> None:
+    with pytest.raises(ValueError, match="no results"):
+        build_baseline_report((), dataset_id="d", condition_id="c", k=1)
