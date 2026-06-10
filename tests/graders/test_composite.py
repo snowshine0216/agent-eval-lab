@@ -16,10 +16,13 @@ def _trajectory():
 def _grader_returning(results):
     """Build a fake grade_trajectory that returns scripted results in order."""
     calls = iter(results)
+    seen = []
 
-    def grade(*, verification, trajectory, registry, initial_state):
+    def grade(*, verification, trajectory, registry, initial_state, verdicts):
+        seen.append(verdicts)
         return next(calls)
 
+    grade.seen = seen
     return grade
 
 
@@ -48,6 +51,7 @@ def test_all_of_passes_when_every_sub_result_passes() -> None:
         trajectory=_trajectory(),
         registry={},
         grade=grade,
+        verdicts={},
     )
 
     assert result.passed is True
@@ -78,9 +82,32 @@ def test_all_of_reports_first_failure_reason_and_lists_all_sub_results() -> None
         trajectory=_trajectory(),
         registry={},
         grade=grade,
+        verdicts={},
     )
 
     assert result.passed is False
     assert result.score == 0.0
     assert result.failure_reason == "forbidden_action"
     assert len(result.evidence["sub_results"]) == 3
+
+
+def test_all_of_threads_verdicts_into_every_sub_call() -> None:
+    spec = AllOf(
+        specs=(
+            OutputMatchSpec(expected_output="a"),
+            OutputMatchSpec(expected_output="b"),
+        )
+    )
+    grade = _grader_returning([_result(True), _result(True)])
+    sentinel = {"h": object()}
+
+    grade_all_of(
+        spec=spec,
+        initial_state=None,
+        trajectory=_trajectory(),
+        registry={},
+        grade=grade,
+        verdicts=sentinel,
+    )
+
+    assert grade.seen == [sentinel, sentinel]  # threaded unchanged into each sub-call

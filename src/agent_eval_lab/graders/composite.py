@@ -26,6 +26,7 @@ def grade_all_of(
     trajectory: Trajectory,
     registry: Mapping[str, ToolDef],
     grade: GradeFn,
+    verdicts: Mapping[str, Any],
 ) -> GradeResult:
     """Grade AllOf by recursing `grade` over every sub-spec in declared order."""
     sub_results = tuple(
@@ -34,6 +35,7 @@ def grade_all_of(
             trajectory=trajectory,
             registry=registry,
             initial_state=initial_state,
+            verdicts=verdicts,
         )
         for sub in spec.specs
     )
