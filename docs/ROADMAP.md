@@ -20,20 +20,54 @@ Full design and rationale:
 - 25%: apply software engineering fundamentals;
 - 10%: build statistical foundations.
 
-## Weeks 1-2: Minimum Evaluation System (tool-use slice)
+## Weeks 1-2: Minimum Evaluation System (tool-use slice) — ✅ delivered
 
-Deliver:
+**Status: implemented and merged to `main` (2026-06-10, via #4); first baseline
+numbers captured 2026-06-10.** Harness gates are green (130 tests; `ruff check` /
+`ruff format` clean). The `run-baseline` command has been exercised end-to-end
+against four live model endpoints — three hosted providers and a local MLX server.
 
-- a locked `VerificationSpec` subset and task schema;
-- a synthetic workspace-world with schema-validated tools;
-- ~20 tool-use tasks (tool selection and argument extraction);
-- a Python runner (OpenAI-compatible client, model↔tool loop, limits, multi-run
-  from day one, cost capture);
-- an AST tool-call grader with a structured failure taxonomy;
-- an initial golden conformance suite;
-- a baseline report.
+Delivered:
 
-Engineering focus:
+- ✅ a locked `VerificationSpec` subset (`OutputMatchSpec | ToolCallMatchSpec`)
+  and task schema with a JSONL loader;
+- ✅ a synthetic workspace-world with three schema-validated tools
+  (`search_docs`, `create_ticket`, `update_ticket`), where world and grader
+  share one validator;
+- ✅ a 20-task tool-use dataset (tool selection, argument extraction, multi-step);
+- ✅ a Python runner — OpenAI-compatible client with a six-provider registry,
+  model↔tool loop, step limits, multi-run from day one, and cost capture;
+- ✅ an AST tool-call grader with a structured failure taxonomy (`malformed_call`,
+  `schema_violation`, `wrong_tool`, `wrong_args`, `missing_call`, `extra_call`,
+  `order_mismatch`);
+- ✅ a golden conformance suite (11 hand-verified trajectories) plus Hypothesis
+  property tests;
+- ✅ the `run-baseline` report command (pure build + markdown render).
+
+Baseline results (`workspace_tool_use_v1`, k=3 → 60 runs/condition; full write-up
+in `reports/overview.md`, gitignored):
+
+| condition | pass@1 | pass^3 | failures |
+| --- | --- | --- | --- |
+| `deepseek:deepseek-v4-pro` | 1.000 | 1.000 | — |
+| `glm:Pro/zai-org/GLM-5.1` (SiliconFlow) | 1.000 | 1.000 | — |
+| `minimax:MiniMax-M3` | 1.000 | 1.000 | — |
+| `local:Qwen3-8B` (MLX) | 0.900 | 0.900 | `extra_call` ×6 |
+| `openrouter:openai/gpt-5.5` | — | — | blocked (region / datacenter-IP ToS) |
+
+The three hosted frontier models are perfect on the v1 set — it separates them
+only on cost and latency, not accuracy. The signal is **local Qwen3-8B**, which
+fails `ws-017`/`ws-018` (both multi-step) *deterministically* across all 3 runs by
+appending a redundant `update_ticket` — a reproducible over-calling failure mode,
+not variance. `openrouter:gpt-5.5` is unreachable from this network (China
+region-block when direct; the available proxy exits a ToS-flagged datacenter
+subnet) — the proxy wiring is correct (open models route through it fine), only
+premium providers reject the IP.
+
+Takeaway for Weeks 3-4: the v1 set saturates frontier accuracy, confirming the
+need for harder tasks and a model-based grader to separate strong configurations.
+
+Engineering focus (applied):
 
 - dependency boundaries;
 - pure core and effectful edges;

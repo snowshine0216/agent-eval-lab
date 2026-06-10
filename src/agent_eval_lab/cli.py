@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import replace
@@ -14,7 +15,12 @@ from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.serialize import run_result_to_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
-from agent_eval_lab.runners.config import PROVIDERS, ProviderConfig, condition_id
+from agent_eval_lab.runners.config import (
+    PROVIDERS,
+    ProviderConfig,
+    condition_id,
+    resolve_proxy,
+)
 from agent_eval_lab.runners.multi_run import run_task_k
 from agent_eval_lab.tasks.loader import load_tasks
 from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS
@@ -102,7 +108,11 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         )
     if given[0] is not None and given[1] is not None:
         price = TokenPrice(input_per_mtok=given[0], output_per_mtok=given[1])
-    client = http_client or httpx.Client(timeout=120.0)
+    # trust_env=False so only an explicitly opted-in provider (e.g. openrouter)
+    # is proxied; domestic endpoints and localhost stay direct.
+    client = http_client or httpx.Client(
+        timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+    )
     try:
         report_path = run_baseline(
             dataset_path=args.dataset,

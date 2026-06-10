@@ -54,23 +54,70 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Run the tool-use baseline (requires a local OpenAI-compatible server, e.g.
-Ollama/MLX serving `qwen3-8b` on `localhost:11434`, or a provider key):
+Run the tool-use baseline against any configured provider:
 
 ```bash
 uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v1.jsonl \
-  --provider local --k 3
+  --provider deepseek --k 3
 ```
 
-Outputs: `reports/baseline-<provider>-<model>.md` (headline `pass@1`, `pass^k`,
-tokens, cost, latency, failure taxonomy) and `reports/runs-<provider>-<model>.jsonl`
-(full graded trajectories, streamed per task) — named by the full condition id so
-two models under one provider never overwrite each other. Hosted providers read
-their key from the environment
-variable named in `src/agent_eval_lab/runners/config.py` (e.g.
-`DASHSCOPE_API_KEY`); pass `--input-price-per-mtok/--output-price-per-mtok`
-to include estimated cost.
+Outputs land in `reports/` (gitignored): `baseline-<condition>.md` (headline
+`pass@1`, `pass^k`, tokens, latency, failure taxonomy) and `runs-<condition>.jsonl`
+(full graded trajectories, streamed per task). Artifacts are named by the full
+condition id (`provider:model`) so two models under one provider never overwrite
+each other. Pass `--input-price-per-mtok`/`--output-price-per-mtok` together to
+include estimated cost.
+
+### Providers
+
+The registry lives in
+[`src/agent_eval_lab/runners/config.py`](src/agent_eval_lab/runners/config.py).
+Each hosted provider reads its key from the named environment variable (the code
+stores the *name*, never the key):
+
+| `--provider` | endpoint | default model | key env var |
+| --- | --- | --- | --- |
+| `deepseek`   | `api.deepseek.com`                | `deepseek-v4-pro`     | `DEEPSEEK_API_KEY` |
+| `glm`        | `api.siliconflow.cn` (SiliconFlow) | `Pro/zai-org/GLM-5.1` | `SILICONFLOW_API_KEY` |
+| `minimax`    | `api.minimaxi.com`                | `MiniMax-M3`          | `MINIMAX_API_KEY` |
+| `openrouter` | `openrouter.ai` (via proxy)       | `openai/gpt-5.5`      | `OPENROUTER_API_KEY` |
+| `local`      | `localhost:11434` (MLX / Ollama)  | `qwen3-8b`            | — (none) |
+
+Set keys in your shell (`export DEEPSEEK_API_KEY=...`) or keep them in a `.env` and
+`set -a; . .env; set +a` before running — there is **no** automatic `.env` loading.
+Override a provider's default model with `--model <id>`.
+
+**Proxy:** `openrouter` is routed through an HTTP proxy whose URL is read from the
+`HTTP_PROXY` environment variable and applied **only** to `openrouter` — domestic
+endpoints and `localhost` always stay direct. Set it with your proxy, e.g.
+`export HTTP_PROXY=http://10.23.37.244:8888`; if unset, the call goes direct.
+
+### Local model (Apple Silicon, MLX)
+
+The `local` provider expects an OpenAI-compatible server on
+`http://localhost:11434/v1`. With [`mlx-lm`](https://github.com/ml-explore/mlx-lm)
+on an Apple-Silicon Mac:
+
+```bash
+uv pip install mlx-lm
+# Serve Qwen3-8B on the port the `local` config expects.
+# HF_HUB_OFFLINE=1 uses the local Hugging Face cache (no download).
+HF_HUB_OFFLINE=1 uv run python -m mlx_lm.server \
+  --model Qwen/Qwen3-8B --port 11434 --host 127.0.0.1
+```
+
+Then run the baseline against it, matching `--model` to the id the server loaded:
+
+```bash
+uv run python -m agent_eval_lab.cli run-baseline \
+  --dataset examples/datasets/workspace_tool_use_v1.jsonl \
+  --provider local --model Qwen/Qwen3-8B --k 3
+```
+
+`mlx_lm.server` emits OpenAI-format `tool_calls` for Qwen3, so the AST grader
+scores local runs exactly as it scores hosted ones. (Ollama also works: `ollama
+pull qwen3:8b` serves `:11434` automatically — then pass `--model qwen3:8b`.)
 
 ## Repository Layout
 

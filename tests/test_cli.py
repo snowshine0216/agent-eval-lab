@@ -175,6 +175,65 @@ def test_completed_runs_persist_when_later_task_fails(tmp_path: Path) -> None:
     assert all(json.loads(line)["task_id"] == "ws-001" for line in runs)
 
 
+def _capture_client_kwargs(monkeypatch) -> dict:
+    captured: dict = {}
+    real = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    def fake_client(**kwargs) -> httpx.Client:
+        captured.update(kwargs)
+        return real
+
+    monkeypatch.setattr(httpx, "Client", fake_client)
+    return captured
+
+
+def test_default_client_is_proxied_for_openrouter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    monkeypatch.setenv("HTTP_PROXY", "http://10.23.37.244:8888")
+    captured = _capture_client_kwargs(monkeypatch)
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+
+    main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "openrouter",
+            "--k",
+            "1",
+            "--out",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert captured["proxy"] == "http://10.23.37.244:8888"
+    assert captured["trust_env"] is False
+
+
+def test_default_client_is_direct_for_local(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://10.23.37.244:8888")
+    captured = _capture_client_kwargs(monkeypatch)
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+
+    main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert captured["proxy"] is None
+    assert captured["trust_env"] is False
+
+
 def test_partial_price_flags_error(tmp_path: Path) -> None:
     dataset = _write_dataset(tmp_path / "tasks.jsonl")
 
