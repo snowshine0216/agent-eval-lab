@@ -1,21 +1,74 @@
-Verdict: FAIL
+Verdict: PASS
 
-Subagent: sonnet / Plan checklist items: 13 (A1–A7, B1, C, D, E, F, G1, G2, H) / Verified present in diff: 13 / Drift findings: 4 (details below)
+Subagent: sonnet / Plan checklist items: 13 (A1–A7, B1, C, D, E, F, G1, G2, H) / Verified present in diff: 13 / Drift findings: 4 (details below) / Fix verified: DRIFT-3 resolved
 
 ---
 
-## Plan checklist status
+## Prior FAIL summary
 
-All 13 plan tasks are present in the diff:
+The initial verdict (FAIL) was driven by DRIFT-3: 10 tasks carried wrong `difficulty_knob` values (`argument_complexity` / `distractor_count`) instead of the plan-allocated `derived_argument` / `multi_step_depth`, shrinking the anti-rote proxy coverage from 22/33 to 12/33 T3+T4 tasks.
 
-- A1–A7 (tools + determinism): squashed into one commit `bfe66dc` — content is byte-for-byte identical to plan specs; all tool schemas, impls, `_IMPLS` wiring, `_next_email_id`, and the determinism property test are present. Process deviation only.
-- B1 (TaskMetadata fields): `max_steps` and `review` added to schema.py and parse.py; tests added to test_parse.py. Matches plan exactly.
-- C (conformance suite): present at `tests/datasets/test_workspace_tool_use_v2.py`. Two deviations — see DRIFT-1 and DRIFT-2 below.
-- D/E (50 tasks): `examples/datasets/workspace_tool_use_v2.jsonl` has exactly 50 lines; ids ws2-001..ws2-050; all six capabilities present; tier mix 5/12/22/11 verified.
-- F (taxonomy.md): byte-for-byte identical to plan text.
-- G1 (rubric.md): byte-for-byte identical to plan text.
-- G2 (review-ledger.md): 50 rows, all ids present, ledger parity test passes.
-- H (full gate): 223 tests pass, ruff clean, v1 files untouched (0-byte diff).
+Fix commits: 0c19bde (knobs + ledger restored) and f1f9396 (proxy refined with `_is_state_dependent` helper + 2 pinning unit tests + plan amendment).
+
+---
+
+## DRIFT-3 fix verification
+
+### Commit 0c19bde — knob corrections in JSONL + ledger
+
+Files changed: `examples/datasets/workspace_tool_use_v2.jsonl`, `docs/2026-06-10-dataset-grader-quality/review-ledger.md`.
+
+All 10 corrections verified against the plan allocation table (`002-plan.md:998–1048`) and the plan exemplars (`002-plan.md:1072–1090`):
+
+| task | was | now | plan specifies |
+|------|-----|-----|---------------|
+| ws2-020 | `distractor_count` | `multi_step_depth` | `multi_step_depth` |
+| ws2-026 | `distractor_count` | `multi_step_depth` | `multi_step_depth` |
+| ws2-028 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-029 | `argument_complexity` | `derived_argument` | `derived_argument` (T3 exemplar) |
+| ws2-030 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-033 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-035 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-037 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-038 | `argument_complexity` | `derived_argument` | `derived_argument` |
+| ws2-039 | `argument_complexity` | `derived_argument` | `derived_argument` |
+
+Ledger rows for all 10 tasks updated consistently: knob column and rationale corrected to reflect state-dependency semantics (file:line — `review-ledger.md` rows for ws2-020, 026, 028–030, 033, 035, 037–039).
+
+JSONL spot-check (parsed from `examples/datasets/workspace_tool_use_v2.jsonl`): ws2-029 now `"difficulty_knob": "derived_argument"` matching the T3 exemplar verbatim. ws2-028 now `"difficulty_knob": "derived_argument"` matching the T4 exemplar. ws2-020 now `"difficulty_knob": "multi_step_depth"` as allocated.
+
+### Commit f1f9396 — proxy refinement + plan amendment + unit tests
+
+Files changed: `tests/datasets/test_workspace_tool_use_v2.py`, `docs/2026-06-10-dataset-grader-quality/items/002-plan.md`.
+
+**`_is_state_dependent` helper logic** (test file lines ~265–342):
+
+- Rule 1 (unchanged): referenced id absent from both initial_state and prompt → passes (minted/find-surfaced chains).
+- Rule 2 (new): referenced id in initial_state, absent from prompt, and `>1` same-type candidates in state → passes (initial-state-derived-target class).
+- Literally-named targets fail both rules: T-2 in prompt rejects rule 2; T-2 in state rejects rule 1.
+
+**Negative unit test** (`test_proxy_fails_for_literally_named_target`, test file line ~425): uses `ticket_ids_in_state=["T-2"]` (bucket_size = 1, so rule 2's `> 1` guard fails) with prompt `"Close ticket T-2."` (T-2 in prompt, so rule 2's `r not in prompt` check also fails). Test genuinely exercises rule 2's prompt-mention check — both the bucket guard and the mention guard reject it. The `assert not _is_state_dependent(task)` assertion confirms the negative discriminator is pinned.
+
+**Positive unit test** (`test_proxy_passes_for_property_described_target`, test file line ~411): 3 tickets in state, target T-2 not in prompt ("oldest open high-priority ticket"), bucket_size = 3 > 1 → rule 2 passes. Pinned independently of the corpus.
+
+**Plan amendment** (`002-plan.md` conformance section): note added documenting the refined proxy semantics and fix rationale.
+
+### Proxy coverage count
+
+Measured from `examples/datasets/workspace_tool_use_v2.jsonl` (50 tasks total):
+- T3+T4 boundary: ws2-018..ws2-050 = 33 tasks.
+- Tasks with `difficulty_knob` in `{multi_step_depth, derived_argument}` in the T3+T4 range: **22/33**.
+
+State-dependent task ids (22):
+ws2-018, ws2-019, ws2-020, ws2-021, ws2-022, ws2-023, ws2-024, ws2-025, ws2-026, ws2-027, ws2-028, ws2-029, ws2-030, ws2-031, ws2-032, ws2-033, ws2-034, ws2-035, ws2-036, ws2-037, ws2-038, ws2-039.
+
+### Scope check
+
+Commit 0c19bde touches exactly the two files required: JSONL and ledger. Commit f1f9396 touches exactly the two files required: test file and plan. No unplanned files modified.
+
+### Full gates
+
+`uv run pytest`: **225 passed** (was 223 before fix round; +2 new proxy unit tests). `uv run ruff check .`: `All checks passed!`. `uv run ruff format --check .`: `64 files already formatted`.
 
 ---
 
@@ -52,35 +105,13 @@ Plan (`002-plan.md:1373–1382`) provides `_minted_ticket_ids` but not `_minted_
 
 ---
 
-### DRIFT-3 — KNOB REASSIGNMENT on 10 tasks: FAIL (divergent from explicit plan specification)
+### DRIFT-3 — KNOB REASSIGNMENT on 10 tasks (RESOLVED by fix round)
 
-**Evidence — plan allocation table (`002-plan.md:998–1048`) specifies:**
-| task | plan knob | impl knob |
-|------|-----------|-----------|
-| ws2-020 | `multi_step_depth` | `distractor_count` |
-| ws2-026 | `multi_step_depth` | `distractor_count` |
-| ws2-028 | `derived_argument` | `argument_complexity` |
-| ws2-029 | `derived_argument` | `argument_complexity` |
-| ws2-030 | `derived_argument` | `argument_complexity` |
-| ws2-033 | `derived_argument` | `argument_complexity` |
-| ws2-035 | `derived_argument` | `argument_complexity` |
-| ws2-037 | `derived_argument` | `argument_complexity` |
-| ws2-038 | `derived_argument` | `argument_complexity` |
-| ws2-039 | `derived_argument` | `argument_complexity` |
+**Prior status:** FAIL — 10 tasks carried wrong `difficulty_knob` values, shrinking proxy coverage to 12/33.
 
-**The plan exemplars (`002-plan.md:1072–1090`) are the most authoritative statement** — they give complete JSONL with `"difficulty_knob": "derived_argument"` for ws2-028 (the T4 exemplar) and ws2-029 (the T3 exemplar). The impl directly contradicts both exemplars.
+**Fix verification:** See "DRIFT-3 fix verification" section above. All 10 knobs corrected, ledger updated, proxy refined to cover the initial-state-derived-target class. Coverage restored to 22/33. Gates green (225 passed).
 
-**Are the 10 tasks still genuinely hard?** Yes — the tasks themselves are semantically correct. All 10 require the model to call `list_tickets` (or `find_account`), read the returned data, and compute a derived argument (min/max by date, priority ranking, count gate). That IS `derived_argument` by the taxonomy's own definition. The hardness is not watered down, but the label `argument_complexity` is definitionally wrong: the taxonomy doc (committed in this branch) defines `argument_complexity` as "extract literal/nested/enum/date args from NL" — a T2 mechanism — not "reason over a tool result."
-
-**Impact on anti-rote-chain proxy coverage:** The conformance proxy (`test_state_dependency_proxy_for_derived_tasks`) fires only for tasks with `difficulty_knob in {multi_step_depth, derived_argument}`. After reassignment, 12 of 33 T3+T4 tasks are checked (ws2-018, 019, 021, 022, 023, 024, 025, 027, 031, 032, 034, 036). Before reassignment, 22 of 33 would have been checked. The 8 tasks moved to `argument_complexity` skip the proxy entirely — the conformance test no longer enforces the AC7 structural witness on ws2-028–030, 033, 035, 037–039.
-
-**Does AC7 still hold?** AC7 requires "at least 15 tasks require a dependent chain of ≥4 tool calls where at least one call's arguments are unknowable without a prior call's result." The 10 reassigned tasks are semantically state-dependent (the correct T-id to close cannot be determined without calling `list_tickets`), but their knob no longer signals this to the proxy. The proxy's coverage has dropped from the intended ≥22 to 12 — meaning the anti-rote guarantee is structurally weakened even though the task content is correct.
-
-**Resolution rule:** Significant divergence + specific plan text (the exemplars are the most explicit specification) → **Verdict: FAIL**.
-
-**Tasks requiring re-authoring (knob correction only, content is correct):**
-- ws2-028, ws2-029, ws2-030, ws2-033, ws2-035, ws2-037, ws2-038, ws2-039 → change `difficulty_knob` from `argument_complexity` to `derived_argument`
-- ws2-020, ws2-026 → change `difficulty_knob` from `distractor_count` to `multi_step_depth`
+**Resolution:** PASS — DRIFT-3 is fully resolved.
 
 ---
 
@@ -94,24 +125,13 @@ Plan (`002-plan.md:1373–1382`) provides `_minted_ticket_ids` but not `_minted_
 
 ---
 
-## State-dependent reasoning count
-
-**By knob (conformance proxy, strict):** 12 of 33 T3+T4 tasks carry `difficulty_knob` in `{multi_step_depth, derived_argument}`:
-ws2-018, ws2-019, ws2-021, ws2-022, ws2-023, ws2-024, ws2-025, ws2-027, ws2-031, ws2-032, ws2-034, ws2-036.
-
-**By semantics (model must use prior call's result):** 24 of 33 T3+T4 tasks genuinely require using a prior call's result to determine which entity to act on. This includes the 12 above plus the 10 reassigned tasks (ws2-020, 026, 028–030, 033, 035, 037–039) and ws2-044, ws2-049.
-
-**The gap:** 10 tasks are semantically state-dependent but not structurally proxied because their knob was changed to `argument_complexity` or `distractor_count`. The correct knob for ws2-028–030, 033, 035, 037–039 is `derived_argument`; for ws2-020 and ws2-026 it is `multi_step_depth`. Correcting these 10 knobs would bring the proxy coverage to 22/33, matching the plan's intent.
-
----
-
 ## Summary
 
 | finding | type | action |
 |---------|------|--------|
-| DRIFT-1: histogram whitelist missing `"trajectory"` | plan omission | AMEND plan |
-| DRIFT-2: precondition check missing `_minted_email_ids` | plan omission | AMEND plan |
-| DRIFT-3: knob reassignment on 10 tasks contradicts plan exemplars | significant divergence | FAIL — re-author knob fields |
+| DRIFT-1: histogram whitelist missing `"trajectory"` | plan omission | AMEND plan (done) |
+| DRIFT-2: precondition check missing `_minted_email_ids` | plan omission | AMEND plan (done) |
+| DRIFT-3: knob reassignment on 10 tasks contradicts plan exemplars | significant divergence | RESOLVED — knobs corrected, proxy refined, 22/33 coverage |
 | DRIFT-4: A1–A7 squash | process deviation | incidental |
 
-**Primary failure:** DRIFT-3. The 10 tasks need `difficulty_knob` corrections only (content, scenarios, and initial_state are all correct). The fix is a one-line metadata change per task in the JSONL plus ledger updates.
+**No new unplanned changes found.** Fix scope confined to the two required file pairs. All gates green.
