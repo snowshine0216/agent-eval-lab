@@ -307,6 +307,8 @@ def test_run_single_records_final_state(stub_client_factory) -> None:
 
 IMPORTANT: Replace `stub_client_factory`, `_tool_call_payload`, `_message_payload`, `_task`, `_config`, and the imports with the EXACT helpers/fixtures already present in `tests/runners/test_loop.py`. Do not invent new helpers — reuse what the file already defines. If the file uses inline payload dicts rather than helpers, copy that inline style. The single load-bearing assertions are the last two lines.
 
+> **[AMENDED]** The file uses `_scripted_client`, `_tool_call_response`, `_final_response`, and `parse_task` (not `stub_client_factory`/`_task()`/`_tool_call_payload`). The impl correctly used the file's real helpers; the pseudonym names in the stub above were illustrative only. (drift-review)
+
 - [ ] **Step 3: Run test to verify it fails**
 
 Run: `uv run pytest tests/runners/test_loop.py::test_run_single_records_final_state -q`
@@ -1047,6 +1049,8 @@ def _check_only_modifies(
     raise NotImplementedError  # implemented in Task 7
 ```
 
+> **[AMENDED]** Impl shipped the complete `_check_only_modifies` (plus `_leaf_paths`, `_changed_leaf_paths`, `_is_covered`) in the Task 6 source commit (ef6ffef) rather than a `NotImplementedError` stub. Task 7 commit (ee64b40) added only tests. Two commits are still present and canonical gates pass; the stub-then-replace two-phase is an implementation-order detail that does not affect correctness. (drift-review)
+
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `uv run pytest tests/graders/test_policy.py -q`
@@ -1739,6 +1743,8 @@ and assert `results[0].grade.passed is True`. Run BEFORE the source change to co
 ```
 
 Use whichever discriminating shape the existing fixtures make cleanest; the REQUIREMENT is: the test passes only when `multi_run` threads `initial_state=task.initial_state`. Confirm via Step 3.
+
+> **[AMENDED]** Impl used `Task(...)` direct construction (no `parse_task` helper) with `OnlyModifies(paths=("tickets.T-2",))` and `initial_state={"tickets": {"T-1": {"status": "open"}}}`, asserting `results[0].grade.passed is True` (positive discrimination: only T-2.* changed and is covered iff threading is correct; without threading, T-1.status appears "added" and is NOT covered by `tickets.T-2` → would fail). This is a sound discriminating assertion that satisfies the REQUIREMENT above. (drift-review)
 
 - [ ] **Step 3: Run test to verify it fails**
 
