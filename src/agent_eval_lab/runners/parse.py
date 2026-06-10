@@ -26,6 +26,31 @@ def parse_assistant_payload(
     return MessageTurn(role="assistant", content=content)
 
 
+def _parse_arguments(raw: Any) -> dict[str, Any] | ParseFailure:
+    """Decode tool-call arguments without ever raising.
+
+    Some providers send arguments already decoded as a JSON object (a dialect
+    quirk, absorbed here value-for-value); the OpenAI wire format sends a JSON
+    string. Anything else is recorded as a parse failure, never a crash.
+    """
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if not isinstance(raw, str):
+        return ParseFailure(
+            raw=repr(raw),
+            error=f"arguments have unsupported type: {type(raw).__name__}",
+        )
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return ParseFailure(raw=raw, error=f"arguments not valid JSON: {exc}")
+    if not isinstance(decoded, dict):
+        return ParseFailure(raw=raw, error="arguments must be a JSON object")
+    return decoded
+
+
 def _parse_tool_calls(
     raw_calls: list[Mapping[str, Any]], content: str | None
 ) -> ToolCallTurn | ParseFailure:
@@ -37,17 +62,9 @@ def _parse_tool_calls(
             return ParseFailure(
                 raw=json.dumps(dict(raw)), error="tool call missing function name"
             )
-        raw_arguments = function.get("arguments") or "{}"
-        try:
-            arguments = json.loads(raw_arguments)
-        except json.JSONDecodeError as exc:
-            return ParseFailure(
-                raw=raw_arguments, error=f"arguments not valid JSON: {exc}"
-            )
-        if not isinstance(arguments, dict):
-            return ParseFailure(
-                raw=raw_arguments, error="arguments must be a JSON object"
-            )
+        arguments = _parse_arguments(function.get("arguments"))
+        if isinstance(arguments, ParseFailure):
+            return arguments
         calls.append(
             ToolCall(
                 call_id=raw.get("id", f"call-{index}"), name=name, arguments=arguments

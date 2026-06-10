@@ -72,6 +72,66 @@ def test_non_object_arguments_is_a_parse_failure() -> None:
     assert "JSON object" in parsed.error
 
 
+def test_already_decoded_arguments_object_is_accepted() -> None:
+    message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                    "name": "search_docs",
+                    "arguments": {"query": "refund policy"},
+                },
+            }
+        ],
+    }
+
+    parsed = parse_assistant_payload(message)
+
+    assert isinstance(parsed, ToolCallTurn)
+    assert parsed.tool_calls[0].arguments == {"query": "refund policy"}
+
+
+def test_unsupported_arguments_type_is_a_parse_failure_not_a_crash() -> None:
+    message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "search_docs", "arguments": 42},
+            }
+        ],
+    }
+
+    parsed = parse_assistant_payload(message)
+
+    assert isinstance(parsed, ParseFailure)
+    assert "unsupported type" in parsed.error
+
+
+def test_list_arguments_are_a_parse_failure_not_silently_emptied() -> None:
+    message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "search_docs", "arguments": [1, 2]},
+            }
+        ],
+    }
+
+    parsed = parse_assistant_payload(message)
+
+    assert isinstance(parsed, ParseFailure)
+    assert "unsupported type" in parsed.error
+
+
 def test_missing_function_name_is_a_parse_failure() -> None:
     message = {
         "role": "assistant",
