@@ -1,52 +1,79 @@
-Verdict: FAIL
+Verdict: PASS
 
 Subagent: claude-sonnet-4-6
 Source: branch claude/dataset-grader-quality-004
 Working directory: /Users/snow/Documents/Repository/agent-eval-lab
+Re-verification round: 2 (post fix commits 3b22f8f, 54d5ae5, c6b7849)
 
-## Entry points exercised
+## Prior FAIL summary (round 1)
 
-a. max_steps wiring — `tests/runners/test_multi_run.py::test_per_task_budget_drives_loop_iterations_over_cli_default` + `test_task_without_max_steps_uses_cli_default` + two pure unit tests for `effective_max_steps`. All 4 pass: a task with `max_steps=6` runs exactly 6 provider calls when CLI default=4 (counter[0]==6); a task with `max_steps=None` runs 4 (the CLI default). Verified with `httpx.MockTransport` counting loop iterations.
+Three findings from round 1:
 
-b. report-validation regeneration — regenerated to `/tmp/re-validation.md` using the exact Task 11 Step 1 command (5 conditions, real JSONL artifacts, all 150 lines). `diff` against committed `docs/2026-06-10-dataset-grader-quality/validation-report.md`: VALIDATION DETERMINISTIC (empty diff, byte-identical).
+1. **AC2 (partial)** — `validation-report.md` lacked the budget-floor assertion section. Code wiring and tests were correct; the rendered report omitted the cross-check narrative the spec requires.
+2. **AC6 (partial)** — `validation-report.md` lacked exemplar trace excerpts. `reports/validation.py` had no exemplar-trace section.
+3. **Error path** — `report-validation --runs just-a-label` produced a Python traceback instead of a clean one-line diagnostic (`_run_report_validation` did not catch `ValueError` from `_parse_runs_spec`).
 
-c. compare-configs regeneration — regenerated to `/tmp/re-comparison.md` using the exact Task 11 Step 2 command. `diff` against committed `docs/2026-06-10-dataset-grader-quality/comparison-report.md`: COMPARISON DETERMINISTIC (empty diff, byte-identical).
+## Per-finding fix verification
 
-d. Error paths:
-   - `report-validation --runs just-a-label …` → Python traceback, not a clean one-line diagnostic. Non-zero exit (1), but traceback is present. FAIL against spec.
-   - `compare-configs --config-a /tmp/nonexistent.jsonl …` → `error: --config-a file not found: /tmp/nonexistent.jsonl`, exit 1. Clean one-liner. PASS.
-   - `compare-configs` with mismatched task universes (ws2-018 vs ws2-040) → `error: paired diff requires an identical task-id universe …`, exit 1. Clean one-liner. PASS.
+### Finding 1 — AC2: budget-floor section (commit 54d5ae5)
 
-e. Full gates: `357 passed in 3.49s`; `ruff check`: `All checks passed!`; `ruff format --check`: `85 files already formatted`. All green.
+`validation-report.md` lines 65–74 now contain the section:
 
-## Observed behavior per criterion
+```
+## Budget-floor assertion (AC2 — step-starvation check)
 
-**AC1 — ADR-0004 honored.** PASS. `effective_max_steps(task, default)` exists in `runners/multi_run.py` (line 15), is pure, returns `task.metadata.max_steps` when present else `default`. Threaded into `run_task_k` at line 33. Unit tests and integration (MockTransport loop-count) all pass.
+Every task ran with at least its declared `metadata.max_steps` budget …
 
-**AC2 — No silent step-starvation.** PARTIAL FAIL. Code wiring is correct: `effective_max_steps` is threaded and the MockTransport integration test proves per-task budget reaches the loop. However, the committed `validation-report.md` contains NO budget-floor assertion section. The spec requires the report to "assert the budget floor directly (every effective budget ≥ declared)" and cross-check `stop_reason="max_steps"` trajectories. Neither appears in the rendered report. The comparison report mentions "per-task max_steps honored (ADR-0004)" in one line, but the validation report has no such statement.
+| condition | runs hitting max_steps | starvation suspects (failing + exhausted) |
+| --- | --- | --- |
+| C1 | 0 | none |
+| C2 | 0 | none |
+| C3 | 0 | none |
+| C4 | 0 | none |
+```
 
-**AC3 — System-prompt knob.** PASS. `apply_system_prompt(messages, prompt)` returns a new tuple, never mutates; 4 unit tests (replace, prepend, None, mutation check) all pass. `--system-prompt-file` flag wired in CLI; artifact tag `__planning-v1` confirmed in `test_system_prompt_file_tags_artifact_and_applies_override`.
+**Replicated from raw (C3 / MiniMax):** The builder detects exhaustion via `stop_reason == "max_steps"` (see `_budget_exhausted_count` in `reports/validation.py` line 102). Python one-liner against `reports/runs-minimax-MiniMax-M3.jsonl` (150 lines):
 
-**AC4 — Cluster-bootstrap estimator.** PASS. `pass_pow_k_bootstrap_ci` and `paired_pass_pow_k_diff_ci` resample by task (one task-id multiset per iteration). Seeded (identical CI on re-run). Discriminating vector confirms cluster-by-task lower bound = 0.0 (naive run-level gives 0.5 — vectors differ). Paired estimator raises with message matching `"identical task-id universe"` on mismatched inputs. All-pass and all-fail resamples yield `n_degenerate=0` and finite CIs. 12/12 reliability tests pass.
+```python
+sum(1 for r in records if r['trajectory']['stop_reason'] == 'max_steps')
+# → 0
+```
 
-**AC5 — Live validation ran at k=3.** PASS. Five artifacts in `reports/`: `runs-deepseek-deepseek-v4-pro.jsonl` (150), `runs-deepseek-deepseek-v4-pro__planning-v1.jsonl` (150), `runs-glm-Pro-zai-org-GLM-5.1.jsonl` (150), `runs-minimax-MiniMax-M3.jsonl` (150), `runs-local-Qwen-Qwen3-8B.jsonl` (150). All complete (50×3). C4 (local) also complete. Report marks all 4 validation conditions `complete`.
+Result: 0 — matches the report's `C3 | 0 | none`. Starvation suspects (failing AND exhausted) also confirmed zero. Section present and correct. PASS.
 
-**AC6 — Failure-mode report committed and answers the headline question.** PARTIAL FAIL. `docs/2026-06-10-dataset-grader-quality/validation-report.md` exists (127 lines) and contains: per-condition pass@1 + pass^3 with cluster-bootstrap CIs; failure taxonomy × tier × capability; per-task pass/fail matrix; deterministic-vs-flaky split; per-tier accuracy curves; discriminativeness verdict (weak rung met: C3 < 1.000, conditions differ). MISSING: the spec requires "≥1 exemplar trace excerpt per top failure mode (drawn from the streamed JSONL trajectories, truncated)." No exemplar traces appear anywhere in the report. The `render_markdown` function in `reports/validation.py` has no exemplar-trace section.
+### Finding 2 — AC6: exemplar trace excerpts (commit 54d5ae5 + c6b7849)
 
-**AC7 — Two-config comparison committed and pre-declared.** PASS. `docs/2026-06-10-dataset-grader-quality/comparison-report.md` (57 lines) contains: frozen hypothesis (text matches spec); held-fixed factors; planning-prompt sha256 `7bd62a40b2050e2b061a11d2cf63eb942b566556441eeec2dcb9b34c95051cff`; per-config pass^3 (A=1.000, B=0.980 overall); per-tier pass^3; primary T3+T4 Δ CI `+0.000 [+0.000, +0.000]`; overall Δ secondary; secondary metrics (extra_call, wrong_args, token counts); decision rule; verdict "no detectable effect at n=50" (CI includes 0 — mechanically correct per decision rule).
+`validation-report.md` lines 76–100 now contain exemplar excerpts for C3 and C4:
 
-**AC8 — n=50 stated honestly.** PASS. Both reports state n=50. Comparison verdict includes "absence of a detectable effect is not evidence of no effect." Validation report includes "absence of a detectable separation is not evidence of no separation." CI widths reported throughout.
+- **C3, `unclassified`, `ws2-031`** (T3/derived_reasoning): `get_account(user_id='u-2') → list_tickets(status='open') → draft_email(to='grace@example.com', subject='Your Open Tickets')`
+- **C3, `wrong_args`, `ws2-015`** (T2/argument_extraction): `send_email(to='ops@example.com', subject='Outage update')`
+- **C4, `unclassified`, `ws2-018`** (T3/multi_step_state): `(no tool calls)`
 
-**AC9 — Report tooling is pure and CLI-driven.** PASS. `reports/validation.py` and `reports/comparison.py` are pure (build + render, no I/O). `report-validation` and `compare-configs` subcommands read JSONL, write Markdown, no provider calls. Both re-runnable; byte-determinism confirmed by regeneration diffs (empty).
+**Replicated from raw for ws2-031 (C3, lex-first failing, run_index=0):**
 
-**AC10 — No fabrication; incomplete ≠ blocked.** PASS. `test_blocked_condition_invents_no_numbers` asserts `pass_pow_k is None` and `pass_at_1 is None` for blocked condition. `test_incomplete_condition_is_marked_not_blocked` asserts `status == "incomplete"` and `n_tasks == 2` with partial records. Both pass.
+Checked `reports/runs-minimax-MiniMax-M3.jsonl` for `task_id=ws2-031, run_index=0`:
+- `grade.passed = false` ✓ (confirmed fail)
+- `grade.failure_reason = null` → category = `unclassified` ✓
+- Trajectory turns with `type="tool_call"`: `get_account(user_id='u-2')`, `list_tickets(status='open')`, `draft_email(to='grace@example.com', subject='Your Open Tickets')` — sequence matches report exactly ✓
 
-**AC11 — Two-config artifacts never collide; v1 naming preserved.** PASS. `runs-deepseek-deepseek-v4-pro__planning-v1.jsonl` (tagged) and `runs-deepseek-deepseek-v4-pro.jsonl` (untagged v1-identical) are distinct. `test_no_system_prompt_file_keeps_v1_artifact_name` confirms no `__tag` suffix. `test_artifacts_are_distinct_per_model_under_one_provider` still passes. `compare-configs` uses source path as identity (confirmed in CLI test `test_compare_configs_identifies_by_path_not_condition_id`).
+The task fails because `emails.e-1.state` is `"draft"` not `"sent"` (the agent called `draft_email` instead of `send_email`). The exemplar correctly represents the `unclassified` failure mode. PASS.
 
-**AC12 — All harness gates green.** PASS. 357 passed (spec expected 357), ruff check clean, ruff format --check clean.
+### Finding 3 — Error path: malformed `--runs` spec (commit 3b22f8f)
 
-## Failures
+```
+$ uv run python -m agent_eval_lab.cli report-validation \
+    --runs just-a-label --dataset examples/datasets/workspace_tool_use_v2.jsonl \
+    --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
+    --k 3 --expected-n-tasks 50 --seed 1 --n-resamples 10 --out /tmp/x.md
+error: bad --runs spec 'just-a-label'; want LABEL=condition_id=path
+exit=1
+```
 
-1. **AC2 (partial)** — validation-report.md lacks the budget-floor assertion section. Code wiring and tests are correct; the rendered report omits the cross-check narrative the spec requires.
-2. **AC6 (partial)** — validation-report.md lacks exemplar trace excerpts. The report builder (`reports/validation.py`) has no exemplar-trace section; neither do the tests. This is unimplemented functionality specified in AC6 and in the architecture section of the spec.
-3. **Error path: malformed `--runs` spec** — `report-validation --runs just-a-label` produces a Python traceback instead of a clean one-line diagnostic. `_run_report_validation` does not catch `ValueError` from `_parse_runs_spec` the way `_run_compare_configs` catches `ValueError` from the pure core. Non-zero exit is correct; the traceback is the violation.
+Clean one-line stderr diagnostic, non-zero exit, no traceback. `_run_report_validation` now wraps `_parse_runs_spec` in a `try/except ValueError` guard matching the existing guard in `_run_compare_configs`. PASS.
+
+## Regression sweep
+
+- **pytest**: `363 passed in 3.61s` — all green, count matches spec expectation of 363.
+- **ruff check**: `All checks passed!`
+- **ruff format --check**: `85 files already formatted`
+- **Report regeneration diff**: Ran canonical `report-validation` command (4 conditions, seed=20260610, n-resamples=2000) to `/tmp/regen-validation.md`; `diff` against committed `docs/2026-06-10-dataset-grader-quality/validation-report.md` → empty diff. BYTE_IDENTICAL confirmed.
