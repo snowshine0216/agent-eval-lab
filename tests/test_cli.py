@@ -786,3 +786,37 @@ def test_compare_configs_clean_diagnostic_on_empty_hard_subset(
         ]
     )
     assert exit_code != 0
+
+
+# ── Finding 3: _run_report_validation ValueError guard ───────────────────────
+
+
+def test_report_validation_malformed_runs_spec_clean_diagnostic(
+    tmp_path: Path, capsys
+) -> None:
+    """report-validation --runs just-a-label must exit non-zero with a clean
+    one-line diagnostic on stderr and no Python traceback."""
+    tiers = _write_tiers(tmp_path / "tiers.json", {"ws2-001": "T1"})
+    out = tmp_path / "report.md"
+
+    exit_code = main(
+        [
+            "report-validation",
+            "--runs",
+            "just-a-label",
+            "--dataset",
+            "examples/datasets/workspace_tool_use_v2.jsonl",
+            "--tiers",
+            str(tiers),
+            "--k",
+            "3",
+            "--out",
+            str(out),
+        ]
+    )
+    assert exit_code != 0
+    err = capsys.readouterr().err
+    # Must be a clean one-liner on stderr, not a traceback
+    assert "error:" in err
+    assert "Traceback" not in err
+    assert "just-a-label" in err

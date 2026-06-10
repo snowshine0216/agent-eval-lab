@@ -20,7 +20,7 @@ from agent_eval_lab.calibrate.packet import (
     render_agreement_report,
 )
 from agent_eval_lab.metrics.cost import TokenPrice
-from agent_eval_lab.records.grade import RunResult
+from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 from agent_eval_lab.reports.comparison import build_comparison_report
@@ -143,9 +143,6 @@ def _load_calibration_fixtures(path: Path) -> list[tuple[str, object]]:
 
 
 def _load_run_results(path: Path) -> list[RunResult]:
-    from agent_eval_lab.records.grade import GradeResult
-    from agent_eval_lab.records.serialize import trajectory_from_dict
-
     runs: list[RunResult] = []
     for lineno, line in enumerate(path.read_text().splitlines(), start=1):
         if not line.strip():
@@ -209,7 +206,11 @@ def _run_report_validation(args: argparse.Namespace) -> int:
     caps = _capability_map(args.dataset)
     conditions = []
     for spec in args.runs:
-        label, path = _parse_runs_spec(spec)
+        try:
+            label, path = _parse_runs_spec(spec)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         results = _load_run_results(path) if path.exists() else []
         conditions.append(
             ConditionInput(
