@@ -147,6 +147,20 @@ def test_multiset_ignores_order_but_keeps_count():
     assert result.passed is True
 
 
+def test_order_mismatch_same_tool_swapped_args():
+    spec = _spec(
+        ExpectedToolCall(name="search_docs", arguments={"query": "first"}),
+        ExpectedToolCall(name="search_docs", arguments={"query": "second"}),
+    )
+    obs = (
+        ToolCall(call_id="c1", name="search_docs", arguments={"query": "second"}),
+        ToolCall(call_id="c2", name="search_docs", arguments={"query": "first"}),
+    )
+    result = grade_tool_calls(spec, obs, TOOL_SCHEMAS)
+    assert result.passed is False
+    assert result.failure_reason == "order_mismatch"
+
+
 def test_multiset_duplicate_count_mismatch_fails():
     spec = _spec(
         ExpectedToolCall(name="search_docs", arguments={"query": "x"}),

@@ -1,7 +1,7 @@
 """Deterministic fake model for runner tests + the report CLI smoke.
 
 Replays a per-task script of canonical turns. call_id is derived deterministically
-from (task_id, step, index) so the same inputs always yield the same trajectory.
+from (task_id, step) so the same inputs always yield the same trajectory.
 """
 
 from collections.abc import Mapping, Sequence

@@ -66,6 +66,12 @@ def _grade_exact_sequence(
         return _fail(
             "extra_call", f"expected {len(expected)} calls, saw {len(observed)}"
         )
+    exp_keys = [_key(e) for e in expected]
+    obs_keys = [_key(o) for o in observed]
+    if exp_keys == obs_keys:
+        return _passed()
+    if Counter(obs_keys) == Counter(exp_keys):
+        return _fail("order_mismatch", "same calls, wrong order")
     for exp, obs in zip(expected, observed, strict=True):
         if exp.name != obs.name:
             if Counter(o.name for o in observed) == Counter(e.name for e in expected):
