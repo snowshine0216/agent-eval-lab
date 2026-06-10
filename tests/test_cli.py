@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from agent_eval_lab.cli import main
 
@@ -106,3 +107,23 @@ def test_run_baseline_writes_report_and_traces(tmp_path: Path, capsys) -> None:
     assert first["task_id"] == "ws-001"
     assert first["grade"]["passed"] is True
     assert str(out_dir / "baseline-local.md") in capsys.readouterr().out
+
+
+def test_partial_price_flags_error(tmp_path: Path) -> None:
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "run-baseline",
+                "--dataset",
+                str(dataset),
+                "--provider",
+                "local",
+                "--input-price-per-mtok",
+                "1.0",
+            ],
+            http_client=httpx.Client(transport=httpx.MockTransport(_handler)),
+        )
+
+    assert excinfo.value.code == 2

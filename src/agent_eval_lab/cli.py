@@ -75,16 +75,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, http_client: httpx.Client | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     config = PROVIDERS[args.provider]
     if args.model:
         config = replace(config, model_id=args.model)
     price = None
-    if args.input_price_per_mtok is not None and args.output_price_per_mtok is not None:
-        price = TokenPrice(
-            input_per_mtok=args.input_price_per_mtok,
-            output_per_mtok=args.output_price_per_mtok,
+    given = (args.input_price_per_mtok, args.output_price_per_mtok)
+    if (given[0] is None) != (given[1] is None):
+        parser.error(
+            "--input-price-per-mtok and --output-price-per-mtok must be given together"
         )
+    if given[0] is not None and given[1] is not None:
+        price = TokenPrice(input_per_mtok=given[0], output_per_mtok=given[1])
     client = http_client or httpx.Client(timeout=120.0)
     try:
         report_path = run_baseline(
