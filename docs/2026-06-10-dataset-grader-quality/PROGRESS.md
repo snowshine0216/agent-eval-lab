@@ -3,7 +3,7 @@
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/dataset-grader-quality-001 | ✅ aab3baa | ✅ | ✅ [#5](https://github.com/snowshine0216/agent-eval-lab/pull/5) | ⏭️ | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ ca47d3b |
-| 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ claude/dataset-grader-quality-002 | ✅ f755343 | ✅ (1 FAIL→fix round) | ✅ [#6](https://github.com/snowshine0216/agent-eval-lab/pull/6) | ⏭️ | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 7dd0e80 |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
