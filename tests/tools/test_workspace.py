@@ -1,5 +1,7 @@
+import pytest
+
 from agent_eval_lab.records.turns import ToolFailure, ToolSuccess
-from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS, apply
+from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS, ToolDef, apply
 
 STATE = {
     "docs": {
@@ -110,3 +112,15 @@ def test_every_registered_tool_has_an_implementation() -> None:
     from agent_eval_lab.tools.workspace import _IMPLS
 
     assert set(WORKSPACE_TOOLS) == set(_IMPLS)
+
+
+def test_registered_tool_without_implementation_raises_loudly() -> None:
+    ghost = ToolDef(
+        name="ghost_tool",
+        description="registered, no impl",
+        parameters={"type": "object"},
+    )
+    registry = {**WORKSPACE_TOOLS, "ghost_tool": ghost}
+
+    with pytest.raises(RuntimeError, match="harness misconfiguration"):
+        apply(registry=registry, name="ghost_tool", arguments={}, state=STATE)

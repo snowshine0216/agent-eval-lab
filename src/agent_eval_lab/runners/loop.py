@@ -1,5 +1,6 @@
 """EDGE: the model<->tool loop. Holds state, threads it through pure `apply`."""
 
+import json
 from collections.abc import Mapping
 
 import httpx
@@ -26,6 +27,9 @@ def run_single(
 ) -> Trajectory:
     state = dict(task.initial_state or {})
     turns: list[Turn] = list(task.input.messages)
+    missing = tuple(n for n in task.input.available_tools if n not in registry)
+    if missing:
+        raise ValueError(f"tools not in registry: {missing}")
     tools = tuple(
         tooldef_to_openai(registry[name]) for name in task.input.available_tools
     )
@@ -47,7 +51,15 @@ def run_single(
         prompt_tokens += usage.get("prompt_tokens", 0)
         completion_tokens += usage.get("completion_tokens", 0)
         latency_s += response.latency_s
-        parsed = parse_assistant_payload(response.payload["choices"][0]["message"])
+        choices = response.payload.get("choices") or []
+        if not choices:
+            parse_failure = ParseFailure(
+                raw=json.dumps(dict(response.payload)),
+                error="no choices in provider response",
+            )
+            stop_reason = "parse_failure"
+            break
+        parsed = parse_assistant_payload(choices[0].get("message", {}))
         if isinstance(parsed, ParseFailure):
             parse_failure = parsed
             stop_reason = "parse_failure"

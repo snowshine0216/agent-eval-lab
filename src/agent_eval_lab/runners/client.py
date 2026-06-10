@@ -39,6 +39,9 @@ def chat_completion(
     max_attempts: int = 3,
     sleep: Callable[[float], None] = time.sleep,
 ) -> ProviderResponse:
+    """POST /chat/completions. latency_s covers only the successful attempt;
+    retry backoff is deliberately excluded (provider latency, not harness policy).
+    """
     headers = _headers(config)
     body: dict[str, Any] = {
         "model": config.model_id,

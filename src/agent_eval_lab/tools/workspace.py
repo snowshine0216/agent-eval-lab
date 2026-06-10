@@ -125,4 +125,10 @@ def apply(
     error = validate_args(tool.parameters, arguments)
     if error is not None:
         return state, ToolFailure(error=f"schema violation: {error}")
-    return _IMPLS[name](arguments, state)
+    impl = _IMPLS.get(name)
+    if impl is None:
+        raise RuntimeError(
+            f"harness misconfiguration: tool {name!r} is registered but has no "
+            "implementation"
+        )
+    return impl(arguments, state)

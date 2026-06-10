@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 
 from agent_eval_lab.records.turns import (
     MessageTurn,
@@ -188,3 +189,57 @@ def test_loop_enforces_max_steps() -> None:
     assert trajectory.stop_reason == "max_steps"
     tool_call_turns = [t for t in trajectory.turns if isinstance(t, ToolCallTurn)]
     assert len(tool_call_turns) == 2
+
+
+def test_loop_records_missing_choices_as_parse_failure() -> None:
+    client = _scripted_client(
+        [{"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}}]
+    )
+
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=6,
+        temperature=0.0,
+    )
+
+    assert trajectory.stop_reason == "parse_failure"
+    assert trajectory.parse_failure is not None
+    assert "no choices" in trajectory.parse_failure.error
+
+
+def test_loop_rejects_task_referencing_unregistered_tool() -> None:
+    task = parse_task(
+        {
+            "id": "ws-bad",
+            "capability": "tool_selection",
+            "input": {
+                "messages": [{"type": "message", "role": "user", "content": "hi"}],
+                "available_tools": ["search_docs", "nonexistent"],
+            },
+            "verification": {
+                "type": "tool_call_match",
+                "expected_tool_calls": [
+                    {"name": "search_docs", "arguments": {"query": "x"}}
+                ],
+                "match": "exact_sequence",
+            },
+            "metadata": {"split": "dev", "version": "1", "provenance": "hand_written"},
+            "initial_state": {"docs": {}, "tickets": {}},
+        }
+    )
+    client = _scripted_client([_final_response("Done.")])
+
+    with pytest.raises(ValueError, match="not in registry"):
+        run_single(
+            task=task,
+            registry=WORKSPACE_TOOLS,
+            config=CONFIG,
+            http_client=client,
+            run_index=0,
+            max_steps=6,
+            temperature=0.0,
+        )

@@ -100,6 +100,46 @@ def test_retries_on_server_error_then_succeeds(monkeypatch) -> None:
     assert response.payload == OK_PAYLOAD
 
 
+def test_retries_on_transport_error_then_succeeds(monkeypatch) -> None:
+    monkeypatch.setenv("TEST_API_KEY", "sk-test")
+    attempts = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, json=OK_PAYLOAD)
+
+    response = chat_completion(
+        config=CONFIG,
+        messages=(),
+        tools=(),
+        temperature=0.0,
+        http_client=_client(handler),
+        sleep=lambda seconds: None,
+    )
+
+    assert attempts["n"] == 2
+    assert response.payload == OK_PAYLOAD
+
+
+def test_exhausted_transport_errors_raise(monkeypatch) -> None:
+    monkeypatch.setenv("TEST_API_KEY", "sk-test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    with pytest.raises(httpx.ConnectError):
+        chat_completion(
+            config=CONFIG,
+            messages=(),
+            tools=(),
+            temperature=0.0,
+            http_client=_client(handler),
+            sleep=lambda seconds: None,
+        )
+
+
 def test_exhausted_retries_raise(monkeypatch) -> None:
     monkeypatch.setenv("TEST_API_KEY", "sk-test")
 

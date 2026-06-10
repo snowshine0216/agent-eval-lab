@@ -14,7 +14,7 @@ def test_registry_covers_the_design_provider_lineup() -> None:
 
 def test_configs_hold_env_var_names_never_keys() -> None:
     for config in PROVIDERS.values():
-        assert "key" not in config.api_key_env.lower() or config.api_key_env.isupper()
+        assert config.api_key_env == config.api_key_env.upper()
         assert config.base_url.startswith(("https://", "http://localhost"))
 
 

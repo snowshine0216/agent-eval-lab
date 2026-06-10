@@ -29,6 +29,7 @@ def turn_to_message(turn: Turn) -> Mapping[str, Any]:
     if isinstance(turn, MessageTurn):
         return {"role": turn.role, "content": turn.content}
     if isinstance(turn, ToolCallTurn):
+        # OpenAI wire format requires tool-call messages be attributed to "assistant".
         return {
             "role": "assistant",
             "content": turn.content,
