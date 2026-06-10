@@ -1253,6 +1253,13 @@ def _minted_ticket_ids(initial_state: Mapping[str, Any] | None, n: int) -> set[s
     return minted
 
 
+# NOTE (002-drift.md DRIFT-2): a parallel _minted_email_ids helper is also required.
+# 13 tasks verify emails.e-<n>.* in final_state while starting from emails:{}.
+# Without this helper, test_initial_state_satisfies_preconditions flags all 13 as
+# dangling references. The plan specified _next_email_id but omitted the mintable helper.
+# def _minted_email_ids(initial_state, n): mirrors _minted_ticket_ids using _next_email_id.
+
+
 def _referenced_ids(spec: VerificationSpec) -> set[str]:
     """Entity ids the verification references (call args + state-path segments)."""
     ids: set[str] = set()
@@ -1340,7 +1347,7 @@ def test_verification_histogram_dominated_by_state_and_all_of() -> None:
         types |= names
         if "final_state" in names or "all_of" in names:
             state_or_allof += 1
-    assert types <= {"tool_call_match", "final_state", "all_of"}
+    assert types <= {"tool_call_match", "final_state", "all_of", "trajectory"}  # "trajectory" added: TrajectorySpec.type=="trajectory" is surfaced when _spec_type_names recurses into AllOf — plan omission (see 002-drift.md DRIFT-1)
     assert state_or_allof >= 33  # T3 + T4 count
 
 
