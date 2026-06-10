@@ -157,9 +157,21 @@ def compute_agreement(
     Headline = binary kappa at `threshold` + percentile bootstrap CI; weighted
     kappa (quadratic, over the raw scale) is a secondary descriptive number.
     """
-    if len(packets) < 2:
-        raise ValueError("agreement requires at least two annotators")
+    if len(packets) != 2:
+        raise ValueError(
+            f"compute_agreement requires exactly 2 packets (two annotators), "
+            f"got {len(packets)}; pass exactly two filled annotator packets"
+        )
     a_pkt, b_pkt = packets[0], packets[1]
+    # Reject any unscored item before binarizing so that None is never treated as a
+    # value and None==None is never silently counted as agreement (poisoned-κ guard).
+    for pkt in (a_pkt, b_pkt):
+        unscored = [i.fixture_id for i in pkt.items if i.score is None]
+        if unscored:
+            raise ValueError(
+                f"packet for annotator {pkt.annotator_id!r} has unscored item(s): "
+                f"{unscored}; re-run labeling or import_packet first"
+            )
     a_scores = [i.score for i in a_pkt.items]
     b_scores = [i.score for i in b_pkt.items]
     a_bin = [_binarize(s, threshold) for s in a_scores]

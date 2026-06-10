@@ -91,6 +91,14 @@ def weighted_kappa(
     n = len(a)
     k = len(categories)
     index = {c: idx for idx, c in enumerate(categories)}
+    # Validate upfront: every label in both sequences must be in categories.  A bare
+    # KeyError mid-comprehension is uninformative; name the offending label instead.
+    for label in (*a, *b):
+        if label not in index:
+            raise ValueError(
+                f"label {label!r} is not in categories {categories!r}; "
+                "ensure all scores are within the declared scale"
+            )
     cm = confusion_matrix(a, b)
     row = {i: sum(1 for x in a if index[x] == i) / n for i in range(k)}
     col = {j: sum(1 for y in b if index[y] == j) / n for j in range(k)}

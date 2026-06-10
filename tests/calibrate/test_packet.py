@@ -180,6 +180,82 @@ def test_compute_agreement_requires_two_packets() -> None:
         )
 
 
+# Fix 1: compute_agreement guards — unscored items and != 2 packets
+
+
+def test_compute_agreement_rejects_more_than_two_packets() -> None:
+    from agent_eval_lab.calibrate.packet import compute_agreement
+
+    blank = build_packet(fixtures=[_fixture("f1", "Done.")], spec=SPEC, rubric="R")
+    a = _filled(blank, [5], "A")
+    b = _filled(blank, [5], "B")
+    c = _filled(blank, [5], "C")
+    with pytest.raises(ValueError, match="exactly 2"):
+        compute_agreement(
+            [a, b, c],
+            threshold=4,
+            scale=(1, 5),
+            seed=1,
+            n_resamples=10,
+            alpha=0.05,
+        )
+
+
+def test_compute_agreement_rejects_unscored_items_in_first_packet() -> None:
+    """An unscored (score=None) item must raise a structured ValueError naming the
+    fixture_id — never silently compute with None or crash mid-comprehension."""
+    import dataclasses
+
+    from agent_eval_lab.calibrate.packet import compute_agreement
+
+    blank = build_packet(
+        fixtures=[_fixture("cf-01", "Done."), _fixture("cf-02", "Done.")],
+        spec=SPEC,
+        rubric="R",
+    )
+    # Packet A has one unscored item
+    items_with_none = (
+        dataclasses.replace(blank.items[0], score=None),
+        dataclasses.replace(blank.items[1], score=3),
+    )
+    a = dataclasses.replace(blank, items=items_with_none, annotator_id="A")
+    b = _filled(blank, [5, 3], "B")
+    with pytest.raises(ValueError, match="cf-01"):
+        compute_agreement([a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05)
+
+
+def test_compute_agreement_poisoned_kappa_two_none_items_rejected() -> None:
+    """Two packets with matching None items must NOT compute agreement — the guard
+    fires before binarize so None==None is never counted as agreement."""
+    import dataclasses
+
+    from agent_eval_lab.calibrate.packet import compute_agreement
+
+    blank = build_packet(
+        fixtures=[_fixture("cf-01", "Done."), _fixture("cf-02", "Done.")],
+        spec=SPEC,
+        rubric="R",
+    )
+    a = dataclasses.replace(
+        blank,
+        items=(
+            dataclasses.replace(blank.items[0], score=None),
+            dataclasses.replace(blank.items[1], score=None),
+        ),
+        annotator_id="A",
+    )
+    b = dataclasses.replace(
+        blank,
+        items=(
+            dataclasses.replace(blank.items[0], score=None),
+            dataclasses.replace(blank.items[1], score=None),
+        ),
+        annotator_id="B",
+    )
+    with pytest.raises(ValueError, match="unscored"):
+        compute_agreement([a, b], threshold=4, scale=(1, 5), seed=1, n_resamples=10, alpha=0.05)
+
+
 def test_render_agreement_report_contains_kappa_and_ci() -> None:
     from agent_eval_lab.calibrate.packet import (
         compute_agreement,

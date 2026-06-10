@@ -99,6 +99,24 @@ def test_weighted_kappa_degenerate_is_0() -> None:
     assert weighted_kappa([2, 2, 2], [2, 2, 2], categories=(1, 2, 3)) == 0.0
 
 
+# Fix 2: weighted_kappa structured error on out-of-category label
+
+
+def test_weighted_kappa_raises_on_label_outside_categories() -> None:
+    from agent_eval_lab.metrics.agreement import weighted_kappa
+
+    with pytest.raises(ValueError, match="99") as exc_info:
+        weighted_kappa([1, 99, 3], [1, 2, 3], categories=(1, 2, 3, 4, 5))
+    assert "categories" in str(exc_info.value).lower() or "99" in str(exc_info.value)
+
+
+def test_weighted_kappa_raises_names_the_offending_label_from_b() -> None:
+    from agent_eval_lab.metrics.agreement import weighted_kappa
+
+    with pytest.raises(ValueError, match="7"):
+        weighted_kappa([1, 2, 3], [1, 7, 3], categories=(1, 2, 3))
+
+
 # Task 13: kappa_bootstrap_ci
 
 
