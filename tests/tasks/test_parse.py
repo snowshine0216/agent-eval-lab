@@ -92,7 +92,7 @@ def test_verification_from_dict_parses_output_match() -> None:
 
 def test_verification_from_dict_rejects_unknown_type() -> None:
     with pytest.raises(ValueError, match="unknown verification type"):
-        verification_from_dict({"type": "llm_judge", "rubric": "x"})
+        verification_from_dict({"type": "bad_type", "rubric": "x"})
 
 
 from agent_eval_lab.tasks.schema import (  # noqa: E402
@@ -191,6 +191,37 @@ def test_verification_from_dict_rejects_unknown_match_mode() -> None:
                 "match": "partial",
             }
         )
+
+
+def test_parses_llm_judge_with_default_scale() -> None:
+    from agent_eval_lab.tasks.parse import verification_from_dict
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    spec = verification_from_dict(
+        {"type": "llm_judge", "rubric": "Score fidelity.", "judge_model": "glm:m"}
+    )
+
+    assert spec == LlmJudgeSpec(rubric="Score fidelity.", judge_model="glm:m", scale=(1, 5))
+
+
+def test_parses_llm_judge_with_explicit_scale() -> None:
+    from agent_eval_lab.tasks.parse import verification_from_dict
+
+    spec = verification_from_dict(
+        {"type": "llm_judge", "rubric": "r", "judge_model": "m", "scale": [1, 7]}
+    )
+
+    assert spec.scale == (1, 7)
+
+
+def test_llm_judge_rejects_bad_scale() -> None:
+    from agent_eval_lab.tasks.parse import verification_from_dict
+
+    for bad in ([5, 1], [1], [1, 2, 3], ["1", "5"]):
+        with pytest.raises(ValueError, match="scale"):
+            verification_from_dict(
+                {"type": "llm_judge", "rubric": "r", "judge_model": "m", "scale": bad}
+            )
 
 
 def test_metadata_max_steps_and_review_default_to_none() -> None:

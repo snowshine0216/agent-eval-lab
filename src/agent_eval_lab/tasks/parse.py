@@ -9,6 +9,7 @@ from agent_eval_lab.tasks.schema import (
     AllOf,
     ExpectedToolCall,
     FinalStateSpec,
+    LlmJudgeSpec,
     MaxToolCalls,
     NoToolCall,
     OnlyModifies,
@@ -27,6 +28,17 @@ from agent_eval_lab.tasks.schema import (
 
 _SPLITS = ("dev", "held_out")
 _MATCH_MODES = ("exact_sequence", "multiset")
+
+
+def _parse_scale(raw: Any) -> tuple[int, int]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"scale must be a 2-element list, got {raw!r}")
+    lo, hi = raw
+    if not (isinstance(lo, int) and isinstance(hi, int)) or isinstance(lo, bool) or isinstance(hi, bool):
+        raise ValueError(f"scale bounds must be ints, got {raw!r}")
+    if lo >= hi:
+        raise ValueError(f"scale must have lo < hi, got {raw!r}")
+    return (lo, hi)
 
 
 def _state_constraint_from_dict(data: Mapping[str, Any]) -> StateConstraint:
@@ -81,6 +93,12 @@ def verification_from_dict(data: Mapping[str, Any]) -> VerificationSpec:
         )
     if kind == "all_of":
         return AllOf(specs=tuple(verification_from_dict(s) for s in data["specs"]))
+    if kind == "llm_judge":
+        return LlmJudgeSpec(
+            rubric=data["rubric"],
+            judge_model=data["judge_model"],
+            scale=_parse_scale(data.get("scale", [1, 5])),
+        )
     raise ValueError(f"unknown verification type: {kind!r}")
 
 
