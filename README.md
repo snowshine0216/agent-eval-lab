@@ -54,6 +54,22 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
+Run the tool-use baseline (requires a local OpenAI-compatible server, e.g.
+Ollama/MLX serving `qwen3-8b` on `localhost:11434`, or a provider key):
+
+```bash
+uv run python -m agent_eval_lab.cli run-baseline \
+  --dataset examples/datasets/workspace_tool_use_v1.jsonl \
+  --provider local --k 3
+```
+
+Outputs: `reports/baseline-<provider>.md` (headline `pass@1`, `pass^k`, tokens,
+cost, latency, failure taxonomy) and `reports/runs-<provider>.jsonl` (full
+graded trajectories). Hosted providers read their key from the environment
+variable named in `src/agent_eval_lab/runners/config.py` (e.g.
+`DASHSCOPE_API_KEY`); pass `--input-price-per-mtok/--output-price-per-mtok`
+to include estimated cost.
+
 ## Repository Layout
 
 Target layout (the current checkout is at the foundation stage — see Status):
@@ -121,9 +137,12 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the delivery plan and
 
 ## Status
 
-This repository is at the foundation stage. The current implementation begins
-with a pure exact-match grader and its tests; the full pipeline is specified in
-[docs/superpowers/specs/](docs/superpowers/specs/) and built slice by slice.
+This repository has the Weeks 1–2 tool-use slice implemented: locked record
+types, a schema-validated workspace-world, the AST tool-call grader with a
+structured failure taxonomy, a multi-run runner with cost capture, a 20-task
+dataset, a golden conformance suite, and a baseline report command. The full
+pipeline is specified in [docs/superpowers/specs/](docs/superpowers/specs/)
+and built slice by slice.
 
 ## License
 
