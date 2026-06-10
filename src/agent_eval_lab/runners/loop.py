@@ -84,4 +84,5 @@ def run_single(
         run_index=run_index,
         stop_reason=stop_reason,
         parse_failure=parse_failure,
+        final_state=state,
     )
