@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/tool-use-slice-001` | ✅ `0ab6334` | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 ## Cells / notes
 
@@ -14,6 +14,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 grill** ⏭️ — user-grilled (spec mode pre-completes grill; orchestrator must not auto-invoke).
 - **001 plan** ✅ — [items/001-plan.md](items/001-plan.md) (commit `205f13f`). Opus `superpowers:writing-plans`: 24 tasks / 8 phases / 122 TDD steps. Locked decisions: tools = `search_docs`/`create_ticket`/`update_ticket` over `{tickets, docs}`; vendored stdlib `jsonschema_mini` shared by world boundary + grader; only new dep = `hypothesis`.
 - **001 impl** ✅ — branch `claude/tool-use-slice-001` @ `0ab6334` (26 commits). 24/24 plan tasks. **87 tests pass**, `ruff check` + `ruff format --check` clean. Dataset `examples/datasets/tool_use.jsonl` = 20 tasks; `recorded_runs.jsonl` = 4 runs (k=2). CLI `python -m agent_eval_lab.reports.baseline` renders pass^k + cost/latency + failure-category report. Orchestrator added 1 housekeeping commit (ruff-format reflow of a test + lock the `hypothesis` dep the implementer left uncommitted).
+- **001 drift** ✅ — [items/001-drift.md](items/001-drift.md). 24/24 plan tasks verified vs actual diff; A1–A8 satisfied. Initial FAIL (Task-24 dataset note placed in the orchestrator-owned run-dir, which the implementer was barred from) → resolved by orchestrator relocating the note to durable `examples/datasets/README.md`; 87 tests still green.
 - (QA column omitted — non-web project; `/verify` is the post-ship verifier.)
 
 ## Run log
