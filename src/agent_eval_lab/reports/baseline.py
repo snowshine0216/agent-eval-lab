@@ -24,3 +24,24 @@ def render_report(summary: BaselineSummary) -> str:
     else:
         lines.append("- none")
     return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI edge: render a baseline report from a RunResult JSONL file."""
+    import sys
+    from pathlib import Path
+
+    from agent_eval_lab.metrics.baseline import aggregate
+    from agent_eval_lab.tasks.loader import load_run_results
+
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        print("usage: python -m agent_eval_lab.reports.baseline <runs.jsonl>")
+        return 2
+    runs = load_run_results(Path(args[0]))
+    print(render_report(aggregate(runs)), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
