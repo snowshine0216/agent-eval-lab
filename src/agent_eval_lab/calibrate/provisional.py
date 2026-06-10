@@ -77,7 +77,8 @@ def render_provisional_summary(
                 obs_line,
                 "",
                 "At n in [12,20] the bootstrap CI is wide and n-dominated:",
-                "a plumbing/feasibility number, not a reliability verdict (see runbook).",
+                "a plumbing/feasibility number, not a reliability verdict",
+                "(see the calibration runbook).",
                 "",
             ]
         )

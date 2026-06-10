@@ -6,8 +6,6 @@ import pytest
 from agent_eval_lab.calibrate.packet import (
     PACKET_FORMAT,
     RUBRIC_VERSION,
-    Packet,
-    PacketItem,
     build_packet,
     packet_from_jsonl,
     packet_to_jsonl,

@@ -1,5 +1,4 @@
 import httpx
-import pytest
 
 from agent_eval_lab.graders.judge import JudgeVerdict, build_judge_prompt, prompt_hash
 from agent_eval_lab.records.trajectory import Trajectory, Usage

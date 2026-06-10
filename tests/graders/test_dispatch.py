@@ -216,7 +216,7 @@ def test_all_of_with_judge_leg_runs_deterministic_leg_regardless() -> None:
     )
     trajectory = _state_trajectory({"tickets": {"T-1": {"status": "closed"}}})
     h = prompt_hash(build_judge_prompt(spec=judge, trajectory=trajectory))
-    # judge fails (score 2) but the deterministic leg passes -> AllOf is the AND -> False
+    # judge fails (score 2) but the deterministic leg passes -> AllOf fails
     verdict = JudgeVerdict(
         score=2, rationale="bad", raw="SCORE: 2", judge_model="m", prompt_hash=h
     )

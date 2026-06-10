@@ -1,5 +1,3 @@
-import pytest
-
 from agent_eval_lab.graders.judge import (
     JudgeParseFailure,
     JudgeVerdict,
