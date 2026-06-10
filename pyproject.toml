@@ -1,6 +1,6 @@
 [project]
 name = "agent-eval-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "A portfolio-driven laboratory for reproducible AI agent evaluations"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ dependencies = []
 dev = [
   "pytest>=9.0.0",
   "ruff>=0.15.0",
+  "hypothesis>=6.0.0",
 ]
 
 [build-system]

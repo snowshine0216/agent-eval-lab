@@ -20,18 +20,22 @@ Full design and rationale:
 - 25%: apply software engineering fundamentals;
 - 10%: build statistical foundations.
 
-## Weeks 1-2: Minimum Evaluation System (tool-use slice)
+## Weeks 1-2: Minimum Evaluation System (tool-use slice) [done — slice 001]
 
-Deliver:
+Delivered:
 
-- a locked `VerificationSpec` subset and task schema;
-- a synthetic workspace-world with schema-validated tools;
-- ~20 tool-use tasks (tool selection and argument extraction);
-- a Python runner (OpenAI-compatible client, model↔tool loop, limits, multi-run
-  from day one, cost capture);
-- an AST tool-call grader with a structured failure taxonomy;
-- an initial golden conformance suite;
-- a baseline report.
+- a locked `VerificationSpec` subset and task schema (frozen kw-only
+  dataclasses, pure codec, JSONL round-trip with `type` discriminators);
+- a synthetic workspace-world with 3 schema-validated tools (`search_docs`,
+  `create_ticket`, `update_ticket`) over `{tickets, docs}` state;
+- ~20 tool-use tasks (`examples/datasets/tool_use.jsonl`) covering tool
+  selection, argument extraction, and multi-step tasks;
+- an OpenAI-compatible provider client (fake-transport tested, no network);
+- a multi-run runner (model↔tool loop, explicit state, limits, k runs, cost);
+- an AST tool-call grader (schema-first, 7-category failure taxonomy, never
+  coerces types);
+- an initial golden conformance suite (10 cases, CI-verified);
+- a baseline report + CLI smoke target.
 
 Engineering focus:
 

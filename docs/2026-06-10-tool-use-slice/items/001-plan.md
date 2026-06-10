@@ -78,7 +78,7 @@ tests/                          (mirrors src, plus:)
   runners/test_fake_model.py
   runners/test_runner.py
   runners/test_runner_determinism.py
-  runners/cassettes/*.json
+  runners/cassettes/*.json    (illustrative — Task 15 test_cassette_replay uses tmp_path; no committed cassettes dir needed; A5 satisfied)
   metrics/test_baseline.py
   reports/test_baseline_report.py
   reports/test_baseline_cli.py
@@ -3131,7 +3131,7 @@ git commit -m "test(graders): add property-based canonicalization + never-pass-i
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/ROADMAP.md`
 - Modify: `docs/superpowers/specs/2026-06-09-agent-eval-pipeline-design.md`
-- Create: `docs/2026-06-10-tool-use-slice/items/dataset-note.md`
+- Create: `docs/2026-06-10-tool-use-slice/items/dataset-note.md` — **amended by drift (orchestrator): relocated to `examples/datasets/README.md`** so the dataset note lives next to the data as a durable project doc rather than inside the ephemeral, orchestrator-owned autodev run-dir. Substance unchanged.
 
 - [ ] **Step 1: Update ARCHITECTURE.md "Initial Vertical Slice" section**
 
