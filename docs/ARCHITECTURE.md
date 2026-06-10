@@ -90,9 +90,42 @@ unrepresentable; the spec-time `ExpectedToolCall` is distinct from the runtime
   schema-invalid argument never passes; same seed + input is deterministic).
 - Every behavior change begins with a failing test.
 
-## Initial Vertical Slice
+## Initial Vertical Slice (slice 001 — landed)
 
-Tool use: a small workspace-world with schema-validated tools, an AST tool-call
-grader with a structured failure taxonomy, a multi-run runner that records cost,
-and a baseline report. The original exact-match grader survives as the
-`OutputMatchSpec` scorer.
+The Weeks 1–2 tool-use slice delivered all eight spec deliverables:
+
+- **Locked record spine** (`tasks/`): frozen kw-only dataclasses for
+  `ExpectedToolCall`, `ToolCall`, `Turn` (tagged union), `ToolOutcome`,
+  `VerificationSpec` (tagged union with `ensure_supported` guard), `Task`,
+  `GradeResult`, `Trajectory`, `RunResult`; pure `to_dict`/`from_dict` codec
+  with explicit `type` discriminators; JSONL loader at the edge.
+- **Synthetic workspace-world** (`tools/`): three schema-validated tools
+  (`search_docs`, `create_ticket`, `update_ticket`) over a `{tickets, docs}`
+  state subset; pure `apply(tool, args, state) -> (state', outcome)` boundary;
+  a single vendored stdlib JSON-Schema validator (`jsonschema_mini.py`) shared
+  by the world boundary and the AST grader so "invalid" means the same thing
+  in both.
+- **AST tool-call grader** (`graders/`): schema-first pipeline (parse →
+  validate-vs-schema → canonicalize → structural compare) emitting a
+  7-category failure taxonomy (`malformed_call`, `schema_violation`,
+  `wrong_tool`, `wrong_args`, `missing_call`, `extra_call`, `order_mismatch`)
+  plus `step_limit_exceeded` from the runner; `exact_sequence` and `multiset`
+  match modes; never coerces types. `grade_exact_match` survives as the
+  `OutputMatchSpec` scorer.
+- **OpenAI-compatible provider client** (`runners/provider.py`): builds
+  `/chat/completions` requests from `ProviderConfig`, parses responses into
+  canonical `Turn`/`ToolCall` records, reads API key from the env var named by
+  `api_key_env`; tested against a fake injected transport — no network, no
+  real keys anywhere in the suite.
+- **Multi-run runner** (`runners/runner.py`): model↔tool loop, explicit state
+  threading via `apply`, max-turns / max-tool-calls limits, k runs per task,
+  `Trajectory` records with cost + latency + `run_index` + termination reason.
+- **Golden conformance suite** (`tests/graders/conformance/cases.json`): 10
+  hand-verified cases covering every taxonomy category; graded through the
+  harness, asserted equal to the oracle; runs in CI.
+- **Baseline report + CLI** (`reports/`): pure renderer from `RunResult`s;
+  `python -m agent_eval_lab.reports.baseline <runs.jsonl>` smoke target; 4
+  committed recorded runs.
+- **~20-task dataset** (`examples/datasets/tool_use.jsonl`): full `Task`
+  records covering tool selection, argument extraction, and multi-step tasks
+  with both match modes; replaces the name-only `tool_selection.jsonl`.

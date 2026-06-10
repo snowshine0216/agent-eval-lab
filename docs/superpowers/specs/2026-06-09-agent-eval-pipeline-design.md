@@ -671,13 +671,13 @@ instruction-following?); a generalization probe (train easy, test hard).
 
 ## 13. Current checkout vs proposed (delta)
 
-| Area | Current checkout | Proposed |
-|---|---|---|
-| Graders | `grade_exact_match` only; `GradeResult{passed, score, feedback}` | + `evidence`, `failure_reason`; AST tool grader; constraint interpreters; judge |
-| Dataset | `tool_selection.jsonl`: name-only `expected`, no schemas/args/match-mode | `Task` with `VerificationSpec`, `initial_state`, JSON-schema tools, provenance |
-| Modules | `graders/` only | + `tasks/ tools/ runners/ metrics/ reports/ experiments/ data/ finetune/` |
-| Runs | none | `Trajectory`, multi-run, cost/latency capture |
-| Experiments | none | `ExperimentSpec/Result`, leakage-safe splits |
+| Area | Current checkout | Proposed | Status |
+|---|---|---|---|
+| Graders | `grade_exact_match` only; `GradeResult{passed, score, feedback}` | + `evidence`, `failure_reason`; AST tool grader; constraint interpreters; judge | ✅ landed (slice 001): `evidence`/`failure_reason` present; AST tool grader with 7-category taxonomy; `grade_exact_match` → `OutputMatchSpec` scorer |
+| Dataset | `tool_selection.jsonl`: name-only `expected`, no schemas/args/match-mode | `Task` with `VerificationSpec`, `initial_state`, JSON-schema tools, provenance | ✅ landed (slice 001): `tool_use.jsonl` with full `Task` records, ~20 tasks, both match modes |
+| Modules | `graders/` only | + `tasks/ tools/ runners/ metrics/ reports/ experiments/ data/ finetune/` | ✅ landed (slice 001): `tasks/ tools/ runners/ metrics/ reports/` all present; `experiments/ data/ finetune/` not yet |
+| Runs | none | `Trajectory`, multi-run, cost/latency capture | ✅ landed (slice 001): `Trajectory` with turns/usage/cost/latency/run_index/termination_reason; k runs per task |
+| Experiments | none | `ExperimentSpec/Result`, leakage-safe splits | not yet |
 
 The current seed dataset and exact-match grader are a valid *first vertical
 slice*; this design extends them, it does not contradict them.
