@@ -168,6 +168,26 @@ global CLI default of 6).
 _Avoid_: "step limit", "max turns" (`step_limit_exceeded` is the policy
 `FailureCategory`; `max_steps` here is the per-task budget hint).
 
+**condition_id**:
+The `provider:model` identity (`runners/config.condition_id`) stamped on every
+`RunResult` and used to name its run artifact (`runs-<slug>.jsonl`). It identifies
+the *model under test*, NOT the agent configuration — two runs of the same model
+under different system prompts share one `condition_id` (resolved by the
+**prompt-config tag**). The join key from a run record back to its condition.
+_Avoid_: "run id" (that is `run_index` within a condition), "model name" (it pairs
+provider *and* model, so two providers serving the same model never collide).
+
+**prompt-config tag**:
+The optional suffix appended to a run artifact's slug
+(`runs-<condition-slug>__<tag>.jsonl`, e.g. `…__planning.jsonl`) that distinguishes
+two agent configurations sharing one **condition_id** — the same model under
+`default` vs `planning` system prompts (item 004's two-config comparison). Empty
+when no `--system-prompt-file` is given, so the v1 artifact filename is unchanged.
+The *source path*, not the in-record `condition_id`, is what tells the two configs
+apart (ADR-0007).
+_Avoid_: "config id", "variant id" (the tag rides the *filename*, not the frozen
+`RunResult` schema, which keeps `condition_id = provider:model`).
+
 **review (task)**:
 The `metadata.review` field (`"passed:<rubric-version>"`) that rides each
 append-only row as its *machine-checkable, frozen* proof the task passed the
