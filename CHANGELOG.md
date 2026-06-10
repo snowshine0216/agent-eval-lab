@@ -7,6 +7,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Weeks 3–4 dataset and grader quality
+
+- Composite verification layer: `FinalStateSpec`, `TrajectorySpec`, and `AllOf`
+  joined the `VerificationSpec` union, with constraint variants
+  (`StateEquals`/`StateContains`; `NoToolCall`/`OnlyModifies`/`MaxToolCalls`)
+  interpreted by pure graders — outcome checks are path-independent while
+  trajectory constraints still police side effects.
+- `Trajectory.final_state` records the post-loop world state and is threaded
+  from the runner into grading; serialization round-trips it.
+- `OnlyModifies` uses dot-segment-aware prefix coverage (`tickets.T-1` does not
+  cover `tickets.T-10`) over a leaf-level state diff; empty mappings contribute
+  no leaves, eliminating phantom-path false failures.
+- `forbidden_action` and `step_limit_exceeded` failure categories now emitted
+  by trajectory-policy grading; `AllOf` reports the first sub-spec failure
+  category while evaluating all sub-specs.
+- Golden conformance suite extended from 11 to 23 hand-verified cases
+  (state success/failure, missing paths, policy breaches, path-independent
+  success via two distinct valid routes, conjunction semantics).
+
 ### Added — Weeks 1–2 tool-use vertical slice
 
 - Immutable record spine (`records/`): conversation turns, runtime tool calls,
