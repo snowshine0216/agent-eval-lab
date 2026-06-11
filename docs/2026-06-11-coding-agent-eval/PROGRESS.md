@@ -13,7 +13,11 @@ Evidence (002): grill items/002-grill.md (PASS) · drift items/002-drift.md (PAS
 | 003 | code-repair dataset (10-20 tasks) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-003 | ✅ b01e34c | ✅ | ✅ #12 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 round (pre-PR) | ✅ 4e908f3 |
 
 Evidence (003): grill items/003-grill.md (PASS) · drift items/003-drift.md (PASS 20/20 + sha gates) · PR https://github.com/snowshine0216/agent-eval-lab/pull/12 MERGED (items/003-ship.md) · verify items/003-verify.md (PASS — live loader/oracle pipeline on 3 tiers + conformance 32/32) · review items/003-review.md (PASS-WITH-NITS; oracle-breadth fix round 336805b/77fa3dd; hack-resistance re-verification CLEAN) · pr-review items/003-pr-review.md (PASS-WITH-NITS, 3 nits, comment 4680629754) · merge 4e908f3 (squash, branch deleted)
-| 004 | failure classification + final eval report | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | failure classification + final eval report | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-004 | ✅ e371db3 | ✅ | ✅ #13 | ⏭️ | 🔄 | ✅ | 🔄 | ✅ 1 round (pre-PR) | ⏳ |
+
+Evidence (004): grill items/004-grill.md (PASS) · drift items/004-drift.md (PASS, sha gates + Part B mechanical) · PR https://github.com/snowshine0216/agent-eval-lab/pull/13 (items/004-ship.md) · review items/004-review.md (PASS-WITH-NITS; truncation harness-defect fix round a819ab4/3116c74/3236b3a/0cca10b; validity re-verification CLEAN)
+
+Evidence (004, fix round 1 — harness defect from validity review): the client sent no max_tokens, so the MLX server's 512-token default truncated Qwen3-8B inside its reasoning channel on 30/45 local runs (27 with completion_tokens == 512 exactly), misclassified by fc-v1 as agent_failure/malformed_reply. Fix: explicit `--max-tokens` (default 4096) threaded client→loop→multi_run→CLI and recorded per trajectory + fc-v2 (`token_budget_exhausted`, parse_failure None-guard) — a819ab4 · rerun artifacts C4 45/45 passed (pass@1 0.133→1.000) + C3 minimax retry completed 45/45 (replaces 6-row partial) — 3116c74 · report regenerated under fc-v2 with defect narrative, fc design note (cr-007/cr-014), budget-asymmetry limitation, saturation takeaway; byte-identical re-regeneration (sha256 05139448…) — 3236b3a · CHANGELOG — 0cca10b · gates: 664 tests green (+17), ruff check/format clean.
 
 Run-level: doc-sync ⏳ · final-verify ⏳ · close-out ⏳
 

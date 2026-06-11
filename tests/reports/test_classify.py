@@ -1,0 +1,369 @@
+"""fc-v1 mapping table: one dedicated test per row (item 004 criterion 7)."""
+
+from typing import get_args
+
+from agent_eval_lab.records.grade import FailureCategory, GradeResult, RunResult
+from agent_eval_lab.records.trajectory import (
+    NO_CHOICES_ERROR,
+    ParseFailure,
+    Trajectory,
+    Usage,
+)
+from agent_eval_lab.reports.classify import (
+    CLASSIFIER_VERSION,
+    RunClassification,
+    Subcategory,
+    classify_run,
+    first_execution_evidence,
+)
+
+
+def _run(
+    *,
+    passed=False,
+    grader_id="execution",
+    evidence=None,
+    failure_reason=None,
+    stop_reason="completed",
+    parse_error=None,
+    completion_tokens=5,
+    max_tokens=None,
+) -> RunResult:
+    """Synthetic RunResult mimicking the JSONL round-trip (plain dicts).
+
+    max_tokens mirrors the fc-v2 field added to RunResult for the
+    token_budget_exhausted subcategory; None reproduces pre-fc-v2 artifacts.
+    """
+    return RunResult(
+        task_id="cr-001",
+        condition_id="deepseek:deepseek-v4-pro",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(
+                prompt_tokens=10,
+                completion_tokens=completion_tokens,
+                latency_s=0.1,
+            ),
+            run_index=0,
+            stop_reason=stop_reason,
+            parse_failure=(
+                None
+                if parse_error is None
+                else ParseFailure(raw="{}", error=parse_error)
+            ),
+            final_state={"files": {}},
+            max_tokens=max_tokens,
+        ),
+        grade=GradeResult(
+            grader_id=grader_id,
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence=evidence if evidence is not None else {},
+            failure_reason=failure_reason,
+        ),
+    )
+
+
+def _exec_run_evidence(status, counts=None):
+    return {
+        "execution": "run",
+        "status": status,
+        "exit_code": 1,
+        "counts": counts or {"passed": 1, "failed": 2, "errors": 0, "skipped": 0},
+        "tests": [],
+        "stdout": "",
+        "stderr": "",
+        "execution_hash": "h",
+        "displaced_paths": [],
+    }
+
+
+def _exec_error_evidence(kind, detail="boom"):
+    return {
+        "execution": "error",
+        "execution_error": {"kind": kind, "detail": detail},
+        "execution_hash": "h",
+    }
+
+
+def _is(c: RunClassification, category: str, subcategory) -> None:
+    assert (c.category, c.subcategory) == (category, subcategory)
+    assert c.classifier_version == CLASSIFIER_VERSION
+    assert "\n" not in c.detail
+
+
+# Row 1 — passed wins first, even over a recorded parse_failure (grill Q8).
+
+
+def test_row_01_passed() -> None:
+    _is(classify_run(_run(passed=True)), "passed", None)
+
+
+def test_row_01_passed_wins_over_recorded_parse_failure() -> None:
+    run = _run(passed=True, parse_error="unparseable", stop_reason="parse_failure")
+    _is(classify_run(run), "passed", None)
+
+
+# Rows 2-3 — parse failures split on the shared loop constant (grill Q3).
+
+
+def test_row_02_empty_choices_parse_failure_is_harness() -> None:
+    run = _run(parse_error=NO_CHOICES_ERROR, stop_reason="parse_failure")
+    _is(classify_run(run), "harness_failure", "provider_response")
+
+
+def test_row_03_any_other_parse_failure_is_agent() -> None:
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+    )
+    _is(classify_run(run), "agent_failure", "malformed_reply")
+
+
+# Rows 4-8 — execution not_run / error branch.
+
+
+def test_row_04_not_run_missing_final_state_is_harness() -> None:
+    ev = {"execution": "not_run", "reason": "missing_final_state"}
+    _is(
+        classify_run(_run(evidence=ev)),
+        "harness_failure",
+        "missing_final_state",
+    )
+
+
+def test_row_05_error_kind_harness_is_sandbox_fault() -> None:
+    run = _run(evidence=_exec_error_evidence("harness"))
+    _is(classify_run(run), "harness_failure", "sandbox_fault")
+
+
+def test_row_06_error_kind_verdict_missing_is_harness() -> None:
+    ev = {
+        "execution": "error",
+        "execution_error": {"kind": "verdict_missing", "execution_hash": "h"},
+        "execution_hash": "h",
+    }
+    _is(classify_run(_run(evidence=ev)), "harness_failure", "verdict_missing")
+
+
+def test_row_07_error_kind_tree_collision_is_agent() -> None:
+    detail = "canonical-prefix collision: agent 'Tests/test_app.py' vs oracle"
+    run = _run(evidence=_exec_error_evidence("tree_collision", detail))
+    c = classify_run(run)
+    _is(c, "agent_failure", "tree_collision")
+    assert "Tests/test_app.py" in c.detail  # cites the colliding pair
+
+
+def test_row_08_error_any_other_kind_is_foreign_verdict() -> None:
+    # Grill Q1: a foreign value at a colliding hash carries its OWN kind
+    # (e.g. a JudgeError's "transport"); the error branch closes by fallback.
+    for kind in ("unknown", "transport", "parse", "weird-future-kind"):
+        run = _run(evidence=_exec_error_evidence(kind))
+        _is(classify_run(run), "harness_failure", "foreign_verdict")
+
+
+def test_row_08_non_string_kind_is_foreign_verdict_not_a_crash() -> None:
+    run = _run(evidence=_exec_error_evidence(["not", "hashable"]))
+    _is(classify_run(run), "harness_failure", "foreign_verdict")
+
+
+# Row 9 — empty oracle: the only mechanical post-conformance task defect.
+
+
+def test_row_09_suite_no_tests_is_task_failure() -> None:
+    ev = _exec_run_evidence("no_tests", {"passed": 0, "failed": 0})
+    _is(classify_run(_run(evidence=ev)), "task_failure", "oracle_empty")
+
+
+# Rows 10-11 — policy breaches from the grade taxonomy.
+
+
+def test_row_10_forbidden_action_is_agent() -> None:
+    run = _run(grader_id="trajectory", failure_reason="forbidden_action")
+    _is(classify_run(run), "agent_failure", "forbidden_action")
+
+
+def test_row_11_step_limit_exceeded_is_agent() -> None:
+    run = _run(grader_id="trajectory", failure_reason="step_limit_exceeded")
+    _is(classify_run(run), "agent_failure", "step_limit_exceeded")
+
+
+# Row 12 — budget truncation outranks oracle statuses (grill Q13).
+
+
+def test_row_12_max_steps_outranks_red_oracle() -> None:
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="max_steps")
+    _is(classify_run(run), "agent_failure", "step_exhaustion")
+
+
+# Rows 13-15 — oracle suite statuses on a full (untruncated) attempt.
+
+
+def test_row_13_suite_timeout_is_oracle_timeout() -> None:
+    ev = _exec_run_evidence("timeout", {"passed": 0, "failed": 0})
+    _is(classify_run(_run(evidence=ev)), "agent_failure", "oracle_timeout")
+
+
+def test_row_14_suite_failed_is_oracle_red() -> None:
+    c = classify_run(_run(evidence=_exec_run_evidence("failed")))
+    _is(c, "agent_failure", "oracle_red")
+    assert "failed" in c.detail  # cites the suite counts/status
+
+
+def test_row_15_suite_error_is_oracle_error() -> None:
+    _is(
+        classify_run(_run(evidence=_exec_run_evidence("error"))),
+        "agent_failure",
+        "oracle_error",
+    )
+
+
+# Row 16 — fallback: failed with no mapped discriminator.
+
+
+def test_row_16_fallback_other_miss() -> None:
+    run = _run(grader_id="final_state", evidence={"diff": []})
+    _is(classify_run(run), "agent_failure", "other_miss")
+
+
+# exec_ev walk: nested AllOf evidence, plain dicts (grill Q9).
+
+
+def test_exec_evidence_found_through_nested_all_of_dicts() -> None:
+    evidence = {
+        "sub_results": [
+            {"grader_id": "final_state", "passed": True, "evidence": {"diff": []}},
+            {
+                "grader_id": "all_of",
+                "passed": False,
+                "evidence": {
+                    "sub_results": [
+                        {
+                            "grader_id": "execution",
+                            "passed": False,
+                            "evidence": _exec_run_evidence("failed"),
+                        }
+                    ]
+                },
+            },
+        ]
+    }
+    run = _run(grader_id="all_of", evidence=evidence)
+    _is(classify_run(run), "agent_failure", "oracle_red")
+
+
+def test_first_execution_leg_wins_in_declared_order() -> None:
+    evidence = {
+        "sub_results": [
+            {
+                "grader_id": "execution",
+                "passed": False,
+                "evidence": _exec_run_evidence("failed"),
+            },
+            {
+                "grader_id": "execution",
+                "passed": False,
+                "evidence": _exec_run_evidence("timeout"),
+            },
+        ]
+    }
+    found = first_execution_evidence(evidence, "all_of")
+    assert found is not None and found["status"] == "failed"
+
+
+def test_no_execution_leg_returns_none() -> None:
+    assert first_execution_evidence({"diff": []}, "final_state") is None
+
+
+# Criterion 8 — the grade-level taxonomy is untouched.
+
+
+def test_failure_category_member_set_is_unchanged() -> None:
+    assert set(get_args(FailureCategory)) == {
+        "malformed_call",
+        "schema_violation",
+        "wrong_tool",
+        "wrong_args",
+        "missing_call",
+        "extra_call",
+        "order_mismatch",
+        "forbidden_action",
+        "step_limit_exceeded",
+    }
+
+
+def test_subcategory_vocabulary_is_closed_at_15() -> None:
+    # Kept as a historical marker; fc-v2 tests assert the updated count.
+    # Superseded by test_subcategory_vocabulary_is_closed_at_16_after_fc_v2.
+    pass
+
+
+# fc-v2 additions ──────────────────────────────────────────────────────────────
+
+
+def test_classifier_version_is_fc_v2() -> None:
+    """After the fc-v2 bump the version string must be fc-v2, not fc-v1."""
+    assert CLASSIFIER_VERSION == "fc-v2"
+
+
+def test_subcategory_vocabulary_is_closed_at_16_after_fc_v2() -> None:
+    """fc-v2 adds token_budget_exhausted; closed vocabulary grows by one."""
+    assert len(get_args(Subcategory)) == 16
+    assert "token_budget_exhausted" in get_args(Subcategory)
+
+
+def test_token_budget_exhausted_classification() -> None:
+    """parse_failure with completion_tokens >= declared max_tokens classifies
+    as agent_failure/token_budget_exhausted, not malformed_reply."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=4096,
+        max_tokens=4096,
+    )
+    _is(classify_run(run), "agent_failure", "token_budget_exhausted")
+
+
+def test_token_budget_exhausted_at_exactly_budget() -> None:
+    """Boundary: completion_tokens == max_tokens → token_budget_exhausted."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=512,
+        max_tokens=512,
+    )
+    _is(classify_run(run), "agent_failure", "token_budget_exhausted")
+
+
+def test_token_budget_not_exhausted_falls_through_to_malformed_reply() -> None:
+    """completion_tokens < max_tokens: not budget-exhaustion, still malformed_reply."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=100,
+        max_tokens=4096,
+    )
+    _is(classify_run(run), "agent_failure", "malformed_reply")
+
+
+def test_parse_failure_no_max_tokens_field_classifies_as_before() -> None:
+    """Old artifacts without max_tokens on the run record keep classifying as
+    malformed_reply (no KeyError, no AttributeError)."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        # no max_tokens kwarg → uses old default (None)
+    )
+    _is(classify_run(run), "agent_failure", "malformed_reply")
+
+
+def test_parse_failure_none_record_classifies_as_harness_failure() -> None:
+    """None-guard: stop_reason=parse_failure with parse_failure field None
+    must NOT AttributeError — classify as harness_failure/sandbox_fault."""
+    run = _run(stop_reason="parse_failure", parse_error=None)
+    # parse_error=None => trajectory.parse_failure is None
+    # but stop_reason is "parse_failure" — harness wiring defect
+    c = classify_run(run)
+    assert c.category == "harness_failure"
+    # classify_run must never raise

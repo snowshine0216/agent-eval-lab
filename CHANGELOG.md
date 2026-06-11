@@ -9,6 +9,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added — Weeks 5–6 coding agent evaluation
 
+- Explicit completion budget as an eval parameter (item 004 fix round): the
+  OpenAI-compatible client now requires `max_tokens` and the CLI exposes
+  `--max-tokens` (default 4096) threaded through `run-baseline` →
+  `run_task_k` → `run_single` → `chat_completion`, recorded on every
+  trajectory (`max_tokens`, round-tripped by the serializer; absent on
+  pre-fix artifacts). Closes the harness defect where provider defaults
+  applied silently — the local MLX server's 512-token default truncated
+  Qwen3-8B (a thinking model) inside its reasoning channel on 30/45 runs,
+  misread as agent failures. Rerun under the explicit budget: local
+  condition pass@1 0.133 → 1.000.
+- Failure classifier fc-v2 (ADR-0013): new `token_budget_exhausted`
+  subcategory (agent_failure) for parse_failure runs with
+  `completion_tokens >= trajectory.max_tokens` (closed vocabulary now 16);
+  None-guard classifying `stop_reason=parse_failure` without a recorded
+  `parse_failure` as `harness_failure/sandbox_fault` (fc-v1 raised on this
+  path); old artifacts without `max_tokens` classify exactly as before.
 - Code-world (item 001): in-memory file-tree state with four agent tools
   (`read_file`, `write_file`, `list_files`, `run_tests`) following the pure
   `apply()` pattern; `run_tests` returns an `ExecutionRequest` effect-request

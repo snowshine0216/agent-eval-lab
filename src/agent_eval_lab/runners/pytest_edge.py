@@ -51,6 +51,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from agent_eval_lab.records.execution import (
+    ExecutionRequest,
     ExecutionResult,
     SuiteStatus,
     TestCaseResult,
@@ -316,6 +317,15 @@ def _execute(root: Path, timeout_s: float) -> ExecutionResult:
         stdout=_canonical(stdout, root),
         stderr=_canonical(stderr, root),
     )
+
+
+def execute_request(request: ExecutionRequest) -> ExecutionResult:
+    """The loop's `Executor` satisfied at the pytest edge (item 004 crit. 2).
+
+    The request carries only the tree (CONTEXT.md **ExecutionRequest**);
+    timeout and interpreter stay edge policy, so the agent controls neither.
+    """
+    return run_pytest(request.files, timeout_s=DEFAULT_TIMEOUT_S)
 
 
 def run_pytest(

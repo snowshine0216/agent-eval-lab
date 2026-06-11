@@ -80,7 +80,7 @@ def turn_from_dict(data: Mapping[str, Any]) -> Turn:
 
 def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
     parse_failure = trajectory.parse_failure
-    return {
+    d: dict[str, Any] = {
         "turns": [turn_to_dict(t) for t in trajectory.turns],
         "usage": {
             "prompt_tokens": trajectory.usage.prompt_tokens,
@@ -100,6 +100,9 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
             else _deep_to_plain(trajectory.final_state)
         ),
     }
+    if trajectory.max_tokens is not None:
+        d["max_tokens"] = trajectory.max_tokens
+    return d
 
 
 def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
@@ -120,6 +123,7 @@ def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
             else ParseFailure(raw=parse_failure["raw"], error=parse_failure["error"])
         ),
         final_state=data.get("final_state"),
+        max_tokens=data.get("max_tokens"),  # None for pre-fc-v2 artifacts
     )
 
 

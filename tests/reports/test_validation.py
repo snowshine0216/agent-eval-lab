@@ -593,3 +593,38 @@ def test_exemplar_trace_picks_lex_first_failing_task() -> None:
     idx_018 = md.find("ws2-018")
     idx_040 = md.find("ws2-040")
     assert idx_018 < idx_040
+
+
+def test_render_golden_sha_pins_the_frozen_validation_surface() -> None:
+    """Item 004 grill Q12: the committed Weeks 3-4 reports are regenerable
+    artifacts, and reports/final.py now imports this module's rule — any future
+    sharing/extraction must keep this render byte-identical. The sha256 pins
+    the exact bytes over a fixed, fully deterministic fixture."""
+    import hashlib
+
+    runs_a = (
+        *_all("C1", "ws2-001", 3, True),
+        *_all("C1", "ws2-018", 3, False, "wrong_args"),
+        *_all("C1", "ws2-040", 3, True),
+    )
+    runs_b = (
+        *_all("C2", "ws2-001", 3, True),
+        *_all("C2", "ws2-018", 3, True),
+        *_all("C2", "ws2-040", 3, False, "forbidden_action"),
+    )
+    report = build_validation_report(
+        conditions=(
+            ConditionInput(label="C1", results=runs_a, hosted=True),
+            ConditionInput(label="C2", results=runs_b, hosted=True),
+        ),
+        tiers=TIERS,
+        capabilities=CAPS,
+        k=3,
+        expected_n_tasks=3,
+        seed=20260610,
+        n_resamples=500,
+        alpha=0.05,
+    )
+
+    digest = hashlib.sha256(render_markdown(report).encode("utf-8")).hexdigest()
+    assert digest == "423e3a820a4acf5943addf545cd8ffadc979b8844a36702be55ae76e89e03169"

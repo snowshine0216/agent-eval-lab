@@ -820,3 +820,330 @@ def test_report_validation_malformed_runs_spec_clean_diagnostic(
     assert "error:" in err
     assert "Traceback" not in err
     assert "just-a-label" in err
+
+
+# ── Item 004: code-world wiring through run-baseline ─────────────────────────
+
+
+def _write_code_dataset(path: Path) -> Path:
+    row = {
+        "id": "cr-e2e-001",
+        "capability": "visible_test_localization",
+        "input": {
+            "messages": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "Fix add in calc.py, then run the tests.",
+                }
+            ],
+            "available_tools": [
+                "read_file",
+                "write_file",
+                "list_files",
+                "run_tests",
+            ],
+        },
+        "verification": {
+            "type": "execution",
+            "held_out_tests": {
+                "test_oracle_calc.py": (
+                    "from calc import add\n\n\ndef test_add():\n"
+                    "    assert add(1, 2) == 3\n"
+                )
+            },
+        },
+        "metadata": {"split": "dev", "version": "1", "provenance": "hand_written"},
+        "initial_state": {
+            "files": {
+                "calc.py": "def add(a, b):\n    return a - b\n",
+                "test_calc.py": (
+                    "from calc import add\n\n\ndef test_add_smoke():\n"
+                    "    assert add(2, 2) == 4\n"
+                ),
+            }
+        },
+    }
+    path.write_text(json.dumps(row) + "\n")
+    return path
+
+
+def _code_world_handler(request: httpx.Request) -> httpx.Response:
+    body = json.loads(request.content)
+    if any(m["role"] == "tool" for m in body["messages"]):
+        message = {"role": "assistant", "content": "Ran the tests."}
+    else:
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "run_tests", "arguments": "{}"},
+                }
+            ],
+        }
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": message}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+    )
+
+
+def test_run_baseline_resolves_code_world_and_grades_through_oracle(
+    tmp_path: Path,
+) -> None:
+    """Criterion 4: no hardwired WORKSPACE_TOOLS — a code task resolves to the
+    code world, fulfills a mid-trajectory run_tests at the pytest edge, grades
+    through the oracle edge, and streams a parseable RunResult line."""
+    from agent_eval_lab.cli import _load_run_results
+    from agent_eval_lab.records.turns import ToolResultTurn, ToolSuccess
+
+    dataset = _write_code_dataset(tmp_path / "code.jsonl")
+    out_dir = tmp_path / "out"
+    client = httpx.Client(transport=httpx.MockTransport(_code_world_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    [run] = _load_run_results(out_dir / "runs-local-qwen3-8b.jsonl")
+    [tool_result] = [t for t in run.trajectory.turns if isinstance(t, ToolResultTurn)]
+    assert isinstance(tool_result.outcome, ToolSuccess)
+    assert tool_result.outcome.result["status"] == "failed"  # unrepaired tree
+    assert run.grade.grader_id == "execution"
+    assert run.grade.passed is False
+    assert run.grade.evidence["execution"] == "run"
+    assert run.grade.evidence["status"] == "failed"
+
+
+def test_run_baseline_connect_error_exits_1_with_provider_and_hint(
+    tmp_path: Path, capsys
+) -> None:
+    """Criterion 5: a refused connection is a one-line exit-1 diagnostic naming
+    provider id + base_url, with the start-the-server hint for `local` — never
+    a traceback. (Wall time ~3s: the client's two retry backoffs.)"""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(tmp_path / "out"),
+        ],
+        http_client=httpx.Client(transport=httpx.MockTransport(refuse)),
+    )
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "local" in err
+    assert "http://localhost:11434/v1" in err
+    assert "is the server running?" in err
+    assert "Traceback" not in err
+
+
+# ── Item 004: report-final (criteria 15, 19, 20) ─────────────────────────────
+
+
+def _final_report_inputs(tmp_path: Path):
+    tiers = _write_tiers(tmp_path / "tiers.json", {"cr-001": "T1", "cr-002": "T3"})
+    prices = tmp_path / "prices.json"
+    prices.write_text(
+        json.dumps(
+            {
+                "snapshot_date": "2026-06-11",
+                "prices": {
+                    "deepseek:deepseek-v4-pro": {
+                        "input_per_mtok": 0.27,
+                        "output_per_mtok": 1.1,
+                    }
+                },
+            }
+        )
+        + "\n"
+    )
+    context = tmp_path / "v2-context.md"
+    context.write_text("v1/v2 workspace baselines: see committed reports.\n")
+    runs = [
+        *[_mk_run("deepseek:deepseek-v4-pro", "cr-001", i, True) for i in range(3)],
+        *[
+            _mk_run("deepseek:deepseek-v4-pro", "cr-002", i, False, "wrong_args")
+            for i in range(3)
+        ],
+    ]
+    jsonl = _write_runs_jsonl(tmp_path / "runs-deepseek-deepseek-v4-pro.jsonl", runs)
+    return tiers, prices, context, jsonl
+
+
+def _report_final_args(tmp_path, tiers, prices, context, jsonl, out) -> list[str]:
+    return [
+        "report-final",
+        "--runs",
+        f"C1=deepseek:deepseek-v4-pro={jsonl}",
+        f"C4=local:Qwen/Qwen3-8B={tmp_path / 'missing-local.jsonl'}",
+        "--dataset",
+        "examples/datasets/code_repair_v1.jsonl",
+        "--tiers",
+        str(tiers),
+        "--prices",
+        str(prices),
+        "--context-file",
+        str(context),
+        "--k",
+        "3",
+        "--expected-n-tasks",
+        "15",
+        "--n-resamples",
+        "200",
+        "--out",
+        str(out),
+    ]
+
+
+def test_report_final_renders_byte_identically_across_invocations(
+    tmp_path: Path,
+) -> None:
+    tiers, prices, context, jsonl = _final_report_inputs(tmp_path)
+    out_a, out_b = tmp_path / "final-a.md", tmp_path / "final-b.md"
+
+    assert main(_report_final_args(tmp_path, tiers, prices, context, jsonl, out_a)) == 0
+    assert main(_report_final_args(tmp_path, tiers, prices, context, jsonl, out_b)) == 0
+
+    a, b = out_a.read_bytes(), out_b.read_bytes()
+    assert a == b
+    md = a.decode()
+    assert "# Final evaluation report" in md
+    assert "fc-v2" in md
+    assert "| C4 | blocked |" in md  # zero-record condition: blocked, no numbers
+    assert "incomplete" in md  # 2 of 15 expected tasks present
+
+
+def test_report_final_rejects_heterogeneous_runs_file(tmp_path: Path, capsys) -> None:
+    tiers, prices, context, _ = _final_report_inputs(tmp_path)
+    mixed = _write_runs_jsonl(
+        tmp_path / "mixed.jsonl",
+        [
+            _mk_run("deepseek:deepseek-v4-pro", "cr-001", 0, True),
+            _mk_run("glm:Pro/zai-org/GLM-5.1", "cr-001", 1, True),
+        ],
+    )
+    out = tmp_path / "final.md"
+
+    exit_code = main(_report_final_args(tmp_path, tiers, prices, context, mixed, out))
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "heterogeneous" in err
+    assert "Traceback" not in err
+    assert not out.exists()
+
+
+def test_report_final_rejects_condition_segment_mismatch(
+    tmp_path: Path, capsys
+) -> None:
+    tiers, prices, context, jsonl = _final_report_inputs(tmp_path)
+    out = tmp_path / "final.md"
+    args = _report_final_args(tmp_path, tiers, prices, context, jsonl, out)
+    args[2] = f"C1=minimax:MiniMax-M3={jsonl}"  # segment contradicts the records
+
+    exit_code = main(args)
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "minimax:MiniMax-M3" in err and "deepseek:deepseek-v4-pro" in err
+    assert not out.exists()
+
+
+# ── Item 004 fix 1: --max-tokens CLI flag threads through to the request ──────
+
+
+def test_max_tokens_flag_threads_through_to_request_body(tmp_path: Path) -> None:
+    """--max-tokens plumbs the explicit completion budget into every
+    chat_completion request body (item 004 fix 1)."""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    seen_bodies: list[dict] = []
+
+    def capturing_handler(request: httpx.Request) -> httpx.Response:
+        seen_bodies.append(json.loads(request.content))
+        return _handler(request)
+
+    client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+            "--max-tokens",
+            "2048",
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    assert all("max_tokens" in body for body in seen_bodies), (
+        "every request must carry max_tokens from the CLI --max-tokens flag"
+    )
+    assert all(body["max_tokens"] == 2048 for body in seen_bodies)
+
+
+def test_max_tokens_default_is_4096(tmp_path: Path) -> None:
+    """Without --max-tokens, the default of 4096 is used."""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    seen_bodies: list[dict] = []
+
+    def capturing_handler(request: httpx.Request) -> httpx.Response:
+        seen_bodies.append(json.loads(request.content))
+        return _handler(request)
+
+    client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    assert all(body.get("max_tokens") == 4096 for body in seen_bodies)
