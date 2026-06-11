@@ -219,6 +219,26 @@ def test_execution_error_round_trips_under_its_own_tag() -> None:
     assert verdict_from_dict(data) == e
 
 
+def test_verdict_from_dict_missing_type_raises_value_error() -> None:
+    # Missing "type" key must raise ValueError (same family as unknown type),
+    # not KeyError (which would expose an implementation detail).
+    import pytest
+
+    from agent_eval_lab.records.serialize import verdict_from_dict
+
+    with pytest.raises(ValueError, match="type"):
+        verdict_from_dict({"score": 3})
+
+
+def test_verdict_from_dict_unknown_type_raises_value_error() -> None:
+    import pytest
+
+    from agent_eval_lab.records.serialize import verdict_from_dict
+
+    with pytest.raises(ValueError, match="unknown verdict value type"):
+        verdict_from_dict({"type": "nonexistent_type"})
+
+
 def test_judge_legacy_verdict_tag_is_frozen() -> None:
     from agent_eval_lab.graders.judge import JudgeVerdict
     from agent_eval_lab.records.serialize import verdict_to_dict

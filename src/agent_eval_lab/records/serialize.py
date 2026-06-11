@@ -193,6 +193,8 @@ def verdict_from_dict(data: Mapping[str, Any]) -> Any:
     from agent_eval_lab.runners.judge_edge import JudgeError
     from agent_eval_lab.runners.oracle_edge import ExecutionError
 
+    if "type" not in data:
+        raise ValueError(f"verdict dict missing required 'type' key: {data!r}")
     if data["type"] == "verdict":
         return JudgeVerdict(
             score=data["score"],
