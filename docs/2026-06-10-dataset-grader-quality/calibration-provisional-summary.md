@@ -1,10 +1,42 @@
-# Calibration — PROVISIONAL summary (item 003, rev 2)
+# Calibration summary (item 003, rev 3)
 
-> **PROVISIONAL — this is LLM-LLM agreement, NOT the human-human reliability that
-> calibration protocol §6.5 step 2 requires.** It proves the export -> label ->
-> compute pipeline works end-to-end. Protocol step 2 (>=2 human annotators) and step 3
-> (judge-human kappa) remain **OPEN**. Unblock path: the user fills the packet, recruits
-> annotator #2 (see SKIPPED.md), and re-runs `calibrate compute` to replace these numbers.
+> **CLOSED (2026-06-11).** Protocol §6.5 steps 2 and 3 complete. Human-human κ and
+> judge-human κ both pass the ≥ 0.6 gate. Artifacts: `reports/human-human.md`,
+> `reports/judge-human.md`. The LLM-LLM provisional run below is retained for reference.
+
+## Human calibration results (n=20, 2026-06-11)
+
+### Step 2 — Human-human (human-a × human-b)
+
+- Binary Cohen's kappa = **0.6591** (gate ≥ 0.6 — **PASS**)
+- 95% percentile bootstrap CI = [0.2105, 1.0000] (n_resamples=2000, seed=20260610)
+- Quadratic-weighted kappa = 0.8205
+- Observed agreement = 0.8500
+
+| A \\ B | faithful | unfaithful |
+|---|---|---|
+| faithful | 5 | 1 |
+| unfaithful | 2 | 12 |
+
+### Step 3 — Judge-human (deepseek-v4-pro × human-a)
+
+- Binary Cohen's kappa = **0.7619** (gate ≥ 0.6 — **PASS**)
+- 95% percentile bootstrap CI = [0.3478, 1.0000] (n_resamples=2000, seed=20260610)
+- Quadratic-weighted kappa = 0.8982
+- Observed agreement = 0.9000
+
+| A \\ B | faithful | unfaithful |
+|---|---|---|
+| faithful | 5 | 1 |
+| unfaithful | 1 | 13 |
+
+Note: the judge agrees with human-a more closely than the two humans agree with each
+other (90% vs 85% observed agreement). The boundary cases (cf-17..cf-20) account for
+most of the human-human disagreement.
+
+---
+
+## LLM-LLM provisional run (reference only)
 
 ## Run parameters
 
