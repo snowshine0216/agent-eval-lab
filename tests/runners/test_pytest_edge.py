@@ -220,3 +220,29 @@ def test_run_pytest_counts_skipped_tests() -> None:
         TestCaseResult(test_id="test_skip::test_later", status="skipped"),
         TestCaseResult(test_id="test_skip::test_ok", status="passed"),
     )
+
+
+def test_run_pytest_timeout_is_structured_and_reaped() -> None:
+    tree = {
+        "test_hang.py": (
+            "import time\n"
+            "\n"
+            "\n"
+            "def test_hang():\n"
+            "    time.sleep(30)\n"
+        )
+    }
+    before = _sandbox_dirs()
+    result = run_pytest(tree, timeout_s=1.0)
+    assert result.status == "timeout"
+    assert result.exit_code == -9
+    assert result.tests == ()
+    assert (result.passed, result.failed, result.errors, result.skipped) == (
+        0,
+        0,
+        0,
+        0,
+    )
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert _sandbox_dirs() == before
