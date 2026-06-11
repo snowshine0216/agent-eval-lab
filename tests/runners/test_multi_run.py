@@ -288,3 +288,62 @@ def test_runs_k_times_and_grades_each_run() -> None:
     assert all(run.task_id == "ws-001" for run in results)
     assert all(run.condition_id == "local:qwen3-8b" for run in results)
     assert all(run.grade.passed for run in results)
+
+
+def _final_message_handler(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"role": "assistant", "content": "done"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        },
+    )
+
+
+def test_run_task_k_precomputes_and_threads_execution_verdicts() -> None:
+    """Criterion 13: the oracle edge runs between run_single and grading.
+
+    The model replies immediately, so final_state == initial_state's tree;
+    the oracle edge then runs REAL sandboxed pytest over the overlay and the
+    pure grader reads its verdict from the threaded map.
+    """
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.tasks.schema import ExecutionSpec
+
+    task = Task(
+        id="cw-001",
+        capability="code_repair",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="Fix calc.add."),),
+            available_tools=(),
+        ),
+        verification=ExecutionSpec(
+            held_out_tests={
+                "test_oracle_calc.py": (
+                    "from calc import add\n"
+                    "\n"
+                    "\n"
+                    "def test_add():\n"
+                    "    assert add(1, 2) == 3\n"
+                )
+            }
+        ),
+        metadata=TaskMetadata(split="dev", version="2", provenance="hand_written"),
+        initial_state={"files": {"calc.py": "def add(a, b):\n    return a + b\n"}},
+    )
+
+    results = run_task_k(
+        task=task,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=httpx.Client(transport=httpx.MockTransport(_final_message_handler)),
+        k=1,
+        max_steps=2,
+        temperature=0.0,
+    )
+
+    grade = results[0].grade
+    assert grade.grader_id == "execution"
+    assert grade.passed is True
+    assert grade.evidence["execution"] == "run"
+    assert grade.evidence["status"] == "passed"

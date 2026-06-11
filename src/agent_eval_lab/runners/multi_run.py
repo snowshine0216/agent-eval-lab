@@ -8,6 +8,7 @@ from agent_eval_lab.graders.dispatch import grade_trajectory
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.runners.config import ProviderConfig, condition_id
 from agent_eval_lab.runners.loop import run_single
+from agent_eval_lab.runners.oracle_edge import precompute_execution_verdicts
 from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.workspace import ToolDef
 
@@ -42,11 +43,18 @@ def run_task_k(
             max_steps=budget,
             temperature=temperature,
         )
+        # ADR-0011: the oracle edge precomputes execution verdicts
+        # post-trajectory; {} for tasks with no ExecutionSpec, so
+        # non-execution tasks grade byte-identically to before.
+        verdicts = precompute_execution_verdicts(
+            verification=task.verification, trajectory=trajectory
+        )
         grade = grade_trajectory(
             verification=task.verification,
             trajectory=trajectory,
             registry=registry,
             initial_state=task.initial_state,
+            verdicts=verdicts,
         )
         results.append(
             RunResult(
