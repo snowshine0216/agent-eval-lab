@@ -209,6 +209,7 @@ def test_grade_execution_fails_on_failed_suite_with_no_failure_reason() -> None:
 def test_grade_execution_missing_final_state_short_circuits_before_lookup() -> None:
     grade = grade_execution(spec=SPEC, trajectory=_trajectory(None), verdicts={})
     assert grade.passed is False
+    # execution_hash is not computable without final_state; no hash in evidence
     assert grade.evidence == {"execution": "not_run", "reason": "missing_final_state"}
 
 
@@ -223,15 +224,17 @@ def test_grade_execution_treats_missing_files_key_as_empty_tree() -> None:
     assert grade.evidence["execution"] == "run"
 
 
-def test_grade_execution_reports_verdict_missing_with_hash() -> None:
+def test_grade_execution_reports_verdict_missing_as_error_bucket() -> None:
+    # verdict_missing must be "error" (harness fault), not "not_run" (missing
+    # final_state).  The execution_hash is included for post-hoc forensics.
     key = execution_hash(SPEC, TREE)
     grade = grade_execution(
         spec=SPEC, trajectory=_trajectory({"files": TREE}), verdicts={}
     )
     assert grade.passed is False
     assert grade.evidence == {
-        "execution": "not_run",
-        "reason": "verdict_missing",
+        "execution": "error",
+        "execution_error": {"kind": "verdict_missing", "execution_hash": key},
         "execution_hash": key,
     }
 

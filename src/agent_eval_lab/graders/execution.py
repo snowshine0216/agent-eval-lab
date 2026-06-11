@@ -110,8 +110,8 @@ def grade_execution(
     if value is None:
         return _non_pass(
             {
-                "execution": "not_run",
-                "reason": "verdict_missing",
+                "execution": "error",
+                "execution_error": {"kind": "verdict_missing", "execution_hash": key},
                 "execution_hash": key,
             }
         )
