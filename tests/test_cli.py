@@ -820,3 +820,147 @@ def test_report_validation_malformed_runs_spec_clean_diagnostic(
     assert "error:" in err
     assert "Traceback" not in err
     assert "just-a-label" in err
+
+
+# ── Item 004: code-world wiring through run-baseline ─────────────────────────
+
+
+def _write_code_dataset(path: Path) -> Path:
+    row = {
+        "id": "cr-e2e-001",
+        "capability": "visible_test_localization",
+        "input": {
+            "messages": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "Fix add in calc.py, then run the tests.",
+                }
+            ],
+            "available_tools": [
+                "read_file",
+                "write_file",
+                "list_files",
+                "run_tests",
+            ],
+        },
+        "verification": {
+            "type": "execution",
+            "held_out_tests": {
+                "test_oracle_calc.py": (
+                    "from calc import add\n\n\ndef test_add():\n"
+                    "    assert add(1, 2) == 3\n"
+                )
+            },
+        },
+        "metadata": {"split": "dev", "version": "1", "provenance": "hand_written"},
+        "initial_state": {
+            "files": {
+                "calc.py": "def add(a, b):\n    return a - b\n",
+                "test_calc.py": (
+                    "from calc import add\n\n\ndef test_add_smoke():\n"
+                    "    assert add(2, 2) == 4\n"
+                ),
+            }
+        },
+    }
+    path.write_text(json.dumps(row) + "\n")
+    return path
+
+
+def _code_world_handler(request: httpx.Request) -> httpx.Response:
+    body = json.loads(request.content)
+    if any(m["role"] == "tool" for m in body["messages"]):
+        message = {"role": "assistant", "content": "Ran the tests."}
+    else:
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "run_tests", "arguments": "{}"},
+                }
+            ],
+        }
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": message}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+    )
+
+
+def test_run_baseline_resolves_code_world_and_grades_through_oracle(
+    tmp_path: Path,
+) -> None:
+    """Criterion 4: no hardwired WORKSPACE_TOOLS — a code task resolves to the
+    code world, fulfills a mid-trajectory run_tests at the pytest edge, grades
+    through the oracle edge, and streams a parseable RunResult line."""
+    from agent_eval_lab.cli import _load_run_results
+    from agent_eval_lab.records.turns import ToolResultTurn, ToolSuccess
+
+    dataset = _write_code_dataset(tmp_path / "code.jsonl")
+    out_dir = tmp_path / "out"
+    client = httpx.Client(transport=httpx.MockTransport(_code_world_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    [run] = _load_run_results(out_dir / "runs-local-qwen3-8b.jsonl")
+    [tool_result] = [t for t in run.trajectory.turns if isinstance(t, ToolResultTurn)]
+    assert isinstance(tool_result.outcome, ToolSuccess)
+    assert tool_result.outcome.result["status"] == "failed"  # unrepaired tree
+    assert run.grade.grader_id == "execution"
+    assert run.grade.passed is False
+    assert run.grade.evidence["execution"] == "run"
+    assert run.grade.evidence["status"] == "failed"
+
+
+def test_run_baseline_connect_error_exits_1_with_provider_and_hint(
+    tmp_path: Path, capsys
+) -> None:
+    """Criterion 5: a refused connection is a one-line exit-1 diagnostic naming
+    provider id + base_url, with the start-the-server hint for `local` — never
+    a traceback. (Wall time ~3s: the client's two retry backoffs.)"""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(tmp_path / "out"),
+        ],
+        http_client=httpx.Client(transport=httpx.MockTransport(refuse)),
+    )
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "local" in err
+    assert "http://localhost:11434/v1" in err
+    assert "is the server running?" in err
+    assert "Traceback" not in err

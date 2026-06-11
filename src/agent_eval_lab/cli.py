@@ -35,9 +35,9 @@ from agent_eval_lab.runners.config import (
 )
 from agent_eval_lab.runners.multi_run import run_task_k
 from agent_eval_lab.runners.prompt import apply_system_prompt
+from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
 from agent_eval_lab.tasks.schema import LlmJudgeSpec
-from agent_eval_lab.tools.workspace import WORKSPACE_TOOLS
 
 
 def run_baseline(
@@ -60,6 +60,7 @@ def run_baseline(
     results: list[RunResult] = []
     with (out_dir / f"runs-{slug}.jsonl").open("w") as runs_file:
         for task in tasks:
+            binding = resolve_world(task.input.available_tools)
             run_task = (
                 task
                 if system_prompt is None
@@ -75,12 +76,14 @@ def run_baseline(
             )
             task_runs = run_task_k(
                 task=run_task,
-                registry=WORKSPACE_TOOLS,
+                registry=binding.registry,
                 config=config,
                 http_client=http_client,
                 k=k,
                 max_steps=max_steps,
                 temperature=temperature,
+                apply_fn=binding.apply_fn,
+                executor=binding.executor,
             )
             _append_runs(runs_file, task_runs)
             results.extend(task_runs)
@@ -413,6 +416,17 @@ def _run_baseline_command(
             system_prompt=system_prompt,
             system_prompt_path=args.system_prompt_file,
         )
+    except httpx.TransportError as exc:
+        # Criterion 5: a connection failure is a one-line exit-1 diagnostic —
+        # never a traceback mid-corpus. The streamed JSONL keeps any partial
+        # progress for `incomplete` reporting.
+        hint = " — is the server running?" if config.id == "local" else ""
+        print(
+            f"error: cannot reach provider {config.id!r} at {config.base_url} "
+            f"({type(exc).__name__}: {exc}){hint}",
+            file=sys.stderr,
+        )
+        return 1
     finally:
         if http_client is None:
             client.close()
