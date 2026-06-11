@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence below table) · �
 | 001 | code-world environment (isolated, reproducible) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-001 | ✅ 5dab58a | ✅ | ✅ #10 | ⏭️ | ✅ | ✅ | ✅ | ✅ 3 rounds (pre-PR) | ✅ eb8915b |
 
 Evidence (001): grill items/001-grill.md (PASS) · drift items/001-drift.md (PASS) · PR https://github.com/snowshine0216/agent-eval-lab/pull/10 MERGED (items/001-ship.md) · verify items/001-verify.md (PASS — live entry-point smoke: broken→fixed tree, byte-identical reruns, timeout, env hermeticity) · review items/001-review.md (PASS-WITH-NITS, /ship steps 8+9 + adversarial ×4 rounds, fixes aeb124e/d9b1813/3b4b098/3489252) · pr-review items/001-pr-review.md (PASS-WITH-NITS, 2 nits, comment 4679039502) · fix: 3 rounds all pre-PR during ship; 0 post-PR rounds needed · merge eb8915b (squash, branch deleted)
-| 002 | execution-based grader (tests as oracle) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | execution-based grader (tests as oracle) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-002 | ✅ 8fda0a5 | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | code-repair dataset (10-20 tasks) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | failure classification + final eval report | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 

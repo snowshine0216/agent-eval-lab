@@ -10,7 +10,14 @@ Hermeticity notes: PYTEST_DISABLE_PLUGIN_AUTOLOAD disables entry-point
 plugins but does NOT block conftest.py loading; --noconftest is required to
 suppress that. Both flags are set unconditionally so agent-visible and oracle
 runs share identical semantics (conftest.py is uniformly inert). Oracle tests
-must therefore be self-contained (no conftest.py fixtures).
+must therefore be self-contained (no conftest.py fixtures). Root-level
+sitecustomize.py and usercustomize.py are also reserved: Python's site module
+auto-imports them at interpreter startup before --noconftest takes effect.
+
+Residual trust boundary: the oracle suite imports agent-authored modules
+in-process, so import-time code in graded modules is a residual subversion
+surface. v1 accepts this (curated dataset, item 003 review rubric); full
+per-test process isolation is out of scope.
 
 Known limitation (documented, restated by item 004): no kernel-level
 network isolation on macOS without containers — mitigated by the env scrub
@@ -114,19 +121,29 @@ def _has_prefix_collision(path_a: str, path_b: str) -> bool:
     return False
 
 
+_HARNESS_RESERVED_ROOTS = frozenset(
+    {
+        ".junit.xml",
+        "sitecustomize.py",
+        "usercustomize.py",
+    }
+)
+
+
 def _check_tree_invariants(files: Mapping[str, str]) -> None:
     """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize.
 
     Checks:
-    - '.junit.xml' reserved key
+    - Harness-reserved root names (.junit.xml, sitecustomize.py, usercustomize.py)
     - Any pair of paths whose canonical prefix mapping is non-injective
       (covers full-path case differences, NFC/NFD pairs, and directory-segment
       case/normalization collisions).
     """
-    if ".junit.xml" in files:
-        raise RuntimeError(
-            "refusing to materialize: '.junit.xml' is reserved by the harness"
-        )
+    for reserved in _HARNESS_RESERVED_ROOTS:
+        if reserved in files:
+            raise RuntimeError(
+                f"refusing to materialize: {reserved!r} is reserved by the harness"
+            )
     paths = list(files)
     for i, path_a in enumerate(paths):
         for path_b in paths[i + 1 :]:

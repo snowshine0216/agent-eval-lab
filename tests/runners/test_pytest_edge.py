@@ -126,6 +126,113 @@ def test_materialize_tree_raises_on_junit_xml_key(tmp_path: Path) -> None:
         materialize_tree({".junit.xml": "<xml/>\n"}, tmp_path)
 
 
+# --- Finding 002 (item 002): sitecustomize.py / usercustomize.py reservation ---
+
+
+def test_materialize_tree_raises_on_root_sitecustomize_py(tmp_path: Path) -> None:
+    """Defense in depth: root sitecustomize.py is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({"sitecustomize.py": "import sys\n"}, tmp_path)
+
+
+def test_materialize_tree_raises_on_root_usercustomize_py(tmp_path: Path) -> None:
+    """Defense in depth: root usercustomize.py is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({"usercustomize.py": "import sys\n"}, tmp_path)
+
+
+def test_materialize_tree_allows_nested_sitecustomize_py(tmp_path: Path) -> None:
+    """pkg/sitecustomize.py is not on PYTHONPATH root — must be allowed."""
+    materialize_tree({"pkg/sitecustomize.py": "x = 1\n"}, tmp_path)
+    written = (tmp_path / "pkg" / "sitecustomize.py").read_text(encoding="utf-8")
+    assert written == "x = 1\n"
+
+
+def test_sitecustomize_attack_is_rejected_by_check_tree_invariants() -> None:
+    """RED test: build the attack tree (broken module + oracle-style test +
+    root sitecustomize.py that patches the broken module via sys.modules).
+
+    BEFORE the fix: run_pytest returns status='passed' (fraudulent PASS).
+    AFTER the fix: _check_tree_invariants raises RuntimeError, so the attack
+    tree never reaches subprocess execution.
+
+    This test verifies the post-fix behavior: RuntimeError is raised.
+    """
+    from agent_eval_lab.runners.pytest_edge import _check_tree_invariants
+
+    sitecustomize_payload = (
+        "import sys\n"
+        "import types\n"
+        "\n"
+        "# Patch the broken module before any test imports it\n"
+        "_m = types.ModuleType('calc')\n"
+        "_m.add = lambda a, b: a + b\n"
+        "sys.modules['calc'] = _m\n"
+    )
+    attack_tree = {
+        "calc.py": "def add(a, b):\n    return a - b\n",  # broken
+        "test_oracle_calc.py": (
+            "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+        ),
+        "sitecustomize.py": sitecustomize_payload,
+    }
+    with pytest.raises(RuntimeError, match="reserved"):
+        _check_tree_invariants(attack_tree)
+
+
+def test_sitecustomize_attack_passes_fraudulently_without_fix() -> None:
+    """RED test: demonstrate that the attack tree WOULD pass (fraudulent PASS)
+    if run_pytest were called with the attack tree directly, bypassing
+    _check_tree_invariants.
+
+    We run the tree bypassing the invariant guard to prove the attack works.
+    After the fix the guard blocks the tree, but this test still documents
+    the pre-fix attack vector by directly invoking _execute (bypassing the guard).
+    This test uses monkeypatching to skip _check_tree_invariants.
+    """
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from agent_eval_lab.runners.pytest_edge import _execute, materialize_tree
+
+    sitecustomize_payload = (
+        "import sys\n"
+        "import types\n"
+        "\n"
+        "_m = types.ModuleType('calc')\n"
+        "_m.add = lambda a, b: a + b\n"
+        "sys.modules['calc'] = _m\n"
+    )
+    attack_tree = {
+        "calc.py": "def add(a, b):\n    return a - b\n",
+        "test_oracle_calc.py": (
+            "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+        ),
+        "sitecustomize.py": sitecustomize_payload,
+    }
+    root = Path(tempfile.mkdtemp(prefix="agent-eval-sandbox-test-")).resolve()
+    try:
+        # Materialize bypassing the invariant check (simulating the pre-fix state)
+        with patch(
+            "agent_eval_lab.runners.pytest_edge._check_tree_invariants",
+            return_value=None,
+        ):
+            materialize_tree(attack_tree, root)
+        result = _execute(root, timeout_s=30.0)
+        # The attack succeeds: the broken calc.add is patched via sitecustomize.py
+        # so the oracle test passes — this is the fraudulent PASS.
+        assert result.status == "passed", (
+            f"Expected fraudulent PASS to demonstrate the attack, got {result.status!r}"
+        )
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# --- end Finding 002 ---
+
+
 _PASSING_TREE = {
     "calc.py": "def add(a, b):\n    return a + b\n",
     "test_calc.py": (

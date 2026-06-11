@@ -69,7 +69,13 @@ CODE_WORLD_TOOLS: Mapping[str, ToolDef] = {
 }
 
 
-_HARNESS_RESERVED = frozenset({".junit.xml"})
+_HARNESS_RESERVED = frozenset(
+    {
+        ".junit.xml",
+        "sitecustomize.py",
+        "usercustomize.py",
+    }
+)
 
 
 def path_error(path: str) -> str | None:
