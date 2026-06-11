@@ -1,7 +1,7 @@
 # Final evaluation report — coding-agent-eval (Weeks 5-6)
 
-- Dataset: `code_repair_v1` · n=15 tasks · k=3 · bootstrap seed=20260610 · classifier fc-v1
-- Conditions: C1=deepseek:deepseek-v4-pro (hosted, complete), C2=glm:Pro/zai-org/GLM-5.1 (hosted, complete), C3=minimax:MiniMax-M3 (hosted, incomplete), C4=local:Qwen/Qwen3-8B (local, complete)
+- Dataset: `code_repair_v1` · n=15 tasks · k=3 · bootstrap seed=20260610 · classifier fc-v2
+- Conditions: C1=deepseek:deepseek-v4-pro (hosted, complete), C2=glm:Pro/zai-org/GLM-5.1 (hosted, complete), C3=minimax:MiniMax-M3 (hosted, complete), C4=local:Qwen/Qwen3-8B (local, complete)
 - Temperature 0.0 was *requested*; no seed is sent and hosted providers are not greedy-deterministic at temp 0, so residual run-to-run variation is exactly what k=3 + pass^3 measures. The only seeded, reproducible knob is the bootstrap RNG.
 
 ## Per-condition reliability
@@ -10,8 +10,8 @@
 | --- | --- | --- | --- | --- | --- |
 | C1 | complete | 15 | 45 | 1.000 | 1.000 [1.000, 1.000] |
 | C2 | complete | 15 | 45 | 1.000 | 1.000 [1.000, 1.000] |
-| C3 | incomplete | 2 | 6 | 1.000 | 1.000 [1.000, 1.000] |
-| C4 | complete | 15 | 45 | 0.133 | 0.133 [0.000, 0.333] |
+| C3 | complete | 15 | 45 | 1.000 | 1.000 [1.000, 1.000] |
+| C4 | complete | 15 | 45 | 1.000 | 1.000 [1.000, 1.000] |
 
 ## Per-tier pass^3
 
@@ -19,8 +19,8 @@
 | --- | --- | --- | --- | --- |
 | C1 | 1.000 | 1.000 | 1.000 | 1.000 |
 | C2 | 1.000 | 1.000 | 1.000 | 1.000 |
-| C3 | 1.000 | — | — | — |
-| C4 | 0.500 | 0.000 | 0.167 | 0.000 |
+| C3 | 1.000 | 1.000 | 1.000 | 1.000 |
+| C4 | 1.000 | 1.000 | 1.000 | 1.000 |
 
 ## Per-capability pass^3
 
@@ -28,12 +28,16 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | C1 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
 | C2 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
-| C3 | — | — | — | — | — | 1.000 |
-| C4 | 0.000 | 0.000 | 0.500 | 0.000 | 0.000 | 0.250 |
+| C3 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| C4 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
 
-## Failure classification (fc-v1)
+## Failure classification (fc-v2)
 
 Derived at report time from the recorded mechanical discriminators; never stored on any record (ADR-0013).
+
+### Harness defect found and fixed (fc-v1 → fc-v2)
+
+The first C4 (local:Qwen/Qwen3-8B) capture recorded 39 failures (pass@1 0.133), 30 of them parse_failure runs that fc-v1 classified agent_failure/malformed_reply. Diagnosis showed an evaluation-system defect, not an agent limitation: the client sent no `max_tokens`, so each provider's default applied — the local MLX server defaults to 512 completion tokens, and Qwen3-8B (a thinking model) exhausted the whole budget inside its reasoning channel. 27 of the 30 runs show `completion_tokens == 512` exactly with neither content nor tool_calls (the other 3 hit the same per-request ceiling on a later turn). The fix made the completion budget an explicit eval parameter (`--max-tokens`, default 4096, recorded on every trajectory — never a provider default) and added the fc-v2 `token_budget_exhausted` subcategory so a budget-stopped reply is never again lumped with `malformed_reply`. Rerun under the explicit budget, C4 moved from pass@1 0.133 to 1.000; the superseded capture remains in git history. This reclassification — 30 "agent failures" that were actually one harness defect — is the clearest demonstration in this report of why the task/agent/harness split earns its keep.
 
 ### C1 (deepseek:deepseek-v4-pro)
 
@@ -57,11 +61,7 @@ Derived at report time from the recorded mechanical discriminators; never stored
 
 | category | subcategory | count |
 | --- | --- | --- |
-| agent_failure | malformed_reply | 30 |
-| agent_failure | oracle_red | 9 |
-
-Exemplars (deterministic: lex-first task id, lowest run_index):
-- **agent_failure/malformed_reply** — task `cr-001`, run 0: parse_failure: assistant message has neither content nor tool_calls
+| (no failures) | — | 0 |
 
 Judgment-row footnotes:
 
@@ -71,6 +71,7 @@ Judgment-row footnotes:
 - `step_exhaustion` outranks the oracle statuses: a budget-truncated attempt's red oracle is an artifact of the truncation, and the budget is data-validated (per-task metadata.max_steps via effective_max_steps, conformance-floored) — exhaustion is the agent's spend, not harness starvation.
 - `malformed_reply` stays agent-side: message-level emptiness (assistant message with neither content nor tool_calls) means the provider envelope was well-formed and the model's own message was unparseable; only the empty-choices envelope (`provider_response`) is the harness's.
 - `foreign_verdict` is the error-branch fallback: the evidence kind is an open string, so any unrecognized kind files as a harness verdict-plumbing fault, never an agent miss (grill Q1).
+- fc design note (cr-007 vs cr-014, first C4 capture): classification reads the grade's evidence shape, never the trajectory surface — cr-007's red oracle arrived as the execution grader's own evidence while cr-014's arrived inside an all_of composite, walked to its first execution leg in declared order; both paths landed on agent_failure/oracle_red. A composite's failing non-execution leg is visible to fc only through grade.failure_reason (rows 10-11) — a design choice disclosed here, not an observed misclassification; both tasks pass every run in the post-fix rerun.
 
 ## Task-defect candidates
 
@@ -86,8 +87,8 @@ Prices snapshot: 2026-06-11 (committed prices.json); conditions absent from the 
 | --- | --- | --- | --- | --- |
 | C1 | 258063 | 33544 | 0.1414 | 16.29 |
 | C2 | 143739 | 14534 | 0.2652 | 24.78 |
-| C3 | 36331 | 2849 | 0.0143 | 13.19 |
-| C4 | 35901 | 31731 | not computed | 38.92 |
+| C3 | 287689 | 28788 | 0.1209 | 15.78 |
+| C4 | 97905 | 102939 | not computed | 126.38 |
 
 ## Context: prior baselines (workspace_tool_use v1/v2)
 
@@ -115,8 +116,8 @@ Cross-dataset numbers are *context*, never a paired statistic: the task universe
 
 - Rung met: **none** (weak=False, strong=False) — the Weeks 3-4 mechanical rule, reused unchanged.
 - No observed difference: C1 vs C2 — both conditions identical on this dataset (Δ 0.000).
-- Skipped pair: C1 vs C3 — universe mismatch (task-id sets differ; paired CI requires identical universe).
-- Skipped pair: C2 vs C3 — universe mismatch (task-id sets differ; paired CI requires identical universe).
+- No observed difference: C1 vs C3 — both conditions identical on this dataset (Δ 0.000).
+- No observed difference: C2 vs C3 — both conditions identical on this dataset (Δ 0.000).
 - n=15 honesty: intervals are wide; absence of a detectable separation is not evidence of no separation.
 
 ## Known limitations
@@ -128,14 +129,15 @@ Cross-dataset numbers are *context*, never a paired statistic: the task universe
 - pytest_edge cleanup is `shutil.rmtree(ignore_errors=True)`, so a sandbox dir can leak silently; a disk-full OSError mid-materialize is captured as an ExecutionError(kind="harness") by the oracle edge — the worked example of a `sandbox_fault` harness failure (001-review).
 - Hosted providers are not greedy-deterministic at temperature 0; run-to-run variation is measured by k=3 + pass^3, never claimed away.
 - `openrouter:gpt-5.5` is unreachable from this network (region / datacenter-IP ToS policy) — a network constraint, not a harness fault.
-- Condition C3 is incomplete (2/15 tasks at full k); pass^k covers only its complete tasks.
+- Budget asymmetry: the C1/C2 runs predate the explicit completion budget — their requests sent no max_tokens, so each provider's (larger) default applied and no budget is recorded on those trajectories. With every C1/C2 run passing, the parameter was not binding, so they were not rerun; C3 and C4 were captured post-fix with max_tokens=4096 recorded on every trajectory.
 
 ## Roadmap takeaways
 
-- The fc-v1 (category, subcategory) counts are the direct input to the Weeks 9-10 failure-mining work; downstream joins on (classifier_version, category, subcategory) (ADR-0013).
+- The fc-v2 (category, subcategory) counts are the direct input to the Weeks 9-10 failure-mining work; downstream joins on (classifier_version, category, subcategory) (ADR-0013).
 - Task-defect candidates are review-queue input, never auto-reclassified; an adjudicated defect ships as a future dataset version, never an edit (append-only).
 - The per-tier and per-capability gradients feed the Weeks 9-10 hardness levers recorded in the Weeks 3-4 takeaways.
 - The committed runs JSONLs embed agent solution trees and oracle output, so they join the Weeks 9-10 never-train manifest beside the review-fixtures sidecar.
+- Under the corrected harness every reachable condition saturates code_repair_v1 (pass^3 = 1.000 across C1-C4) — the Weeks 3-4 lesson repeats: the next dataset version needs harder tiers. Levers for Weeks 9-10 / 13-14: deeper repair chains (chain depth), multi-file edits, oblique specs without visible tests, and larger n.
 
 ## Excluded conditions
 

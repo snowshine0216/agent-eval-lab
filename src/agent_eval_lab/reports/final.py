@@ -371,6 +371,34 @@ def build_final_report(
 
 # ── Renderer (criterion 16's twelve sections, in order, plus the footer) ─────
 
+# Pinned run history (item 004 fix round): the defect, the diagnosis, and the
+# correction are facts about how these artifacts were produced — static text by
+# design, like the other pinned blocks, so the render stays a pure function of
+# the committed inputs.
+_HARNESS_DEFECT_NARRATIVE = (
+    "### Harness defect found and fixed (fc-v1 → fc-v2)",
+    "",
+    "The first C4 (local:Qwen/Qwen3-8B) capture recorded 39 failures "
+    "(pass@1 0.133), 30 of them parse_failure runs that fc-v1 classified "
+    "agent_failure/malformed_reply. Diagnosis showed an evaluation-system "
+    "defect, not an agent limitation: the client sent no `max_tokens`, so "
+    "each provider's default applied — the local MLX server defaults to 512 "
+    "completion tokens, and Qwen3-8B (a thinking model) exhausted the whole "
+    "budget inside its reasoning channel. 27 of the 30 runs show "
+    "`completion_tokens == 512` exactly with neither content nor tool_calls "
+    "(the other 3 hit the same per-request ceiling on a later turn). The fix "
+    "made the completion budget an explicit eval parameter (`--max-tokens`, "
+    "default 4096, recorded on every trajectory — never a provider default) "
+    "and added the fc-v2 `token_budget_exhausted` subcategory so a "
+    "budget-stopped reply is never again lumped with `malformed_reply`. "
+    "Rerun under the explicit budget, C4 moved from pass@1 0.133 to 1.000; "
+    "the superseded capture remains in git history. This reclassification — "
+    '30 "agent failures" that were actually one harness defect — is the '
+    "clearest demonstration in this report of why the task/agent/harness "
+    "split earns its keep.",
+    "",
+)
+
 _CLASSIFICATION_FOOTNOTES = (
     "`tree_collision` → agent_failure: oracle paths are disjoint from every "
     "initial-tree path (ADR-0012's conformance contract) and code-world has no "
@@ -397,6 +425,15 @@ _CLASSIFICATION_FOOTNOTES = (
     "`foreign_verdict` is the error-branch fallback: the evidence kind is an "
     "open string, so any unrecognized kind files as a harness verdict-plumbing "
     "fault, never an agent miss (grill Q1).",
+    "fc design note (cr-007 vs cr-014, first C4 capture): classification "
+    "reads the grade's evidence shape, never the trajectory surface — "
+    "cr-007's red oracle arrived as the execution grader's own evidence "
+    "while cr-014's arrived inside an all_of composite, walked to its "
+    "first execution leg in declared order; both paths landed on "
+    "agent_failure/oracle_red. A composite's failing non-execution leg is "
+    "visible to fc only through grade.failure_reason (rows 10-11) — a "
+    "design choice disclosed here, not an observed misclassification; "
+    "both tasks pass every run in the post-fix rerun.",
 )
 
 _PINNED_LIMITATIONS = (
@@ -419,6 +456,12 @@ _PINNED_LIMITATIONS = (
     "run-to-run variation is measured by k=3 + pass^3, never claimed away.",
     "`openrouter:gpt-5.5` is unreachable from this network (region / "
     "datacenter-IP ToS policy) — a network constraint, not a harness fault.",
+    "Budget asymmetry: the C1/C2 runs predate the explicit completion budget "
+    "— their requests sent no max_tokens, so each provider's (larger) default "
+    "applied and no budget is recorded on those trajectories. With every "
+    "C1/C2 run passing, the parameter was not binding, so they were not "
+    "rerun; C3 and C4 were captured post-fix with max_tokens=4096 recorded "
+    "on every trajectory.",
 )
 
 _ROADMAP_TAKEAWAYS = (
@@ -433,6 +476,11 @@ _ROADMAP_TAKEAWAYS = (
     "The committed runs JSONLs embed agent solution trees and oracle output, "
     "so they join the Weeks 9-10 never-train manifest beside the "
     "review-fixtures sidecar.",
+    "Under the corrected harness every reachable condition saturates "
+    "code_repair_v1 (pass^3 = 1.000 across C1-C4) — the Weeks 3-4 lesson "
+    "repeats: the next dataset version needs harder tiers. Levers for "
+    "Weeks 9-10 / 13-14: deeper repair chains (chain depth), multi-file "
+    "edits, oblique specs without visible tests, and larger n.",
 )
 
 _RUN_DIR = "docs/2026-06-11-coding-agent-eval"
@@ -542,6 +590,7 @@ def _classification_lines(report: FinalReport) -> list[str]:
         "Derived at report time from the recorded mechanical discriminators; "
         "never stored on any record (ADR-0013).",
         "",
+        *_HARNESS_DEFECT_NARRATIVE,
     ]
     for c in report.conditions:
         if c.status == "blocked":

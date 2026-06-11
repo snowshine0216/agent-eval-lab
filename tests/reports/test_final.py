@@ -285,3 +285,38 @@ def test_sections_render_in_spec_order() -> None:
 def test_discriminativeness_renders_honesty_line() -> None:
     md = render_markdown(_build())
     assert "absence of" in md and "not evidence of no separation" in md
+
+
+def test_harness_defect_narrative_leads_failure_classification() -> None:
+    # Fix-round disclosure (item 004): the fc-v1 capture mis-attributed
+    # budget-truncated runs to the agent; the narrative records it factually.
+    md = render_markdown(_build())
+    section = md.index("## Failure classification")
+    narrative = md.index("### Harness defect found and fixed")
+    first_condition = md.index("### C1 (")
+    assert section < narrative < first_condition  # narrative leads the section
+    assert "completion_tokens == 512" in md  # the diagnostic signature
+    assert "token_budget_exhausted" in md
+    assert "0.133" in md and "1.000" in md  # before/after pass@1, factual
+
+
+def test_fc_design_note_names_cr007_vs_cr014_evidence_paths() -> None:
+    md = render_markdown(_build())
+    assert "cr-007" in md and "cr-014" in md
+    assert "first execution leg" in md  # the all_of walk convention
+
+
+def test_budget_asymmetry_limitation_is_rendered() -> None:
+    # C1/C2 predate the explicit completion budget and were not rerun.
+    md = render_markdown(_build())
+    assert "predate the explicit completion budget" in md
+    assert "max_tokens" in md
+    assert "not binding" in md
+
+
+def test_saturation_takeaway_names_hardness_levers() -> None:
+    md = render_markdown(_build())
+    assert "harder tiers" in md
+    assert "deeper repair chains" in md
+    assert "multi-file" in md
+    assert "oblique specs" in md
