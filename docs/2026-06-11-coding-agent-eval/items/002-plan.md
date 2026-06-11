@@ -2019,6 +2019,11 @@ def test_judge_and_execution_verdicts_coexist_in_one_map() -> None:
     assert [sub["grader_id"] for sub in subs] == ["execution", "llm_judge"]
 ```
 
+<!-- drift note (002-drift.md): the implementation also removed the pre-existing
+     `assert "chat_completion" not in src` line from `test_dispatch_module_imports_no_http_client`
+     as a transcription artifact (the plan-rendering tool injected it); dispatch.py contains no
+     such string so the guard was always true. Deletion accepted; no functional regression. -->
+
 - [ ] **Step 10.2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/graders/test_dispatch.py`
