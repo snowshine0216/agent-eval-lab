@@ -173,3 +173,50 @@ def test_sandbox_env_hides_parent_secrets(
     }
     result = run_pytest(tree, timeout_s=30.0)
     assert result.status == "passed"
+
+
+def test_run_pytest_collection_error_tree() -> None:
+    result = run_pytest(
+        {"test_broken.py": "import missing_module\n"}, timeout_s=30.0
+    )
+    assert result.status == "error"
+    assert result.exit_code == 2
+    assert result.errors == 1
+    assert result.tests == (
+        TestCaseResult(test_id="::test_broken", status="error"),
+    )
+    assert "<sandbox>" in result.stdout
+    assert "agent-eval-sandbox-" not in result.stdout
+
+
+def test_run_pytest_no_tests_tree() -> None:
+    result = run_pytest({"calc.py": "x = 1\n"}, timeout_s=30.0)
+    assert result.status == "no_tests"
+    assert result.exit_code == 5
+    assert result.tests == ()
+    assert "no tests ran in <duration>" in result.stdout
+
+
+def test_run_pytest_counts_skipped_tests() -> None:
+    tree = {
+        "test_skip.py": (
+            "import pytest\n"
+            "\n"
+            "\n"
+            "def test_ok():\n"
+            "    assert True\n"
+            "\n"
+            "\n"
+            "@pytest.mark.skip(reason='later')\n"
+            "def test_later():\n"
+            "    assert False\n"
+        )
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "passed"
+    assert result.exit_code == 0
+    assert (result.passed, result.skipped) == (1, 1)
+    assert result.tests == (
+        TestCaseResult(test_id="test_skip::test_later", status="skipped"),
+        TestCaseResult(test_id="test_skip::test_ok", status="passed"),
+    )
