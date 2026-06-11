@@ -1,0 +1,12 @@
+{
+  "name": "execution: oracle suite passes over the repaired tree",
+  "registry": "code_world",
+  "verification": {"type": "execution", "held_out_tests": {"test_oracle_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n\n\ndef test_zero():\n    assert add(0, 0) == 0\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "calc.add subtracts; fix it."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "calc.py", "created": false}}},
+    {"type": "message", "role": "assistant", "content": "Fixed add to return a + b."}
+  ], "final_state": {"files": {"calc.py": "def add(a, b):\n    return a + b\n"}}},
+  "expected": {"passed": true, "failure_reason": null}
+}

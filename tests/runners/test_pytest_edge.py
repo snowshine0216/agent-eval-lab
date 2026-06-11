@@ -126,6 +126,113 @@ def test_materialize_tree_raises_on_junit_xml_key(tmp_path: Path) -> None:
         materialize_tree({".junit.xml": "<xml/>\n"}, tmp_path)
 
 
+# --- Finding 002 (item 002): sitecustomize.py / usercustomize.py reservation ---
+
+
+def test_materialize_tree_raises_on_root_sitecustomize_py(tmp_path: Path) -> None:
+    """Defense in depth: root sitecustomize.py is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({"sitecustomize.py": "import sys\n"}, tmp_path)
+
+
+def test_materialize_tree_raises_on_root_usercustomize_py(tmp_path: Path) -> None:
+    """Defense in depth: root usercustomize.py is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({"usercustomize.py": "import sys\n"}, tmp_path)
+
+
+def test_materialize_tree_allows_nested_sitecustomize_py(tmp_path: Path) -> None:
+    """pkg/sitecustomize.py is not on PYTHONPATH root — must be allowed."""
+    materialize_tree({"pkg/sitecustomize.py": "x = 1\n"}, tmp_path)
+    written = (tmp_path / "pkg" / "sitecustomize.py").read_text(encoding="utf-8")
+    assert written == "x = 1\n"
+
+
+def test_sitecustomize_attack_is_rejected_by_check_tree_invariants() -> None:
+    """RED test: build the attack tree (broken module + oracle-style test +
+    root sitecustomize.py that patches the broken module via sys.modules).
+
+    BEFORE the fix: run_pytest returns status='passed' (fraudulent PASS).
+    AFTER the fix: _check_tree_invariants raises RuntimeError, so the attack
+    tree never reaches subprocess execution.
+
+    This test verifies the post-fix behavior: RuntimeError is raised.
+    """
+    from agent_eval_lab.runners.pytest_edge import _check_tree_invariants
+
+    sitecustomize_payload = (
+        "import sys\n"
+        "import types\n"
+        "\n"
+        "# Patch the broken module before any test imports it\n"
+        "_m = types.ModuleType('calc')\n"
+        "_m.add = lambda a, b: a + b\n"
+        "sys.modules['calc'] = _m\n"
+    )
+    attack_tree = {
+        "calc.py": "def add(a, b):\n    return a - b\n",  # broken
+        "test_oracle_calc.py": (
+            "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+        ),
+        "sitecustomize.py": sitecustomize_payload,
+    }
+    with pytest.raises(RuntimeError, match="reserved"):
+        _check_tree_invariants(attack_tree)
+
+
+def test_sitecustomize_attack_passes_fraudulently_without_fix() -> None:
+    """RED test: demonstrate that the attack tree WOULD pass (fraudulent PASS)
+    if run_pytest were called with the attack tree directly, bypassing
+    _check_tree_invariants.
+
+    We run the tree bypassing the invariant guard to prove the attack works.
+    After the fix the guard blocks the tree, but this test still documents
+    the pre-fix attack vector by directly invoking _execute (bypassing the guard).
+    This test uses monkeypatching to skip _check_tree_invariants.
+    """
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from agent_eval_lab.runners.pytest_edge import _execute, materialize_tree
+
+    sitecustomize_payload = (
+        "import sys\n"
+        "import types\n"
+        "\n"
+        "_m = types.ModuleType('calc')\n"
+        "_m.add = lambda a, b: a + b\n"
+        "sys.modules['calc'] = _m\n"
+    )
+    attack_tree = {
+        "calc.py": "def add(a, b):\n    return a - b\n",
+        "test_oracle_calc.py": (
+            "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+        ),
+        "sitecustomize.py": sitecustomize_payload,
+    }
+    root = Path(tempfile.mkdtemp(prefix="agent-eval-sandbox-test-")).resolve()
+    try:
+        # Materialize bypassing the invariant check (simulating the pre-fix state)
+        with patch(
+            "agent_eval_lab.runners.pytest_edge._check_tree_invariants",
+            return_value=None,
+        ):
+            materialize_tree(attack_tree, root)
+        result = _execute(root, timeout_s=30.0)
+        # The attack succeeds: the broken calc.add is patched via sitecustomize.py
+        # so the oracle test passes — this is the fraudulent PASS.
+        assert result.status == "passed", (
+            f"Expected fraudulent PASS to demonstrate the attack, got {result.status!r}"
+        )
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# --- end Finding 002 ---
+
+
 _PASSING_TREE = {
     "calc.py": "def add(a, b):\n    return a + b\n",
     "test_calc.py": (
@@ -303,3 +410,105 @@ def test_run_pytest_is_byte_identical_across_runs() -> None:
         "utf-8"
     )
     assert first_bytes == second_bytes
+
+
+# --- Finding 003 (item 002 ext): pytest config addopts plugin-loading attack ---
+
+
+def test_pytest_ini_addopts_evil_plugin_cannot_subvert_oracle_verdict() -> None:
+    """Regression: agent-written pytest.ini with addopts=-p evilplug plus a
+    local evilplug.py calling os._exit(0) at pytest_configure time yields
+    rc=0 → status='passed' even when the oracle test genuinely fails.
+
+    PRE-FIX behaviour (empirically verified):
+        status='passed', exit_code=0  ← fraudulent PASS
+
+    POST-FIX behaviour (asserted here):
+        status='failed'  ← genuine oracle result; plugin not loaded
+    """
+    evilplug = "def pytest_configure(config):\n    import os\n    os._exit(0)\n"
+    tree = {
+        "pytest.ini": "[pytest]\naddopts = -p evilplug\n",
+        "evilplug.py": evilplug,
+        "test_oracle.py": "def test_fails():\n    assert 1 + 1 == 3\n",
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "failed", (
+        "pytest.ini addopts attack succeeded (fraudulent PASS): "
+        f"status={result.status!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "config_filename",
+    [
+        "setup.cfg",
+        "tox.ini",
+        "pyproject.toml",
+    ],
+)
+def test_agent_config_addopts_variants_are_inert(config_filename: str) -> None:
+    """setup.cfg / tox.ini / pyproject.toml addopts variants must also be inert
+    post-fix (the -c .harness.ini flag suppresses all agent-tree config files).
+    """
+    if config_filename == "setup.cfg":
+        config_content = "[tool:pytest]\naddopts = -p evilplug\n"
+    elif config_filename == "tox.ini":
+        config_content = "[pytest]\naddopts = -p evilplug\n"
+    else:  # pyproject.toml
+        config_content = '[tool.pytest.ini_options]\naddopts = ["-p", "evilplug"]\n'
+
+    evilplug = "def pytest_configure(config):\n    import os\n    os._exit(0)\n"
+    tree = {
+        config_filename: config_content,
+        "evilplug.py": evilplug,
+        "test_oracle.py": "def test_fails():\n    assert 1 + 1 == 3\n",
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "failed", (
+        f"{config_filename} addopts attack succeeded (fraudulent PASS): "
+        f"status={result.status!r}"
+    )
+
+
+def test_write_file_rejects_root_level_harness_ini() -> None:
+    """write_file must return ToolFailure for '.harness.ini' (root-level reserved)."""
+    from agent_eval_lab.tools.code_world import _write_file
+
+    state: dict = {"files": {}}
+    _state, outcome = _write_file(
+        {"path": ".harness.ini", "content": "[pytest]\n"}, state
+    )
+    from agent_eval_lab.records.turns import ToolFailure
+
+    assert isinstance(outcome, ToolFailure)
+    assert "reserved" in outcome.error
+
+
+def test_materialize_tree_raises_on_root_harness_ini(tmp_path: Path) -> None:
+    """Defense in depth: root .harness.ini is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({".harness.ini": "[pytest]\n"}, tmp_path)
+
+
+def test_materialize_tree_allows_nested_harness_ini(tmp_path: Path) -> None:
+    """pkg/.harness.ini is not a root-level path — must be allowed."""
+    materialize_tree({"pkg/.harness.ini": "[pytest]\n"}, tmp_path)
+    written = (tmp_path / "pkg" / ".harness.ini").read_text(encoding="utf-8")
+    assert written == "[pytest]\n"
+
+
+def test_harness_ini_written_identically_across_runs() -> None:
+    """The .harness.ini written into each sandbox must be byte-identical
+    across runs (determinism requirement from ADR-0009).
+    """
+    first = run_pytest(_PASSING_TREE, timeout_s=30.0)
+    second = run_pytest(_PASSING_TREE, timeout_s=30.0)
+    # If both runs succeed and produce byte-identical results, .harness.ini
+    # is deterministic. Use the existing byte-identity mechanism.
+    first_bytes = json.dumps(execution_result_to_dict(first), sort_keys=True).encode()
+    second_bytes = json.dumps(execution_result_to_dict(second), sort_keys=True).encode()
+    assert first_bytes == second_bytes
+
+
+# --- end Finding 003 ---

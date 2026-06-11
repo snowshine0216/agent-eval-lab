@@ -253,3 +253,104 @@ def test_metadata_reads_max_steps_and_review_when_present() -> None:
 
     assert meta.max_steps == 10
     assert meta.review == "passed:rubric-v1"
+
+
+_ORACLE_TESTS = {
+    "test_oracle_calc.py": (
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    ),
+    "conftest.py": "# oracle helper modules are legitimate\n",
+}
+
+
+def test_verification_from_dict_parses_execution_spec() -> None:
+    from agent_eval_lab.tasks.schema import ExecutionSpec
+
+    spec = verification_from_dict(
+        {"type": "execution", "held_out_tests": _ORACLE_TESTS, "timeout_s": 5}
+    )
+
+    assert spec == ExecutionSpec(held_out_tests=_ORACLE_TESTS, timeout_s=5.0)
+    assert isinstance(spec.timeout_s, float)  # JSON int stored as float
+
+
+def test_execution_spec_timeout_defaults_to_none() -> None:
+    spec = verification_from_dict(
+        {"type": "execution", "held_out_tests": _ORACLE_TESTS}
+    )
+
+    assert spec.timeout_s is None
+
+
+def test_execution_task_row_parses_from_jsonl_shape() -> None:
+    import json
+
+    from agent_eval_lab.tasks.schema import ExecutionSpec
+
+    row = json.loads(
+        json.dumps(
+            {
+                **TASK_DATA,
+                "verification": {
+                    "type": "execution",
+                    "held_out_tests": _ORACLE_TESTS,
+                    "timeout_s": 5,
+                },
+                "initial_state": {"files": {"calc.py": "def add(a, b): ...\n"}},
+            }
+        )
+    )
+
+    task = parse_task(row)
+
+    assert task.verification == ExecutionSpec(
+        held_out_tests=_ORACLE_TESTS, timeout_s=5.0
+    )
+
+
+def test_execution_rejects_empty_held_out_tests() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        verification_from_dict({"type": "execution", "held_out_tests": {}})
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/abs.py", "../escape.py", "a/../b.py", "a//b.py", ".", "a\\b.py", "bad\x00.py"],
+)
+def test_execution_rejects_non_canonical_oracle_paths(path: str) -> None:
+    with pytest.raises(ValueError, match="held_out_tests"):
+        verification_from_dict(
+            {"type": "execution", "held_out_tests": {path: "x = 1\n"}}
+        )
+
+
+def test_execution_rejects_reserved_junit_path() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        verification_from_dict(
+            {"type": "execution", "held_out_tests": {".junit.xml": "<xml/>"}}
+        )
+
+
+def test_execution_rejects_oracle_internal_prefix_collision() -> None:
+    with pytest.raises(ValueError, match="canonical-prefix collision"):
+        verification_from_dict(
+            {
+                "type": "execution",
+                "held_out_tests": {
+                    "tests/test_a.py": "x = 1\n",
+                    "Tests/test_b.py": "y = 2\n",
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize("timeout_s", [0, -1, 0.0, -0.5, True, False, "5"])
+def test_execution_rejects_non_positive_or_non_numeric_timeout(timeout_s) -> None:
+    with pytest.raises(ValueError, match="timeout_s"):
+        verification_from_dict(
+            {
+                "type": "execution",
+                "held_out_tests": _ORACLE_TESTS,
+                "timeout_s": timeout_s,
+            }
+        )

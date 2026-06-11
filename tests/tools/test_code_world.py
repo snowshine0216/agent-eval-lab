@@ -278,6 +278,67 @@ def test_write_file_allows_paths_that_merely_contain_junit_xml() -> None:
     assert isinstance(outcome, ToolSuccess)
 
 
+# --- Finding 002 (item 002): sitecustomize.py / usercustomize.py reservation ---
+
+
+def test_write_file_rejects_root_sitecustomize_py() -> None:
+    """Root-level sitecustomize.py is auto-imported by Python's site module at
+    interpreter startup (before --noconftest / PYTEST_DISABLE_PLUGIN_AUTOLOAD
+    take effect) when PYTHONPATH includes root — reserved by the harness."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "sitecustomize.py", "content": "import sys\n"},
+        state=state0,
+    )
+    assert state1 == state0
+    assert isinstance(outcome, ToolFailure)
+    assert "reserved" in outcome.error.lower() or "harness" in outcome.error.lower()
+
+
+def test_write_file_rejects_root_usercustomize_py() -> None:
+    """Root-level usercustomize.py is auto-imported by Python's site module —
+    same startup-hook attack vector as sitecustomize.py."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "usercustomize.py", "content": "import sys\n"},
+        state=state0,
+    )
+    assert state1 == state0
+    assert isinstance(outcome, ToolFailure)
+    assert "reserved" in outcome.error.lower() or "harness" in outcome.error.lower()
+
+
+def test_write_file_allows_nested_sitecustomize_py() -> None:
+    """pkg/sitecustomize.py is not on PYTHONPATH root — must be allowed."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "pkg/sitecustomize.py", "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome, ToolSuccess)
+
+
+def test_write_file_allows_nested_usercustomize_py() -> None:
+    """pkg/usercustomize.py is not on PYTHONPATH root — must be allowed."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "pkg/usercustomize.py", "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome, ToolSuccess)
+
+
+# --- end Finding 002 ---
+
+
 # --- end adversarial-review items ---
 
 
@@ -372,3 +433,13 @@ def test_registered_but_unimplemented_tool_raises_runtime_error() -> None:
             arguments={},
             state=STATE,
         )
+
+
+def test_prefix_collision_is_the_public_shared_predicate() -> None:
+    """Item 002: the single collision predicate, exported for the oracle
+    overlay and the oracle-path parser (grill resolved decision 8)."""
+    from agent_eval_lab.tools.code_world import prefix_collision
+
+    assert prefix_collision("Tests/test_app.py", "tests/test_app.py") is True
+    assert prefix_collision("tests/test_app.py", "tests/test_app.py") is False
+    assert prefix_collision("tests/a.py", "tests/b.py") is False

@@ -20,6 +20,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   byte-identical across runs (ADR-0009). Corrupt JUnit XML and reserved
   `.junit.xml` / casefold-colliding paths are rejected deterministically
   rather than silently mismatching the in-memory world.
+- Execution-based grading (item 002): `ExecutionSpec` verification variant
+  carrying held-out oracle tests; oracle-wins overlay over the agent's final
+  tree (ADR-0010); pure `graders/execution.py` consuming a verdict map keyed
+  by `execution_hash` (ADR-0011), precomputed at `runners/oracle_edge.py`;
+  dispatch + JSONL parse/serialize round-trip; 9 golden conformance cases run
+  real sandboxed pytest. Reward-hacking hardening: `--noconftest`, reserved
+  root-level `sitecustomize.py`/`usercustomize.py` startup hooks, oracle
+  secrecy tests; the residual in-process import boundary is documented in
+  ADR-0010.
 
 ### Added — Weeks 3–4 dataset and grader quality
 

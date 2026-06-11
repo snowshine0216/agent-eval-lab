@@ -7,6 +7,7 @@ from agent_eval_lab.records.serialize import turn_from_dict
 from agent_eval_lab.records.turns import MessageTurn, Turn
 from agent_eval_lab.tasks.schema import (
     AllOf,
+    ExecutionSpec,
     ExpectedToolCall,
     FinalStateSpec,
     LlmJudgeSpec,
@@ -25,6 +26,7 @@ from agent_eval_lab.tasks.schema import (
     TrajectorySpec,
     VerificationSpec,
 )
+from agent_eval_lab.tools.code_world import path_error, prefix_collision
 
 _SPLITS = ("dev", "held_out")
 _MATCH_MODES = ("exact_sequence", "multiset")
@@ -43,6 +45,48 @@ def _parse_scale(raw: Any) -> tuple[int, int]:
     if lo >= hi:
         raise ValueError(f"scale must have lo < hi, got {raw!r}")
     return (lo, hi)
+
+
+def _parse_timeout(raw: Any) -> float | None:
+    """Accept a JSON int or float, store as float; bool and <= 0 are rejected."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"timeout_s must be a number, got {raw!r}")
+    if raw <= 0:
+        raise ValueError(f"timeout_s must be positive, got {raw!r}")
+    return float(raw)
+
+
+def _oracle_collision(paths: tuple[str, ...]) -> tuple[str, str] | None:
+    """First oracle-internal canonical-prefix collision (001's invariant)."""
+    return next(
+        (
+            (path_a, path_b)
+            for i, path_a in enumerate(paths)
+            for path_b in paths[i + 1 :]
+            if prefix_collision(path_a, path_b)
+        ),
+        None,
+    )
+
+
+def _parse_held_out_tests(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, Mapping) or not raw:
+        raise ValueError(
+            f"held_out_tests must be a non-empty path->content mapping, got {raw!r}"
+        )
+    for path in raw:
+        error = path_error(path)
+        if error is not None:
+            raise ValueError(f"held_out_tests: {error}")
+    collision = _oracle_collision(tuple(sorted(raw)))
+    if collision is not None:
+        raise ValueError(
+            "held_out_tests: canonical-prefix collision between "
+            f"{collision[0]!r} and {collision[1]!r}"
+        )
+    return dict(raw)
 
 
 def _state_constraint_from_dict(data: Mapping[str, Any]) -> StateConstraint:
@@ -102,6 +146,11 @@ def verification_from_dict(data: Mapping[str, Any]) -> VerificationSpec:
             rubric=data["rubric"],
             judge_model=data["judge_model"],
             scale=_parse_scale(data.get("scale", [1, 5])),
+        )
+    if kind == "execution":
+        return ExecutionSpec(
+            held_out_tests=_parse_held_out_tests(data["held_out_tests"]),
+            timeout_s=_parse_timeout(data.get("timeout_s")),
         )
     raise ValueError(f"unknown verification type: {kind!r}")
 

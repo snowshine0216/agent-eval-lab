@@ -6,6 +6,29 @@ materialize the file tree into a fresh temp dir, run pinned-interpreter
 hard timeout, parse the JUnit XML, canonicalize the output, clean up in a
 `finally`.
 
+Hermeticity notes: PYTEST_DISABLE_PLUGIN_AUTOLOAD disables entry-point
+plugins but does NOT block conftest.py loading; --noconftest is required to
+suppress that. Both flags are set unconditionally so agent-visible and oracle
+runs share identical semantics (conftest.py is uniformly inert). Oracle tests
+must therefore be self-contained (no conftest.py fixtures). Root-level
+sitecustomize.py and usercustomize.py are also reserved: Python's site module
+auto-imports them at interpreter startup before --noconftest takes effect.
+
+Agent-tree pytest config files (pytest.ini, setup.cfg, tox.ini, pyproject.toml)
+are rendered inert by the harness-owned -c .harness.ini flag: when -c is given,
+pytest ignores all other config file discovery and uses only the specified file.
+This neutralises the addopts=-p <plugin> attack vector (item 002), where a
+config file could inject an arbitrary plugin at pytest_configure time — before
+collection — causing os._exit(0) to produce a fraudulent rc=0 PASS. The harness
+writes .harness.ini (containing only "[pytest]\n") into the sandbox root before
+subprocess invocation, and .harness.ini is reserved (root-level ToolFailure in
+code_world; RuntimeError at materialize) so no agent file can collide with it.
+
+Residual trust boundary: the oracle suite imports agent-authored modules
+in-process, so import-time code in graded modules is a residual subversion
+surface. v1 accepts this (curated dataset, item 003 review rubric); full
+per-test process isolation is out of scope.
+
 Known limitation (documented, restated by item 004): no kernel-level
 network isolation on macOS without containers — mitigated by the env scrub
 (no proxy vars), the tight default timeout, and the item-003 rubric banning
@@ -108,19 +131,31 @@ def _has_prefix_collision(path_a: str, path_b: str) -> bool:
     return False
 
 
+_HARNESS_RESERVED_ROOTS = frozenset(
+    {
+        ".harness.ini",
+        ".junit.xml",
+        "sitecustomize.py",
+        "usercustomize.py",
+    }
+)
+
+
 def _check_tree_invariants(files: Mapping[str, str]) -> None:
     """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize.
 
     Checks:
-    - '.junit.xml' reserved key
+    - Harness-reserved root names (.harness.ini, .junit.xml, sitecustomize.py,
+      usercustomize.py)
     - Any pair of paths whose canonical prefix mapping is non-injective
       (covers full-path case differences, NFC/NFD pairs, and directory-segment
       case/normalization collisions).
     """
-    if ".junit.xml" in files:
-        raise RuntimeError(
-            "refusing to materialize: '.junit.xml' is reserved by the harness"
-        )
+    for reserved in _HARNESS_RESERVED_ROOTS:
+        if reserved in files:
+            raise RuntimeError(
+                f"refusing to materialize: {reserved!r} is reserved by the harness"
+            )
     paths = list(files)
     for i, path_a in enumerate(paths):
         for path_b in paths[i + 1 :]:
@@ -244,14 +279,19 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 def _execute(root: Path, timeout_s: float) -> ExecutionResult:
     xml_path = root / ".junit.xml"
+    harness_ini = root / ".harness.ini"
+    harness_ini.write_text("[pytest]\n", encoding="utf-8")
     command = [
         sys.executable,
         "-m",
         "pytest",
         "-q",
+        "--noconftest",
         f"--junitxml={xml_path}",
         "-p",
         "no:cacheprovider",
+        "-c",
+        ".harness.ini",
     ]
     process = subprocess.Popen(
         command,

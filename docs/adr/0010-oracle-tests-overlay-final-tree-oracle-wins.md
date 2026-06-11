@@ -28,3 +28,12 @@ code-world's single collision predicate (one implementation; `pytest_edge`'s
 materializer guard stays defense-in-depth only). Overlay semantics are baked into
 recorded verdicts and golden expectations, so changing them later invalidates the
 run's artifacts — this is fixed for the slice.
+
+## Residual trust boundary
+
+The file-level attack surface is closed by reserving `.junit.xml`,
+`sitecustomize.py`, and `usercustomize.py` in both the pure tool layer and the
+materializer guard. The remaining exposure is import-time code in agent-authored
+modules: the oracle suite imports them in-process, so a graded module can run
+arbitrary code at import. v1 accepts this — the dataset is curated and the item 003
+rubric screens for exploitable tasks; full per-test process isolation is out of scope.

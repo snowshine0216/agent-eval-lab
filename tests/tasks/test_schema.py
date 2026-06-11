@@ -61,3 +61,26 @@ def test_llm_judge_spec_defaults_scale_and_is_in_union() -> None:
     assert spec.type == "llm_judge"
     assert spec.scale == (1, 5)
     assert isinstance(spec, VerificationSpec)
+
+
+def test_execution_spec_shape_defaults_and_union_membership() -> None:
+    import dataclasses
+
+    import pytest
+
+    from agent_eval_lab.tasks.schema import ExecutionSpec, VerificationSpec
+
+    spec = ExecutionSpec(
+        held_out_tests={"test_oracle.py": "def test_ok():\n    assert True\n"}
+    )
+
+    assert spec.type == "execution"
+    assert spec.timeout_s is None
+    assert isinstance(spec, VerificationSpec)
+    assert [f.name for f in dataclasses.fields(ExecutionSpec)] == [
+        "type",
+        "held_out_tests",
+        "timeout_s",
+    ]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        spec.timeout_s = 5.0  # type: ignore[misc]

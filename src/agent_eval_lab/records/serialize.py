@@ -144,8 +144,13 @@ def run_result_to_dict(run: RunResult) -> dict[str, Any]:
 
 
 def verdict_to_dict(value: Any) -> dict[str, Any]:
+    # The judge's legacy "verdict" tag is frozen as-is: renaming it would
+    # break round-trips of existing artifacts (item 002 resolved decision 9).
+    from agent_eval_lab.graders.execution import ExecutionVerdict
     from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.records.execution import execution_result_to_dict
     from agent_eval_lab.runners.judge_edge import JudgeError
+    from agent_eval_lab.runners.oracle_edge import ExecutionError
 
     if isinstance(value, JudgeVerdict):
         return {
@@ -164,13 +169,32 @@ def verdict_to_dict(value: Any) -> dict[str, Any]:
             "prompt_hash": value.prompt_hash,
             "judge_model": value.judge_model,
         }
-    raise ValueError(f"not a judge value: {value!r}")
+    if isinstance(value, ExecutionVerdict):
+        return {
+            "type": "execution_verdict",
+            "result": execution_result_to_dict(value.result),
+            "execution_hash": value.execution_hash,
+            "displaced_paths": list(value.displaced_paths),
+        }
+    if isinstance(value, ExecutionError):
+        return {
+            "type": "execution_error",
+            "kind": value.kind,
+            "detail": value.detail,
+            "execution_hash": value.execution_hash,
+        }
+    raise ValueError(f"not a verdict value: {value!r}")
 
 
 def verdict_from_dict(data: Mapping[str, Any]) -> Any:
+    from agent_eval_lab.graders.execution import ExecutionVerdict
     from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.records.execution import execution_result_from_dict
     from agent_eval_lab.runners.judge_edge import JudgeError
+    from agent_eval_lab.runners.oracle_edge import ExecutionError
 
+    if "type" not in data:
+        raise ValueError(f"verdict dict missing required 'type' key: {data!r}")
     if data["type"] == "verdict":
         return JudgeVerdict(
             score=data["score"],
@@ -186,4 +210,16 @@ def verdict_from_dict(data: Mapping[str, Any]) -> Any:
             prompt_hash=data["prompt_hash"],
             judge_model=data["judge_model"],
         )
-    raise ValueError(f"unknown judge value type: {data['type']!r}")
+    if data["type"] == "execution_verdict":
+        return ExecutionVerdict(
+            result=execution_result_from_dict(data["result"]),
+            execution_hash=data["execution_hash"],
+            displaced_paths=tuple(data["displaced_paths"]),
+        )
+    if data["type"] == "execution_error":
+        return ExecutionError(
+            kind=data["kind"],
+            detail=data["detail"],
+            execution_hash=data["execution_hash"],
+        )
+    raise ValueError(f"unknown verdict value type: {data['type']!r}")

@@ -1,0 +1,12 @@
+{
+  "name": "execution: per-spec timeout_s of 1s kills the hung oracle run",
+  "registry": "code_world",
+  "verification": {"type": "execution", "timeout_s": 1.0, "held_out_tests": {"test_oracle_slow.py": "from slow import busy\n\n\ndef test_busy():\n    assert busy() == 1\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Make slow.busy return 1."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "slow.py", "content": "import time\n\n\ndef busy():\n    time.sleep(30)\n    return 1\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "slow.py", "created": false}}},
+    {"type": "message", "role": "assistant", "content": "busy now returns 1."}
+  ], "final_state": {"files": {"slow.py": "import time\n\n\ndef busy():\n    time.sleep(30)\n    return 1\n"}}},
+  "expected": {"passed": false, "failure_reason": null}
+}
