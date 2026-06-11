@@ -184,6 +184,42 @@ def test_all_of_precomputes_every_reachable_execution_spec() -> None:
     )
 
 
+def test_programming_error_from_edge_propagates_loudly() -> None:
+    # Regression: broad `except Exception` silently swallowed TypeError/KeyError
+    # (programming bugs). Only (RuntimeError, OSError) — known harness-fault
+    # classes — must be captured; everything else must propagate.
+    #
+    # We inject a TypeError by passing a spec whose held_out_tests is a non-Mapping
+    # type that will surface inside run_pytest (materialization) and NOT be a
+    # RuntimeError or OSError, so it must escape.
+    import unittest.mock as mock
+
+    # Patch run_pytest to raise TypeError (a programming error).
+    with mock.patch(
+        "agent_eval_lab.runners.oracle_edge.run_pytest",
+        side_effect=TypeError("programming bug"),
+    ):
+        spec = ExecutionSpec(held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"})
+        import pytest as pytest_mod
+        with pytest_mod.raises(TypeError, match="programming bug"):
+            _single_verdict(spec, {"files": FIXED_TREE})
+
+
+def test_runtime_error_from_edge_is_captured_as_execution_error() -> None:
+    # (RuntimeError, OSError) are known harness-fault classes and must be captured.
+    import unittest.mock as mock
+
+    with mock.patch(
+        "agent_eval_lab.runners.oracle_edge.run_pytest",
+        side_effect=RuntimeError("sandbox invariant violated"),
+    ):
+        spec = ExecutionSpec(held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"})
+        verdict = _single_verdict(spec, {"files": FIXED_TREE})
+        assert isinstance(verdict, ExecutionError)
+        assert verdict.kind == "harness"
+        assert "sandbox invariant violated" in verdict.detail
+
+
 def test_malicious_conftest_cannot_subvert_oracle_verdict() -> None:
     # Regression: PYTEST_DISABLE_PLUGIN_AUTOLOAD does not block conftest.py.
     # A conftest.py with a pytest_runtest_makereport hookwrapper forcing

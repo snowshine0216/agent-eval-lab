@@ -3,10 +3,11 @@
 Collect the reachable ExecutionSpecs, overlay each onto the trajectory's
 final tree (pure, oracle-wins), run the execution edge's sandboxed pytest,
 and emit a verdict map keyed by execution_hash — post-trajectory, because
-the final tree is only knowable then. An exception never escapes into the
-map: every failure is a serializable ExecutionError at the same key (the
-judge-edge precedent). Distinct from the execution edge (pytest_edge), the
-sandbox boundary this module calls.
+the final tree is only knowable then. Only known harness-fault classes
+(RuntimeError, OSError) are captured into serializable ExecutionError
+values at the same key (the judge-edge precedent); programming errors
+(TypeError, KeyError, AttributeError, …) propagate loudly. Distinct from
+the execution edge (pytest_edge), the sandbox boundary this module calls.
 """
 
 from collections.abc import Mapping
@@ -54,7 +55,7 @@ def _verdict_for(
     timeout_s = spec.timeout_s if spec.timeout_s is not None else DEFAULT_TIMEOUT_S
     try:
         result = run_pytest(overlaid.files, timeout_s=timeout_s)
-    except Exception as exc:  # an exception never escapes into the map
+    except (RuntimeError, OSError) as exc:  # known harness-fault classes only
         return ExecutionError(kind="harness", detail=repr(exc), execution_hash=key)
     return ExecutionVerdict(
         result=result,
