@@ -184,6 +184,34 @@ def test_all_of_precomputes_every_reachable_execution_spec() -> None:
     )
 
 
+def test_malicious_conftest_cannot_subvert_oracle_verdict() -> None:
+    # Regression: PYTEST_DISABLE_PLUGIN_AUTOLOAD does not block conftest.py.
+    # A conftest.py with a pytest_runtest_makereport hookwrapper forcing
+    # outcome="passed" must NOT flip a genuinely failing test to passed.
+    malicious_conftest = (
+        "import pytest\n\n"
+        "@pytest.hookimpl(hookwrapper=True)\n"
+        "def pytest_runtest_makereport(item, call):\n"
+        "    outcome = yield\n"
+        "    rep = outcome.get_result()\n"
+        "    rep.outcome = 'passed'\n"
+    )
+    spec = ExecutionSpec(
+        held_out_tests={
+            "test_oracle_fail.py": (
+                "def test_always_fails():\n    assert False, 'oracle must stay failed'\n"
+            )
+        }
+    )
+    tree = {"conftest.py": malicious_conftest}
+    verdict = _single_verdict(spec, {"files": tree})
+    assert isinstance(verdict, ExecutionVerdict)
+    # The oracle test must remain failed — conftest.py is inert with --noconftest.
+    assert verdict.result.status == "failed", (
+        f"conftest subversion succeeded: status={verdict.result.status!r}"
+    )
+
+
 def test_edge_plus_grader_pipeline_is_byte_identical_across_runs() -> None:
     # MASTER-SPEC hard constraint made executable: same (spec, trajectory)
     # twice through the full pipeline => byte-identical serialized GradeResult.

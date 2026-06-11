@@ -6,6 +6,12 @@ materialize the file tree into a fresh temp dir, run pinned-interpreter
 hard timeout, parse the JUnit XML, canonicalize the output, clean up in a
 `finally`.
 
+Hermeticity notes: PYTEST_DISABLE_PLUGIN_AUTOLOAD disables entry-point
+plugins but does NOT block conftest.py loading; --noconftest is required to
+suppress that. Both flags are set unconditionally so agent-visible and oracle
+runs share identical semantics (conftest.py is uniformly inert). Oracle tests
+must therefore be self-contained (no conftest.py fixtures).
+
 Known limitation (documented, restated by item 004): no kernel-level
 network isolation on macOS without containers — mitigated by the env scrub
 (no proxy vars), the tight default timeout, and the item-003 rubric banning
@@ -249,6 +255,7 @@ def _execute(root: Path, timeout_s: float) -> ExecutionResult:
         "-m",
         "pytest",
         "-q",
+        "--noconftest",
         f"--junitxml={xml_path}",
         "-p",
         "no:cacheprovider",
