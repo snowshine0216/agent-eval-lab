@@ -106,3 +106,66 @@ def test_schema_violation_is_tool_failure() -> None:
     assert state == STATE
     assert isinstance(outcome, ToolFailure)
     assert outcome.error.startswith("schema violation")
+
+
+def test_write_file_creates_new_file_without_mutating_input() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "notes.md", "content": "hello\n"},
+        state=STATE,
+    )
+    assert outcome == ToolSuccess(result={"path": "notes.md", "created": True})
+    assert state["files"]["notes.md"] == "hello\n"
+    assert "notes.md" not in STATE["files"]
+
+
+def test_write_file_overwrites_existing_file() -> None:
+    fixed = "def add(a, b):\n    return a + b\n"
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "calc.py", "content": fixed},
+        state=STATE,
+    )
+    assert outcome == ToolSuccess(result={"path": "calc.py", "created": False})
+    assert state["files"]["calc.py"] == fixed
+    assert STATE["files"]["calc.py"] == "def add(a, b):\n    return a - b\n"
+
+
+@pytest.mark.parametrize("path", BAD_PATHS)
+def test_write_file_rejects_non_canonical_paths(path: str) -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": path, "content": "x"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)
+
+
+def test_write_file_rejects_directory_path_collision() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "tests", "content": "x"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert outcome == ToolFailure(
+        error="path collision: 'tests' is a directory in the tree"
+    )
+
+
+def test_write_file_rejects_file_prefix_collision() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "calc.py/extra.py", "content": "x"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert outcome == ToolFailure(
+        error="path collision: 'calc.py' is a file in the tree"
+    )
