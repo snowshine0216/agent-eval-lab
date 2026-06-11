@@ -347,3 +347,109 @@ def test_run_task_k_precomputes_and_threads_execution_verdicts() -> None:
     assert grade.passed is True
     assert grade.evidence["execution"] == "run"
     assert grade.evidence["status"] == "passed"
+
+
+def test_run_task_k_defaults_yield_byte_identical_workspace_run(monkeypatch) -> None:
+    """Criterion 3: the new apply_fn/executor parameters default to today's
+    workspace behavior EXACTLY — explicit workspace binding fields serialize
+    byte-identically to the defaults. Latency is pinned (monotonic stubbed)
+    because wall-clock is the one nondeterministic usage field."""
+    import agent_eval_lab.runners.client as client_module
+    from agent_eval_lab.records.serialize import run_result_to_dict
+    from agent_eval_lab.tools.workspace import apply as workspace_apply
+
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: 0.0)
+
+    def run(**extra):
+        return run_task_k(
+            task=TASK,
+            registry=WORKSPACE_TOOLS,
+            config=CONFIG,
+            http_client=httpx.Client(transport=httpx.MockTransport(_handler)),
+            k=1,
+            max_steps=6,
+            temperature=0.0,
+            **extra,
+        )
+
+    defaults = json.dumps(run_result_to_dict(run()[0]), sort_keys=True)
+    explicit = json.dumps(
+        run_result_to_dict(run(apply_fn=workspace_apply, executor=None)[0]),
+        sort_keys=True,
+    )
+    assert defaults == explicit
+
+
+def test_run_task_k_threads_code_world_binding_to_run_single() -> None:
+    """Criterion 3: a code-world task through run_task_k fulfills run_tests
+    via the threaded executor and grades through the oracle edge."""
+    from agent_eval_lab.records.turns import MessageTurn, ToolResultTurn, ToolSuccess
+    from agent_eval_lab.runners.pytest_edge import execute_request
+    from agent_eval_lab.tasks.schema import ExecutionSpec
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
+    from agent_eval_lab.tools.code_world import apply as code_world_apply
+
+    task = Task(
+        id="cw-thread-001",
+        capability="code_repair",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="Run the tests."),),
+            available_tools=("read_file", "write_file", "list_files", "run_tests"),
+        ),
+        verification=ExecutionSpec(
+            held_out_tests={
+                "test_oracle_demo.py": "def test_oracle():\n    assert True\n"
+            }
+        ),
+        metadata=TaskMetadata(split="dev", version="1", provenance="hand_written"),
+        initial_state={"files": {"test_demo.py": "def test_ok():\n    assert True\n"}},
+    )
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "run_tests", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        {
+            "choices": [{"message": {"role": "assistant", "content": "Done."}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+    ]
+    remaining = list(responses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=remaining.pop(0))
+
+    [result] = run_task_k(
+        task=task,
+        registry=CODE_WORLD_TOOLS,
+        config=CONFIG,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        k=1,
+        max_steps=4,
+        temperature=0.0,
+        apply_fn=code_world_apply,
+        executor=execute_request,
+    )
+
+    [tool_result] = [
+        t for t in result.trajectory.turns if isinstance(t, ToolResultTurn)
+    ]
+    assert isinstance(tool_result.outcome, ToolSuccess)
+    assert tool_result.outcome.result["status"] == "passed"
+    assert result.grade.grader_id == "execution"
+    assert result.grade.passed is True
+    assert result.grade.evidence["execution"] == "run"

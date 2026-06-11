@@ -7,10 +7,11 @@ import httpx
 from agent_eval_lab.graders.dispatch import grade_trajectory
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.runners.config import ProviderConfig, condition_id
-from agent_eval_lab.runners.loop import run_single
+from agent_eval_lab.runners.loop import ApplyFn, Executor, run_single
 from agent_eval_lab.runners.oracle_edge import precompute_execution_verdicts
 from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.workspace import ToolDef
+from agent_eval_lab.tools.workspace import apply as workspace_apply
 
 
 def effective_max_steps(task: Task, *, default: int) -> int:
@@ -29,7 +30,12 @@ def run_task_k(
     k: int,
     max_steps: int,
     temperature: float,
+    apply_fn: ApplyFn = workspace_apply,
+    executor: Executor | None = None,
 ) -> tuple[RunResult, ...]:
+    # The world-binding fields (item 004 criterion 3) default to today's
+    # workspace behavior exactly; cli.run_baseline threads the resolved
+    # binding's fields per task (runners/worlds.resolve_world).
     condition = condition_id(config)
     budget = effective_max_steps(task, default=max_steps)
     results = []
@@ -42,6 +48,8 @@ def run_task_k(
             run_index=run_index,
             max_steps=budget,
             temperature=temperature,
+            apply_fn=apply_fn,
+            executor=executor,
         )
         # ADR-0011: the oracle edge precomputes execution verdicts
         # post-trajectory; {} for tasks with no ExecutionSpec, so
