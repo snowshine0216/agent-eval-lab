@@ -1,0 +1,108 @@
+import pytest
+
+from agent_eval_lab.records.execution import ExecutionRequest
+from agent_eval_lab.records.turns import ToolFailure, ToolSuccess
+from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS, apply
+from agent_eval_lab.tools.workspace import ToolDef
+
+STATE = {
+    "files": {
+        "calc.py": "def add(a, b):\n    return a - b\n",
+        "tests/test_calc.py": (
+            "from calc import add\n"
+            "\n"
+            "\n"
+            "def test_add():\n"
+            "    assert add(1, 2) == 3\n"
+        ),
+    }
+}
+
+BAD_PATHS = [
+    "/abs.py",
+    "../escape.py",
+    "a/../b.py",
+    "",
+    ".",
+    "./a.py",
+    "a/./b.py",
+    "a//b.py",
+    "a/",
+    "a\\b.py",
+    "bad\x00.py",
+]
+
+
+def test_registry_is_exactly_the_four_tools_with_closed_schemas() -> None:
+    assert sorted(CODE_WORLD_TOOLS) == [
+        "list_files",
+        "read_file",
+        "run_tests",
+        "write_file",
+    ]
+    for name, tool in CODE_WORLD_TOOLS.items():
+        assert tool.name == name
+        assert tool.parameters["additionalProperties"] is False
+
+
+def test_read_file_returns_path_and_content() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="read_file",
+        arguments={"path": "calc.py"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert outcome == ToolSuccess(
+        result={"path": "calc.py", "content": STATE["files"]["calc.py"]}
+    )
+
+
+def test_read_file_missing_path_is_tool_failure() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="read_file",
+        arguments={"path": "nope.py"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert outcome == ToolFailure(error="no such file: nope.py")
+
+
+def test_list_files_returns_sorted_paths() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS, name="list_files", arguments={}, state=STATE
+    )
+    assert state == STATE
+    assert outcome == ToolSuccess(
+        result={"paths": ["calc.py", "tests/test_calc.py"]}
+    )
+
+
+@pytest.mark.parametrize("path", BAD_PATHS)
+def test_read_file_rejects_non_canonical_paths(path: str) -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="read_file",
+        arguments={"path": path},
+        state=STATE,
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)
+
+
+def test_unknown_tool_is_tool_failure() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS, name="delete_file", arguments={}, state=STATE
+    )
+    assert state == STATE
+    assert outcome == ToolFailure(error="unknown tool: delete_file")
+
+
+def test_schema_violation_is_tool_failure() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS, name="read_file", arguments={}, state=STATE
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)
+    assert outcome.error.startswith("schema violation")
