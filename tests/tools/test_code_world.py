@@ -198,6 +198,89 @@ def test_run_tests_rejects_unexpected_arguments() -> None:
     assert outcome.error.startswith("schema violation")
 
 
+# --- Finding 1: case-insensitive path collision ---
+
+
+def test_write_file_rejects_case_insensitive_collision_with_existing_file() -> None:
+    """a/Foo.py then a/foo.py must fail: distinct paths that casefold-match."""
+    state0: dict = {"files": {}}
+    state1, outcome1 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/Foo.py", "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome1, ToolSuccess)
+    state2, outcome2 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/foo.py", "content": "x = 2\n"},
+        state=state1,
+    )
+    assert state2 == state1, "state must not change on rejection"
+    assert isinstance(outcome2, ToolFailure)
+    assert "case" in outcome2.error.lower() or "collision" in outcome2.error.lower()
+
+
+def test_write_file_allows_same_cased_overwrite() -> None:
+    """Overwriting the exact same path must still succeed (not a casefold collision)."""
+    state0: dict = {"files": {"a/Foo.py": "x = 1\n"}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/Foo.py", "content": "x = 2\n"},
+        state=state0,
+    )
+    assert isinstance(outcome, ToolSuccess)
+    assert outcome == ToolSuccess(result={"path": "a/Foo.py", "created": False})
+    assert state1["files"]["a/Foo.py"] == "x = 2\n"
+
+
+def test_write_file_rejects_case_insensitive_collision_at_root() -> None:
+    """Root-level: README.md vs readme.md must be rejected."""
+    state0: dict = {"files": {"README.md": "hello\n"}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "readme.md", "content": "world\n"},
+        state=state0,
+    )
+    assert state1 == state0
+    assert isinstance(outcome, ToolFailure)
+
+
+# --- Finding 2: .junit.xml is harness-reserved ---
+
+
+def test_write_file_rejects_junit_xml_reserved_path() -> None:
+    """.junit.xml at root level must be rejected as harness-reserved."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": ".junit.xml", "content": "<xml/>\n"},
+        state=state0,
+    )
+    assert state1 == state0
+    assert isinstance(outcome, ToolFailure)
+    assert "reserved" in outcome.error.lower() or "harness" in outcome.error.lower()
+
+
+def test_write_file_allows_paths_that_merely_contain_junit_xml() -> None:
+    """sub/.junit.xml is not the reserved root path — must succeed."""
+    state0: dict = {"files": {}}
+    state1, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "sub/.junit.xml", "content": "<xml/>\n"},
+        state=state0,
+    )
+    assert isinstance(outcome, ToolSuccess)
+
+
+# --- end adversarial-review items ---
+
+
 def test_registered_but_unimplemented_tool_raises_runtime_error() -> None:
     ghost = ToolDef(
         name="ghost",

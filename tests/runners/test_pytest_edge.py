@@ -91,6 +91,18 @@ def test_materialize_tree_refuses_escape_outside_root(tmp_path: Path) -> None:
         materialize_tree({"../escape.py": "x = 1\n"}, tmp_path)
 
 
+def test_materialize_tree_raises_on_casefold_collision(tmp_path: Path) -> None:
+    """Defense in depth: two distinct keys that casefold to the same string."""
+    with pytest.raises(RuntimeError, match="case"):
+        materialize_tree({"a/Foo.py": "x = 1\n", "a/foo.py": "x = 2\n"}, tmp_path)
+
+
+def test_materialize_tree_raises_on_junit_xml_key(tmp_path: Path) -> None:
+    """Defense in depth: .junit.xml key must be refused at materialization."""
+    with pytest.raises(RuntimeError, match=r"\.junit\.xml"):
+        materialize_tree({".junit.xml": "<xml/>\n"}, tmp_path)
+
+
 _PASSING_TREE = {
     "calc.py": "def add(a, b):\n    return a + b\n",
     "test_calc.py": (

@@ -78,12 +78,31 @@ def suite_status(exit_code: int) -> SuiteStatus:
     return "error"
 
 
+def _check_tree_invariants(files: Mapping[str, str]) -> None:
+    """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize."""
+    if ".junit.xml" in files:
+        raise RuntimeError(
+            "refusing to materialize: '.junit.xml' is reserved by the harness"
+        )
+    seen: dict[str, str] = {}
+    for path in files:
+        folded = path.casefold()
+        if folded in seen:
+            raise RuntimeError(
+                f"refusing to materialize: case collision between "
+                f"{seen[folded]!r} and {path!r}"
+            )
+        seen[folded] = path
+
+
 def materialize_tree(files: Mapping[str, str], root: Path) -> None:
     """Write the tree under root: sorted order, parents created, UTF-8.
 
-    Defense in depth: refuses any resolved target outside root, even though
-    the pure tools already reject non-canonical paths.
+    Defense in depth: refuses any resolved target outside root, case collisions,
+    and the harness-reserved '.junit.xml' key — even though the pure tools
+    already enforce these invariants.
     """
+    _check_tree_invariants(files)
     resolved_root = root.resolve()
     for path in sorted(files):
         target = (resolved_root / path).resolve()

@@ -68,12 +68,17 @@ CODE_WORLD_TOOLS: Mapping[str, ToolDef] = {
 }
 
 
+_HARNESS_RESERVED = frozenset({".junit.xml"})
+
+
 def path_error(path: str) -> str | None:
     """Reject any spelling that is not canonical POSIX-relative form."""
     if "\\" in path or "\x00" in path:
         return f"invalid path {path!r}: backslash and NUL are forbidden"
     if any(segment in ("", ".", "..") for segment in path.split("/")):
         return f"invalid path {path!r}: not canonical POSIX-relative form"
+    if path in _HARNESS_RESERVED:
+        return f"path {path!r} is reserved by the harness and may not be written"
     return None
 
 
@@ -86,14 +91,30 @@ def _ancestors(path: str) -> tuple[str, ...]:
     return tuple("/".join(segments[:i]) for i in range(1, len(segments)))
 
 
+def _casefold_collision(path: str, files: Mapping[str, str]) -> str | None:
+    """Reject writes whose path case-differs from a distinct existing path."""
+    folded = path.casefold()
+    clash = next(
+        (
+            existing
+            for existing in files
+            if existing != path and existing.casefold() == folded
+        ),
+        None,
+    )
+    if clash is None:
+        return None
+    return f"path collision: {path!r} differs from existing {clash!r} only by case"
+
+
 def _collision_error(path: str, files: Mapping[str, str]) -> str | None:
-    """Reject file/directory prefix collisions in both directions."""
+    """Reject file/directory prefix collisions and case-insensitive collisions."""
     if any(existing.startswith(path + "/") for existing in files):
         return f"path collision: {path!r} is a directory in the tree"
     clash = next((p for p in _ancestors(path) if p in files), None)
-    if clash is None:
-        return None
-    return f"path collision: {clash!r} is a file in the tree"
+    if clash is not None:
+        return f"path collision: {clash!r} is a file in the tree"
+    return _casefold_collision(path, files)
 
 
 def _read_file(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
