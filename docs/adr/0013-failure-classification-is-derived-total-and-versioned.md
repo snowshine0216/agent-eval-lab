@@ -59,3 +59,25 @@ numbers stay attributable. Downstream (Weeks 9-10 mining, Release #1) joins on
 `(classifier_version, category, subcategory)`. The task/agent/harness axis
 lives only in `RunClassification` — `FailureCategory` gains no values, and the
 report layer is the only consumer surface this slice.
+
+## fc-v2 amendment (2026-06-11)
+
+A harness defect discovered during item 004 validity review triggered the first
+classifier version bump. fc-v2 (`reports/classify.py`, `CLASSIFIER_VERSION =
+"fc-v2"`) changes exactly two things relative to fc-v1:
+
+- **New subcategory `token_budget_exhausted`** (category: `agent_failure`):
+  parse_failure runs where `usage.completion_tokens >= trajectory.max_tokens`
+  indicate the reasoning channel was cut off by the declared budget, not a
+  malformed model reply. This requires the explicit `--max-tokens` flag (default
+  4096) added to `run-baseline` and recorded per trajectory; artifacts without
+  `trajectory.max_tokens` (pre-fc-v2 runs) fall through to `malformed_reply`
+  unchanged, preserving backward compatibility.
+- **None-guard for `stop_reason == "parse_failure"` with `parse_failure is
+  None`**: fc-v1 raised `AttributeError` on this path (a harness wiring defect);
+  fc-v2 classifies it as `harness_failure/sandbox_fault` so the function is
+  total as advertised.
+
+All committed run artifacts from the coding-agent-eval slice were re-rendered
+under fc-v2; the Weeks 3-4 workspace-world reports are unaffected (no
+`max_tokens` field, no execution grading, no path that reaches the None-guard).

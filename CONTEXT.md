@@ -466,14 +466,21 @@ _Avoid_: "execution edge" (taken — that is `pytest_edge`'s sandbox boundary),
 ### Failure classification & final report
 
 **RunClassification (failure classification)**:
-The derived, versioned (`fc-v1`) interpretation layer mapping every graded
+The derived, versioned (`fc-v2`) interpretation layer mapping every graded
 `RunResult` to exactly one of `passed | task_failure | agent_failure |
 harness_failure` plus one closed subcategory, computed at report time from the
 mechanical discriminators already on the record (suite **status (execution)**,
-execution-error kind, stop reason, parse failure, `failure_reason`). Derived,
-never stored: it is an interpretation *over* grades, not a grade —
-`GradeResult` and `FailureCategory` are untouched, and a classifier-version
-bump is a pure re-render of committed runs, never a re-run.
+execution-error kind, stop reason, parse failure, `failure_reason`,
+`max_tokens`). Derived, never stored: it is an interpretation *over* grades,
+not a grade — `GradeResult` and `FailureCategory` are untouched, and a
+classifier-version bump is a pure re-render of committed runs, never a re-run.
+Current version is `fc-v2`, which adds the `token_budget_exhausted` subcategory
+(parse_failure runs where `completion_tokens >= trajectory.max_tokens` indicate
+the reasoning channel was truncated, not a malformed reply) and a None-guard
+for `stop_reason == "parse_failure"` with `parse_failure is None` (harness
+wiring defect → `harness_failure/sandbox_fault`). Artifacts captured before
+`fc-v2` (`trajectory.max_tokens is None`) classify with the pre-budget-check
+path unchanged.
 _Avoid_: "failure taxonomy" (that is `FailureCategory`, the grade-level
 vocabulary); "error class"; storing the classification on `RunResult`.
 

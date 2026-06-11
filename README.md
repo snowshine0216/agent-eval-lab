@@ -122,10 +122,12 @@ pull qwen3:8b` serves `:11434` automatically — then pass `--model qwen3:8b`.)
 ### Additional subcommands
 
 `run-baseline` honors each task's `metadata.max_steps` (the `--max-steps` flag
-is the fallback for tasks without one) and accepts `--system-prompt-file
-<path>` to evaluate an alternate agent configuration; tagged artifacts
-(`runs-<condition>__<tag>.jsonl`) keep two configs of one model from
-overwriting each other.
+is the fallback for tasks without one), sends an explicit completion budget via
+`--max-tokens` (default 4096 — always passed to the provider, never left to its
+default, so the trajectory records it for fc-v2 failure classification), and
+accepts `--system-prompt-file <path>` to evaluate an alternate agent
+configuration; tagged artifacts (`runs-<condition>__<tag>.jsonl`) keep two
+configs of one model from overwriting each other.
 
 ```bash
 # Rebuild the multi-condition validation / failure-mode report (pure, no
