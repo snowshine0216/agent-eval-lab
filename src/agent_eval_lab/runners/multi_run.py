@@ -12,6 +12,13 @@ from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.workspace import ToolDef
 
 
+def effective_max_steps(task: Task, *, default: int) -> int:
+    """ADR-0004: the per-task metadata.max_steps WINS when present; the CLI
+    default is the fallback for tasks without one (a floor, never a cap)."""
+    declared = task.metadata.max_steps
+    return declared if declared is not None else default
+
+
 def run_task_k(
     *,
     task: Task,
@@ -23,6 +30,7 @@ def run_task_k(
     temperature: float,
 ) -> tuple[RunResult, ...]:
     condition = condition_id(config)
+    budget = effective_max_steps(task, default=max_steps)
     results = []
     for run_index in range(k):
         trajectory = run_single(
@@ -31,11 +39,14 @@ def run_task_k(
             config=config,
             http_client=http_client,
             run_index=run_index,
-            max_steps=max_steps,
+            max_steps=budget,
             temperature=temperature,
         )
         grade = grade_trajectory(
-            verification=task.verification, trajectory=trajectory, registry=registry
+            verification=task.verification,
+            trajectory=trajectory,
+            registry=registry,
+            initial_state=task.initial_state,
         )
         results.append(
             RunResult(

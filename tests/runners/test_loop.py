@@ -211,6 +211,48 @@ def test_loop_records_missing_choices_as_parse_failure() -> None:
     assert "no choices" in trajectory.parse_failure.error
 
 
+def test_run_single_records_final_state() -> None:
+    client = _scripted_client(
+        [
+            _tool_call_response(
+                "create_ticket", {"title": "Broken login", "priority": "high"}, "c1"
+            ),
+            _final_response("Created the ticket."),
+        ]
+    )
+    task = parse_task(
+        {
+            "id": "ws-final-state",
+            "capability": "tool_selection",
+            "input": {
+                "messages": [
+                    {"type": "message", "role": "user", "content": "Create a ticket."}
+                ],
+                "available_tools": ["create_ticket"],
+            },
+            "verification": {
+                "type": "output_match",
+                "expected_output": "Created the ticket.",
+            },
+            "metadata": {"split": "dev", "version": "1", "provenance": "hand_written"},
+            "initial_state": {"tickets": {}},
+        }
+    )
+
+    trajectory = run_single(
+        task=task,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=4,
+        temperature=0.0,
+    )
+
+    assert trajectory.final_state is not None
+    assert trajectory.final_state["tickets"]["T-1"]["title"] == "Broken login"
+
+
 def test_loop_rejects_task_referencing_unregistered_tool() -> None:
     task = parse_task(
         {

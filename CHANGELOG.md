@@ -7,6 +7,81 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Weeks 3–4 dataset and grader quality
+
+- Live v2 validation: four conditions at k=3 (deepseek-v4-pro 1.000/1.000,
+  GLM-5.1 1.000/1.000, MiniMax-M3 0.980/0.940, local Qwen3-8B 0.620/0.620 —
+  pass@1/pass^3) with cluster-bootstrap-by-task CIs; committed
+  failure-mode/validation report with per-tier curves, failure taxonomy ×
+  tier × capability, deterministic-vs-flaky split, and a mechanical
+  discriminativeness verdict (weak rung met: v2 is no longer saturated;
+  hosted separation a named near-miss at n=50).
+- Pre-declared two-configuration comparison (deepseek default vs frozen
+  hash-pinned planning prompt, paired on all 50 tasks): primary T3+T4
+  Δ pass^3 = 0.000 [0.000, 0.000] → "no detectable effect at n=50" read
+  mechanically off the frozen decision rule; planning regressed one T2 task.
+- Per-task `metadata.max_steps` honored by the runner (ADR-0004; CLI flag
+  stays the fallback; v1 behavior unchanged) and `--system-prompt-file`
+  with prompt-config artifact tags (ADR-0007; empty tag keeps v1 filenames
+  byte-identical).
+- Pure `report-validation` and `compare-configs` CLI subcommands —
+  deterministic regeneration from captured run JSONL (byte-identical on
+  re-run, seeded bootstrap), loud structured errors on malformed lines,
+  task-universe mismatches, unmapped capabilities, and sub-k partial tasks
+  (excluded and named, never vacuously passed).
+- Model-based grader: `LlmJudgeSpec` joined the `VerificationSpec` union —
+  pure prompt build / response parse / spec-tree collection in
+  `graders/judge.py`, with judge calls confined to an explicit edge; verdicts
+  are pre-computed and threaded into pure grading keyed by prompt hash
+  (ADR-0005). Judge failures are explicit sum types carried in evidence,
+  never coerced into agent failures.
+- Calibration harness: blind versioned annotation packets (export / LLM-label
+  / compute via `calibrate` CLI subcommands with atomic writes), pure
+  `metrics/agreement.py` — binary Cohen's κ headline + quadratic-weighted κ
+  secondary (ADR-0006) + seeded percentile bootstrap CI with degenerate-
+  resample accounting, all pinned to hand-computed literature vectors.
+- 20 committed calibration fixtures (incl. four near-miss boundary cases
+  added after adversarial review) with intended labels kept outside the
+  blind packet; calibration runbook documenting the §6 protocol state
+  machine — human–human and judge–human calibration remain OPEN for human
+  annotators; a provisional LLM–LLM run (deepseek + GLM, n=19 scored,
+  1 judge error surfaced) measured binary κ 0.87 / weighted 0.94, labeled
+  PROVISIONAL throughout.
+- Workspace-world v2: five new schema-validated pure tools (`get_account`,
+  `list_tickets`, `send_email`, plus deliberate distractors `archive_ticket`,
+  `find_account`, `draft_email`); state grows to
+  `{tickets, docs, accounts, emails}`.
+- `workspace_tool_use_v2`: 50 reviewed, capability-discriminating tasks
+  (`ws2-001`…`ws2-050`) across six capabilities and four difficulty tiers
+  (66% hard: T3=22, T4=11) — long-horizon state-dependent chains, derived
+  arguments (filter/compare/aggregate over returned data), distractor
+  pressure, and layered `AllOf` constraint stacks; every task carries
+  difficulty-knob, provenance, review, and `world_template_id` metadata.
+- Task taxonomy and scoring-rubric docs plus a per-task review ledger.
+- Dataset conformance suite (15+ pure checks in CI): parse, registered tools
+  only, schema-valid expected calls, distractors never the expected path,
+  initial-state preconditions, anti-rote state-dependency proxy (22/33 hard
+  tasks pinned), tier/capability mix, and a no-op guarantee — a zero-tool
+  agent grades 0/50 by construction.
+- `TaskMetadata.max_steps` (per-task step budget; runner wiring lands with the
+  validation item per ADR-0004) and `TaskMetadata.review`.
+- Composite verification layer: `FinalStateSpec`, `TrajectorySpec`, and `AllOf`
+  joined the `VerificationSpec` union, with constraint variants
+  (`StateEquals`/`StateContains`; `NoToolCall`/`OnlyModifies`/`MaxToolCalls`)
+  interpreted by pure graders — outcome checks are path-independent while
+  trajectory constraints still police side effects.
+- `Trajectory.final_state` records the post-loop world state and is threaded
+  from the runner into grading; serialization round-trips it.
+- `OnlyModifies` uses dot-segment-aware prefix coverage (`tickets.T-1` does not
+  cover `tickets.T-10`) over a leaf-level state diff; empty mappings contribute
+  no leaves, eliminating phantom-path false failures.
+- `forbidden_action` and `step_limit_exceeded` failure categories now emitted
+  by trajectory-policy grading; `AllOf` reports the first sub-spec failure
+  category while evaluating all sub-specs.
+- Golden conformance suite extended from 11 to 23 hand-verified cases
+  (state success/failure, missing paths, policy breaches, path-independent
+  success via two distinct valid routes, conjunction semantics).
+
 ### Added — Weeks 1–2 tool-use vertical slice
 
 - Immutable record spine (`records/`): conversation turns, runtime tool calls,

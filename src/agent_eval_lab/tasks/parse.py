@@ -6,17 +6,63 @@ from typing import Any
 from agent_eval_lab.records.serialize import turn_from_dict
 from agent_eval_lab.records.turns import MessageTurn, Turn
 from agent_eval_lab.tasks.schema import (
+    AllOf,
     ExpectedToolCall,
+    FinalStateSpec,
+    LlmJudgeSpec,
+    MaxToolCalls,
+    NoToolCall,
+    OnlyModifies,
     OutputMatchSpec,
+    StateConstraint,
+    StateContains,
+    StateEquals,
     Task,
     TaskInput,
     TaskMetadata,
     ToolCallMatchSpec,
+    TrajectoryConstraint,
+    TrajectorySpec,
     VerificationSpec,
 )
 
 _SPLITS = ("dev", "held_out")
 _MATCH_MODES = ("exact_sequence", "multiset")
+
+
+def _parse_scale(raw: Any) -> tuple[int, int]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"scale must be a 2-element list, got {raw!r}")
+    lo, hi = raw
+    if (
+        not (isinstance(lo, int) and isinstance(hi, int))
+        or isinstance(lo, bool)
+        or isinstance(hi, bool)
+    ):
+        raise ValueError(f"scale bounds must be ints, got {raw!r}")
+    if lo >= hi:
+        raise ValueError(f"scale must have lo < hi, got {raw!r}")
+    return (lo, hi)
+
+
+def _state_constraint_from_dict(data: Mapping[str, Any]) -> StateConstraint:
+    kind = data["type"]
+    if kind == "state_equals":
+        return StateEquals(path=data["path"], expected=data["expected"])
+    if kind == "state_contains":
+        return StateContains(path=data["path"], expected=data["expected"])
+    raise ValueError(f"unknown state constraint: {kind!r}")
+
+
+def _trajectory_constraint_from_dict(data: Mapping[str, Any]) -> TrajectoryConstraint:
+    kind = data["type"]
+    if kind == "no_tool_call":
+        return NoToolCall(name=data["name"])
+    if kind == "only_modifies":
+        return OnlyModifies(paths=tuple(data["paths"]))
+    if kind == "max_tool_calls":
+        return MaxToolCalls(n=data["n"])
+    raise ValueError(f"unknown trajectory constraint: {kind!r}")
 
 
 def verification_from_dict(data: Mapping[str, Any]) -> VerificationSpec:
@@ -36,6 +82,26 @@ def verification_from_dict(data: Mapping[str, Any]) -> VerificationSpec:
                 for c in data["expected_tool_calls"]
             ),
             match=match,
+        )
+    if kind == "final_state":
+        return FinalStateSpec(
+            constraints=tuple(
+                _state_constraint_from_dict(c) for c in data["constraints"]
+            )
+        )
+    if kind == "trajectory":
+        return TrajectorySpec(
+            constraints=tuple(
+                _trajectory_constraint_from_dict(c) for c in data["constraints"]
+            )
+        )
+    if kind == "all_of":
+        return AllOf(specs=tuple(verification_from_dict(s) for s in data["specs"]))
+    if kind == "llm_judge":
+        return LlmJudgeSpec(
+            rubric=data["rubric"],
+            judge_model=data["judge_model"],
+            scale=_parse_scale(data.get("scale", [1, 5])),
         )
     raise ValueError(f"unknown verification type: {kind!r}")
 
@@ -59,6 +125,8 @@ def _parse_metadata(data: Mapping[str, Any]) -> TaskMetadata:
         provenance=data["provenance"],
         world_template_id=data.get("world_template_id"),
         difficulty_knob=data.get("difficulty_knob"),
+        max_steps=data.get("max_steps"),
+        review=data.get("review"),
     )
 
 

@@ -54,23 +54,104 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Run the tool-use baseline (requires a local OpenAI-compatible server, e.g.
-Ollama/MLX serving `qwen3-8b` on `localhost:11434`, or a provider key):
+Run the tool-use baseline against any configured provider:
 
 ```bash
 uv run python -m agent_eval_lab.cli run-baseline \
   --dataset examples/datasets/workspace_tool_use_v1.jsonl \
-  --provider local --k 3
+  --provider deepseek --k 3
 ```
 
-Outputs: `reports/baseline-<provider>-<model>.md` (headline `pass@1`, `pass^k`,
-tokens, cost, latency, failure taxonomy) and `reports/runs-<provider>-<model>.jsonl`
-(full graded trajectories, streamed per task) — named by the full condition id so
-two models under one provider never overwrite each other. Hosted providers read
-their key from the environment
-variable named in `src/agent_eval_lab/runners/config.py` (e.g.
-`DASHSCOPE_API_KEY`); pass `--input-price-per-mtok/--output-price-per-mtok`
-to include estimated cost.
+Outputs land in `reports/` (gitignored): `baseline-<condition>.md` (headline
+`pass@1`, `pass^k`, tokens, latency, failure taxonomy) and `runs-<condition>.jsonl`
+(full graded trajectories, streamed per task). Artifacts are named by the full
+condition id (`provider:model`) so two models under one provider never overwrite
+each other. Pass `--input-price-per-mtok`/`--output-price-per-mtok` together to
+include estimated cost.
+
+### Providers
+
+The registry lives in
+[`src/agent_eval_lab/runners/config.py`](src/agent_eval_lab/runners/config.py).
+Each hosted provider reads its key from the named environment variable (the code
+stores the *name*, never the key):
+
+| `--provider` | endpoint | default model | key env var |
+| --- | --- | --- | --- |
+| `deepseek`   | `api.deepseek.com`                | `deepseek-v4-pro`     | `DEEPSEEK_API_KEY` |
+| `glm`        | `api.siliconflow.cn` (SiliconFlow) | `Pro/zai-org/GLM-5.1` | `SILICONFLOW_API_KEY` |
+| `minimax`    | `api.minimaxi.com`                | `MiniMax-M3`          | `MINIMAX_API_KEY` |
+| `openrouter` | `openrouter.ai` (via proxy)       | `openai/gpt-5.5`      | `OPENROUTER_API_KEY` |
+| `local`      | `localhost:11434` (MLX / Ollama)  | `qwen3-8b`            | — (none) |
+
+Set keys in your shell (`export DEEPSEEK_API_KEY=...`) or keep them in a `.env` and
+`set -a; . .env; set +a` before running — there is **no** automatic `.env` loading.
+Override a provider's default model with `--model <id>`.
+
+**Proxy:** `openrouter` is routed through an HTTP proxy whose URL is read from the
+`HTTP_PROXY` environment variable and applied **only** to `openrouter` — domestic
+endpoints and `localhost` always stay direct. Set it with your proxy, e.g.
+`export HTTP_PROXY=http://10.23.37.244:8888`; if unset, the call goes direct.
+
+### Local model (Apple Silicon, MLX)
+
+The `local` provider expects an OpenAI-compatible server on
+`http://localhost:11434/v1`. With [`mlx-lm`](https://github.com/ml-explore/mlx-lm)
+on an Apple-Silicon Mac:
+
+```bash
+uv pip install mlx-lm
+# Serve Qwen3-8B on the port the `local` config expects.
+# HF_HUB_OFFLINE=1 uses the local Hugging Face cache (no download).
+HF_HUB_OFFLINE=1 uv run python -m mlx_lm.server \
+  --model Qwen/Qwen3-8B --port 11434 --host 127.0.0.1
+```
+
+Then run the baseline against it, matching `--model` to the id the server loaded:
+
+```bash
+uv run python -m agent_eval_lab.cli run-baseline \
+  --dataset examples/datasets/workspace_tool_use_v1.jsonl \
+  --provider local --model Qwen/Qwen3-8B --k 3
+```
+
+`mlx_lm.server` emits OpenAI-format `tool_calls` for Qwen3, so the AST grader
+scores local runs exactly as it scores hosted ones. (Ollama also works: `ollama
+pull qwen3:8b` serves `:11434` automatically — then pass `--model qwen3:8b`.)
+
+### Additional subcommands
+
+`run-baseline` honors each task's `metadata.max_steps` (the `--max-steps` flag
+is the fallback for tasks without one) and accepts `--system-prompt-file
+<path>` to evaluate an alternate agent configuration; tagged artifacts
+(`runs-<condition>__<tag>.jsonl`) keep two configs of one model from
+overwriting each other.
+
+```bash
+# Rebuild the multi-condition validation / failure-mode report (pure, no
+# live calls — deterministic for a fixed seed) from captured run JSONL:
+uv run python -m agent_eval_lab.cli report-validation \
+  --runs "C1=deepseek:deepseek-v4-pro=reports/runs-deepseek-deepseek-v4-pro.jsonl" \
+  --dataset examples/datasets/workspace_tool_use_v2.jsonl \
+  --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
+  --k 3 --expected-n-tasks 50 --seed 20260610 --n-resamples 2000 \
+  --out reports/validation.md
+
+# Compare two agent configurations of the same model (paired
+# cluster-bootstrap Δ pass^3 with a pre-declared decision rule):
+uv run python -m agent_eval_lab.cli compare-configs \
+  --config-a reports/runs-deepseek-deepseek-v4-pro.jsonl \
+  --config-b reports/runs-deepseek-deepseek-v4-pro__planning-v1.jsonl \
+  --tiers examples/datasets/workspace_tool_use_v2_tiers.json \
+  --planning-prompt-file examples/prompts/planning-v1.txt \
+  --k 3 --seed 20260610 --n-resamples 2000 --out reports/comparison.md
+
+# LLM-judge calibration workflow (blind annotation packets, Cohen's κ +
+# bootstrap CI; see docs/2026-06-10-dataset-grader-quality/calibration-runbook.md):
+uv run python -m agent_eval_lab.cli calibrate export-packet --out packet.jsonl
+uv run python -m agent_eval_lab.cli calibrate provisional-label ...
+uv run python -m agent_eval_lab.cli calibrate compute ...
+```
 
 ## Repository Layout
 
@@ -139,10 +220,15 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the delivery plan and
 
 ## Status
 
-This repository has the Weeks 1–2 tool-use slice implemented: locked record
-types, a schema-validated workspace-world, the AST tool-call grader with a
-structured failure taxonomy, a multi-run runner with cost capture, a 20-task
-dataset, a golden conformance suite, and a baseline report command. The full
+Weeks 1–4 are implemented. Weeks 1–2 delivered the tool-use slice: locked
+record types, a schema-validated workspace-world, the AST tool-call grader
+with a structured failure taxonomy, a multi-run runner with cost capture, a
+20-task dataset, a golden conformance suite, and the baseline report command.
+Weeks 3–4 added composite verification (`FinalStateSpec`/`TrajectorySpec`/
+`AllOf`), a 50-task capability-discriminating dataset with a conformance
+suite, a calibrated-by-protocol LLM judge (provisional LLM–LLM κ; human
+calibration packet ready), per-task step budgets, and live multi-condition
+validation with failure-mode and two-config comparison reports. The full
 pipeline is specified in [docs/superpowers/specs/](docs/superpowers/specs/)
 and built slice by slice.
 

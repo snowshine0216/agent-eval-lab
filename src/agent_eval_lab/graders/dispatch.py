@@ -1,15 +1,24 @@
 """Pure dispatch from VerificationSpec variants to their graders."""
 
 from collections.abc import Mapping
+from typing import Any
 
+from agent_eval_lab.graders.composite import grade_all_of
 from agent_eval_lab.graders.exact_match import grade_exact_match
+from agent_eval_lab.graders.judge import grade_llm_judge
+from agent_eval_lab.graders.policy import grade_trajectory_spec
+from agent_eval_lab.graders.state import grade_final_state
 from agent_eval_lab.graders.tool_call import grade_tool_call_match
 from agent_eval_lab.records.grade import GradeResult
 from agent_eval_lab.records.trajectory import Trajectory
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.tasks.schema import (
+    AllOf,
+    FinalStateSpec,
+    LlmJudgeSpec,
     OutputMatchSpec,
     ToolCallMatchSpec,
+    TrajectorySpec,
     VerificationSpec,
 )
 from agent_eval_lab.tools.workspace import ToolDef
@@ -42,11 +51,35 @@ def grade_trajectory(
     verification: VerificationSpec,
     trajectory: Trajectory,
     registry: Mapping[str, ToolDef],
+    initial_state: Mapping[str, Any] | None = None,
+    verdicts: Mapping[str, Any] | None = None,
 ) -> GradeResult:
+    verdicts = {} if verdicts is None else verdicts
     if isinstance(verification, OutputMatchSpec):
         return grade_output_match(spec=verification, trajectory=trajectory)
     if isinstance(verification, ToolCallMatchSpec):
         return grade_tool_call_match(
             spec=verification, trajectory=trajectory, registry=registry
+        )
+    if isinstance(verification, FinalStateSpec):
+        return grade_final_state(
+            spec=verification, initial_state=initial_state, trajectory=trajectory
+        )
+    if isinstance(verification, TrajectorySpec):
+        return grade_trajectory_spec(
+            spec=verification, initial_state=initial_state, trajectory=trajectory
+        )
+    if isinstance(verification, LlmJudgeSpec):
+        return grade_llm_judge(
+            spec=verification, trajectory=trajectory, verdicts=verdicts
+        )
+    if isinstance(verification, AllOf):
+        return grade_all_of(
+            spec=verification,
+            initial_state=initial_state,
+            trajectory=trajectory,
+            registry=registry,
+            grade=grade_trajectory,
+            verdicts=verdicts,
         )
     raise ValueError(f"unsupported verification spec: {verification!r}")

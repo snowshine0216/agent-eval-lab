@@ -1,0 +1,6 @@
+{
+  "name": "final_state over a missing path fails without crashing",
+  "verification": {"type": "final_state", "constraints": [{"type": "state_equals", "path": "tickets.T-9.status", "expected": "closed"}]},
+  "trajectory": {"turns": [], "final_state": {"tickets": {}}},
+  "expected": {"passed": false, "failure_reason": null}
+}

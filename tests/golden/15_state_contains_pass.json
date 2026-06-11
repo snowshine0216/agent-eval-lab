@@ -1,0 +1,6 @@
+{
+  "name": "state_contains passes when the doc id is present",
+  "verification": {"type": "final_state", "constraints": [{"type": "state_contains", "path": "docs.found", "expected": "doc-1"}]},
+  "trajectory": {"turns": [], "final_state": {"docs": {"found": ["doc-1", "doc-2"]}}},
+  "expected": {"passed": true, "failure_reason": null}
+}

@@ -1,0 +1,7 @@
+{
+  "name": "only_modifies breach: a ticket outside the allowed subtree changed",
+  "verification": {"type": "trajectory", "constraints": [{"type": "only_modifies", "paths": ["tickets.T-1"]}]},
+  "initial_state": {"tickets": {"T-1": {"status": "open"}, "T-2": {"status": "open"}}},
+  "trajectory": {"turns": [], "final_state": {"tickets": {"T-1": {"status": "closed"}, "T-2": {"status": "closed"}}}},
+  "expected": {"passed": false, "failure_reason": "forbidden_action"}
+}

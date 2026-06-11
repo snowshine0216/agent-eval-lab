@@ -1,7 +1,8 @@
 """Run-time trajectory records emitted by the runner."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from agent_eval_lab.records.turns import Turn
 
@@ -29,3 +30,4 @@ class Trajectory:
     run_index: int
     stop_reason: Literal["completed", "max_steps", "parse_failure"]
     parse_failure: ParseFailure | None = None
+    final_state: Mapping[str, Any] | None = None
