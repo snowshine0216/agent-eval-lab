@@ -62,6 +62,7 @@ def run_single(
     run_index: int,
     max_steps: int,
     temperature: float,
+    max_tokens: int,
     apply_fn: ApplyFn = apply,
     executor: Executor | None = None,
 ) -> Trajectory:
@@ -85,6 +86,7 @@ def run_single(
             messages=tuple(turn_to_message(turn) for turn in turns),
             tools=tools,
             temperature=temperature,
+            max_tokens=max_tokens,
             http_client=http_client,
         )
         usage = response.payload.get("usage", {})
@@ -133,4 +135,5 @@ def run_single(
         stop_reason=stop_reason,
         parse_failure=parse_failure,
         final_state=state,
+        max_tokens=max_tokens,
     )

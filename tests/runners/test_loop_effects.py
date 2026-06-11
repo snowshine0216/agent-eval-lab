@@ -135,6 +135,7 @@ def test_loop_fulfills_execution_request_as_tool_success() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=executor,
     )
@@ -161,6 +162,7 @@ def test_failing_suite_is_still_tool_success() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=lambda request: STUB_RESULT,
     )
@@ -189,6 +191,7 @@ def test_fulfillment_matches_request_type_not_tool_name() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=request_for_any_tool,
         executor=lambda request: STUB_RESULT,
     )
@@ -209,6 +212,7 @@ def test_execution_request_without_executor_raises_runtime_error() -> None:
             run_index=0,
             max_steps=4,
             temperature=0.0,
+            max_tokens=4096,
             apply_fn=code_world_apply,
         )
 
@@ -229,6 +233,7 @@ def test_pure_validation_still_fails_as_tool_failure() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=lambda request: STUB_RESULT,
     )
@@ -253,6 +258,7 @@ def test_executor_exception_propagates_out_of_run_single() -> None:
             run_index=0,
             max_steps=4,
             temperature=0.0,
+            max_tokens=4096,
             apply_fn=code_world_apply,
             executor=boom,
         )
@@ -272,6 +278,7 @@ def test_loop_with_real_edge_records_failed_suite() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=lambda request: run_pytest(request.files, timeout_s=30.0),
     )
@@ -305,6 +312,7 @@ def test_execute_request_fulfills_run_tests_through_the_loop() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=execute_request,
     )

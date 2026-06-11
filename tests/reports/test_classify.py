@@ -26,15 +26,25 @@ def _run(
     failure_reason=None,
     stop_reason="completed",
     parse_error=None,
+    completion_tokens=5,
+    max_tokens=None,
 ) -> RunResult:
-    """Synthetic RunResult mimicking the JSONL round-trip (plain dicts)."""
+    """Synthetic RunResult mimicking the JSONL round-trip (plain dicts).
+
+    max_tokens mirrors the fc-v2 field added to RunResult for the
+    token_budget_exhausted subcategory; None reproduces pre-fc-v2 artifacts.
+    """
     return RunResult(
         task_id="cr-001",
         condition_id="deepseek:deepseek-v4-pro",
         run_index=0,
         trajectory=Trajectory(
             turns=(),
-            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+            usage=Usage(
+                prompt_tokens=10,
+                completion_tokens=completion_tokens,
+                latency_s=0.1,
+            ),
             run_index=0,
             stop_reason=stop_reason,
             parse_failure=(
@@ -43,6 +53,7 @@ def _run(
                 else ParseFailure(raw="{}", error=parse_error)
             ),
             final_state={"files": {}},
+            max_tokens=max_tokens,
         ),
         grade=GradeResult(
             grader_id=grader_id,
@@ -78,7 +89,7 @@ def _exec_error_evidence(kind, detail="boom"):
 
 def _is(c: RunClassification, category: str, subcategory) -> None:
     assert (c.category, c.subcategory) == (category, subcategory)
-    assert c.classifier_version == CLASSIFIER_VERSION == "fc-v1"
+    assert c.classifier_version == CLASSIFIER_VERSION
     assert "\n" not in c.detail
 
 
@@ -283,4 +294,76 @@ def test_failure_category_member_set_is_unchanged() -> None:
 
 
 def test_subcategory_vocabulary_is_closed_at_15() -> None:
-    assert len(get_args(Subcategory)) == 15
+    # Kept as a historical marker; fc-v2 tests assert the updated count.
+    # Superseded by test_subcategory_vocabulary_is_closed_at_16_after_fc_v2.
+    pass
+
+
+# fc-v2 additions ──────────────────────────────────────────────────────────────
+
+
+def test_classifier_version_is_fc_v2() -> None:
+    """After the fc-v2 bump the version string must be fc-v2, not fc-v1."""
+    assert CLASSIFIER_VERSION == "fc-v2"
+
+
+def test_subcategory_vocabulary_is_closed_at_16_after_fc_v2() -> None:
+    """fc-v2 adds token_budget_exhausted; closed vocabulary grows by one."""
+    assert len(get_args(Subcategory)) == 16
+    assert "token_budget_exhausted" in get_args(Subcategory)
+
+
+def test_token_budget_exhausted_classification() -> None:
+    """parse_failure with completion_tokens >= declared max_tokens classifies
+    as agent_failure/token_budget_exhausted, not malformed_reply."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=4096,
+        max_tokens=4096,
+    )
+    _is(classify_run(run), "agent_failure", "token_budget_exhausted")
+
+
+def test_token_budget_exhausted_at_exactly_budget() -> None:
+    """Boundary: completion_tokens == max_tokens → token_budget_exhausted."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=512,
+        max_tokens=512,
+    )
+    _is(classify_run(run), "agent_failure", "token_budget_exhausted")
+
+
+def test_token_budget_not_exhausted_falls_through_to_malformed_reply() -> None:
+    """completion_tokens < max_tokens: not budget-exhaustion, still malformed_reply."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        completion_tokens=100,
+        max_tokens=4096,
+    )
+    _is(classify_run(run), "agent_failure", "malformed_reply")
+
+
+def test_parse_failure_no_max_tokens_field_classifies_as_before() -> None:
+    """Old artifacts without max_tokens on the run record keep classifying as
+    malformed_reply (no KeyError, no AttributeError)."""
+    run = _run(
+        parse_error="assistant message has neither content nor tool_calls",
+        stop_reason="parse_failure",
+        # no max_tokens kwarg → uses old default (None)
+    )
+    _is(classify_run(run), "agent_failure", "malformed_reply")
+
+
+def test_parse_failure_none_record_classifies_as_harness_failure() -> None:
+    """None-guard: stop_reason=parse_failure with parse_failure field None
+    must NOT AttributeError — classify as harness_failure/sandbox_fault."""
+    run = _run(stop_reason="parse_failure", parse_error=None)
+    # parse_error=None => trajectory.parse_failure is None
+    # but stop_reason is "parse_failure" — harness wiring defect
+    c = classify_run(run)
+    assert c.category == "harness_failure"
+    # classify_run must never raise

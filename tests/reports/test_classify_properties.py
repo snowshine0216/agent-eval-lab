@@ -97,11 +97,17 @@ _parse_failures = st.none() | st.builds(
 _trajectories = st.builds(
     Trajectory,
     turns=st.just(()),
-    usage=st.just(Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0)),
+    usage=st.builds(
+        Usage,
+        prompt_tokens=st.just(0),
+        completion_tokens=st.integers(min_value=0, max_value=8192),
+        latency_s=st.just(0.0),
+    ),
     run_index=st.just(0),
     stop_reason=st.sampled_from(["completed", "max_steps", "parse_failure"]),
     parse_failure=_parse_failures,
     final_state=st.none() | st.just({"files": {}}),
+    max_tokens=st.none() | st.integers(min_value=1, max_value=8192),
 )
 
 _runs = st.builds(
@@ -120,7 +126,7 @@ def test_classify_run_is_total_and_closed(run: RunResult) -> None:
     assert isinstance(classification, RunClassification)
     assert classification.category in _CATEGORIES
     assert (classification.category == "passed") == (classification.subcategory is None)
-    assert classification.classifier_version == "fc-v1"
+    assert classification.classifier_version == "fc-v2"
     assert "\n" not in classification.detail
 
 

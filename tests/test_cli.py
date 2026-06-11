@@ -1037,7 +1037,7 @@ def test_report_final_renders_byte_identically_across_invocations(
     assert a == b
     md = a.decode()
     assert "# Final evaluation report" in md
-    assert "fc-v1" in md
+    assert "fc-v2" in md
     assert "| C4 | blocked |" in md  # zero-record condition: blocked, no numbers
     assert "incomplete" in md  # 2 of 15 expected tasks present
 
@@ -1076,3 +1076,74 @@ def test_report_final_rejects_condition_segment_mismatch(
     err = capsys.readouterr().err
     assert "minimax:MiniMax-M3" in err and "deepseek:deepseek-v4-pro" in err
     assert not out.exists()
+
+
+# ── Item 004 fix 1: --max-tokens CLI flag threads through to the request ──────
+
+
+def test_max_tokens_flag_threads_through_to_request_body(tmp_path: Path) -> None:
+    """--max-tokens plumbs the explicit completion budget into every
+    chat_completion request body (item 004 fix 1)."""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    seen_bodies: list[dict] = []
+
+    def capturing_handler(request: httpx.Request) -> httpx.Response:
+        seen_bodies.append(json.loads(request.content))
+        return _handler(request)
+
+    client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+            "--max-tokens",
+            "2048",
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    assert all("max_tokens" in body for body in seen_bodies), (
+        "every request must carry max_tokens from the CLI --max-tokens flag"
+    )
+    assert all(body["max_tokens"] == 2048 for body in seen_bodies)
+
+
+def test_max_tokens_default_is_4096(tmp_path: Path) -> None:
+    """Without --max-tokens, the default of 4096 is used."""
+    dataset = _write_dataset(tmp_path / "tasks.jsonl")
+    out_dir = tmp_path / "out"
+    seen_bodies: list[dict] = []
+
+    def capturing_handler(request: httpx.Request) -> httpx.Response:
+        seen_bodies.append(json.loads(request.content))
+        return _handler(request)
+
+    client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "1",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+
+    assert exit_code == 0
+    assert all(body.get("max_tokens") == 4096 for body in seen_bodies)

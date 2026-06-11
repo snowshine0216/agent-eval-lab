@@ -1,13 +1,27 @@
-"""Pure, total fc-v1 failure classification (ADR-0013): derived, never stored.
+"""Pure, total fc-v2 failure classification (ADR-0013): derived, never stored.
 
 Maps every graded RunResult to exactly one of passed | task_failure |
 agent_failure | harness_failure plus one closed subcategory, reading only the
 mechanical discriminators already on the record: the trajectory's
-parse_failure and stop_reason, the grade's failure_reason, and the first
-execution leg's evidence — the plain dicts the JSONL round-trip yields, never
-reconstructed dataclasses (grill Q9). The priority-ordered, first-match-wins
-table is frozen with its version: changing any row's semantics mints fc-v2
-and re-renders committed runs, never a model re-run.
+parse_failure, stop_reason, and max_tokens, the grade's failure_reason, and
+the first execution leg's evidence — the plain dicts the JSONL round-trip
+yields, never reconstructed dataclasses (grill Q9). The priority-ordered,
+first-match-wins table is frozen with its version.
+
+fc-v2 changes from fc-v1
+-------------------------
+- ``token_budget_exhausted`` (agent_failure) is a new subcategory for
+  parse_failure runs where ``usage.completion_tokens >= trajectory.max_tokens``
+  (the completion budget was exhausted inside the reasoning channel — a known
+  behaviour of thinking models such as Qwen3-8B under the MLX server's default
+  512-token limit). This is an agent limitation under declared conditions, not
+  a malformed response, and must NOT be lumped with ``malformed_reply``. Old
+  artifacts without the ``max_tokens`` field (``trajectory.max_tokens is None``)
+  keep classifying as before.
+- None-guard: ``stop_reason == "parse_failure"`` with ``parse_failure is None``
+  is a harness wiring defect; fc-v1 raised AttributeError on this path. fc-v2
+  classifies it as ``harness_failure/sandbox_fault`` so the function remains
+  total (never raises) as advertised.
 """
 
 from collections.abc import Mapping, Sequence
@@ -17,14 +31,17 @@ from typing import Any, Literal
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR
 
-CLASSIFIER_VERSION = "fc-v1"
+CLASSIFIER_VERSION = "fc-v2"
 
 Category = Literal["passed", "task_failure", "agent_failure", "harness_failure"]
 
-# Closed at 15 values (item 004 resolved Q17); versioned with the classifier.
+# Closed at 16 values (fc-v2 adds token_budget_exhausted); versioned with the
+# classifier.  Downstream Weeks 9-10 mining joins on
+# (classifier_version, category, subcategory) (ADR-0013).
 Subcategory = Literal[
     "provider_response",
     "malformed_reply",
+    "token_budget_exhausted",
     "missing_final_state",
     "sandbox_fault",
     "verdict_missing",
@@ -94,12 +111,21 @@ def first_execution_evidence(
 
 
 def classify_run(run: RunResult) -> RunClassification:
-    """fc-v1: priority-ordered, first-match-wins, total — never raises."""
+    """fc-v2: priority-ordered, first-match-wins, total — never raises."""
     if run.grade.passed:  # row 1 wins first, even over a recorded parse_failure
         return _classification("passed", None, "grade.passed")
     parse_failure = run.trajectory.parse_failure
-    if parse_failure is not None:  # rows 2-3
-        return _classify_parse_failure(parse_failure.error)
+    if run.trajectory.stop_reason == "parse_failure" and parse_failure is None:
+        # None-guard: harness wiring defect — the loop set stop_reason=parse_failure
+        # but did not record the ParseFailure object.  Never AttributeError.
+        return _classification(
+            "harness_failure",
+            "sandbox_fault",
+            "stop_reason=parse_failure but parse_failure record is None "
+            "(harness wiring defect)",
+        )
+    if parse_failure is not None:  # rows 2-3 (+ fc-v2 token_budget_exhausted)
+        return _classify_parse_failure(parse_failure.error, run)
     exec_ev = first_execution_evidence(run.grade.evidence, run.grade.grader_id)
     early = _classify_execution_evidence(exec_ev)  # rows 4-9
     if early is not None:
@@ -107,12 +133,25 @@ def classify_run(run: RunResult) -> RunClassification:
     return _classify_grade_and_budget(run, exec_ev)  # rows 10-16
 
 
-def _classify_parse_failure(error: str) -> RunClassification:
+def _classify_parse_failure(error: str, run: RunResult) -> RunClassification:
     if error == NO_CHOICES_ERROR:  # row 2: the provider delivered no completion
         return _classification(
             "harness_failure", "provider_response", f"parse_failure: {error}"
         )
-    # row 3: the model emitted an unparseable payload (envelope was well-formed)
+    # fc-v2 row 3a: completion budget exhausted in the reasoning channel.
+    # completion_tokens >= max_tokens means the provider stopped the stream at
+    # the explicit budget ceiling.  Only applicable when max_tokens is recorded
+    # (trajectory.max_tokens is not None); old artifacts without the field keep
+    # classifying as malformed_reply (row 3b) for backward compatibility.
+    max_tokens = run.trajectory.max_tokens
+    if max_tokens is not None and run.trajectory.usage.completion_tokens >= max_tokens:
+        return _classification(
+            "agent_failure",
+            "token_budget_exhausted",
+            f"parse_failure: completion_tokens={run.trajectory.usage.completion_tokens}"
+            f" >= max_tokens={max_tokens}",
+        )
+    # row 3b: the model emitted an unparseable payload (envelope was well-formed)
     return _classification(
         "agent_failure", "malformed_reply", f"parse_failure: {error}"
     )

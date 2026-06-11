@@ -30,6 +30,7 @@ def run_task_k(
     k: int,
     max_steps: int,
     temperature: float,
+    max_tokens: int,
     apply_fn: ApplyFn = workspace_apply,
     executor: Executor | None = None,
 ) -> tuple[RunResult, ...]:
@@ -48,6 +49,7 @@ def run_task_k(
             run_index=run_index,
             max_steps=budget,
             temperature=temperature,
+            max_tokens=max_tokens,
             apply_fn=apply_fn,
             executor=executor,
         )

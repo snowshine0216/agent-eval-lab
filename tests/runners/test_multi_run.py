@@ -141,6 +141,7 @@ def test_run_task_k_grades_final_state_spec() -> None:
         k=1,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     # With initial_state threaded, only T-2.* changed and it is covered.
@@ -249,6 +250,7 @@ def test_per_task_budget_drives_loop_iterations_over_cli_default() -> None:
         k=1,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
     )
     assert counter[0] == 6
 
@@ -266,6 +268,7 @@ def test_task_without_max_steps_uses_cli_default() -> None:
         k=1,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
     )
     assert counter[0] == 4
 
@@ -281,6 +284,7 @@ def test_runs_k_times_and_grades_each_run() -> None:
         k=3,
         max_steps=6,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert len(results) == 3
@@ -340,6 +344,7 @@ def test_run_task_k_precomputes_and_threads_execution_verdicts() -> None:
         k=1,
         max_steps=2,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     grade = results[0].grade
@@ -369,6 +374,7 @@ def test_run_task_k_defaults_yield_byte_identical_workspace_run(monkeypatch) -> 
             k=1,
             max_steps=6,
             temperature=0.0,
+            max_tokens=4096,
             **extra,
         )
 
@@ -441,6 +447,7 @@ def test_run_task_k_threads_code_world_binding_to_run_single() -> None:
         k=1,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
         apply_fn=code_world_apply,
         executor=execute_request,
     )

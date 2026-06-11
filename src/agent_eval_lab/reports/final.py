@@ -3,7 +3,7 @@
 Inputs: per-condition RunResult sequences loaded from committed runs JSONLs at
 the edge, the tier sidecar, a capability map, the prices snapshot, and the
 verbatim v1/v2 context text. Output: per-condition pass@1 / pass^k with seeded
-cluster-bootstrap-by-task CIs, per-tier and per-capability pass^k, the fc-v1
+cluster-bootstrap-by-task CIs, per-tier and per-capability pass^k, the fc-v2
 task/agent/harness classification tables with deterministic exemplars, the
 task-defect review queue, cost/latency from recorded usage, the Weeks 3-4
 mechanical discriminativeness rule (shared by import from reports/validation —
@@ -422,7 +422,7 @@ _PINNED_LIMITATIONS = (
 )
 
 _ROADMAP_TAKEAWAYS = (
-    "The fc-v1 (category, subcategory) counts are the direct input to the "
+    "The fc-v2 (category, subcategory) counts are the direct input to the "
     "Weeks 9-10 failure-mining work; downstream joins on "
     "(classifier_version, category, subcategory) (ADR-0013).",
     "Task-defect candidates are review-queue input, never auto-reclassified; "
@@ -537,7 +537,7 @@ def _axis_table_lines(
 
 def _classification_lines(report: FinalReport) -> list[str]:
     lines = [
-        "## Failure classification (fc-v1)",
+        f"## Failure classification ({report.classifier_version})",
         "",
         "Derived at report time from the recorded mechanical discriminators; "
         "never stored on any record (ADR-0013).",

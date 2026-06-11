@@ -49,6 +49,7 @@ def run_baseline(
     k: int,
     max_steps: int,
     temperature: float,
+    max_tokens: int,
     out_dir: Path,
     price: TokenPrice | None,
     http_client: httpx.Client,
@@ -84,6 +85,7 @@ def run_baseline(
                 k=k,
                 max_steps=max_steps,
                 temperature=temperature,
+                max_tokens=max_tokens,
                 apply_fn=binding.apply_fn,
                 executor=binding.executor,
             )
@@ -497,6 +499,7 @@ def _run_baseline_command(
             k=args.k,
             max_steps=args.max_steps,
             temperature=args.temperature,
+            max_tokens=args.max_tokens,
             out_dir=args.out,
             price=price,
             http_client=client,
@@ -531,6 +534,15 @@ def _build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--k", type=int, default=3)
     baseline.add_argument("--max-steps", type=int, default=6)
     baseline.add_argument("--temperature", type=float, default=0.0)
+    baseline.add_argument(
+        "--max-tokens",
+        type=int,
+        default=4096,
+        help="Explicit completion budget sent in every chat_completion request "
+        "(never a provider default); default 4096. The trajectory records this "
+        "value so the fc-v2 classifier can distinguish token_budget_exhausted "
+        "from malformed_reply without re-parsing CLI arguments (ADR-0013).",
+    )
     baseline.add_argument("--out", type=Path, default=Path("reports"))
     baseline.add_argument("--input-price-per-mtok", type=float)
     baseline.add_argument("--output-price-per-mtok", type=float)

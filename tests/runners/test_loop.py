@@ -109,6 +109,7 @@ def test_loop_threads_state_and_stops_on_final_message() -> None:
         run_index=0,
         max_steps=6,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.stop_reason == "completed"
@@ -163,6 +164,7 @@ def test_loop_records_parse_failure_and_stops() -> None:
         run_index=1,
         max_steps=6,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.stop_reason == "parse_failure"
@@ -184,6 +186,7 @@ def test_loop_enforces_max_steps() -> None:
         run_index=0,
         max_steps=2,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.stop_reason == "max_steps"
@@ -204,6 +207,7 @@ def test_loop_records_missing_choices_as_parse_failure() -> None:
         run_index=0,
         max_steps=6,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.stop_reason == "parse_failure"
@@ -247,6 +251,7 @@ def test_run_single_records_final_state() -> None:
         run_index=0,
         max_steps=4,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.final_state is not None
@@ -284,6 +289,7 @@ def test_loop_rejects_task_referencing_unregistered_tool() -> None:
             run_index=0,
             max_steps=6,
             temperature=0.0,
+            max_tokens=4096,
         )
 
 
@@ -304,7 +310,61 @@ def test_empty_choices_records_the_shared_constant_verbatim() -> None:
         run_index=0,
         max_steps=6,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     assert trajectory.parse_failure is not None
     assert trajectory.parse_failure.error == NO_CHOICES_ERROR
+
+
+def test_run_single_sends_max_tokens_in_every_request() -> None:
+    """The completion budget is an explicit eval parameter (item 004 fix 1).
+
+    run_single must thread max_tokens into every chat_completion call so the
+    request body always carries max_tokens — never a provider default.
+    """
+    import json as _json
+
+    seen_bodies: list[dict] = []
+
+    def capturing_handler(request: httpx.Request) -> httpx.Response:
+        seen_bodies.append(_json.loads(request.content))
+        # Return a final-message response to end the loop after one turn
+        return httpx.Response(
+            200,
+            json=_final_response("Done."),
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+    run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+
+    assert all("max_tokens" in body for body in seen_bodies), (
+        "every request must carry max_tokens; none must rely on provider defaults"
+    )
+    assert all(body["max_tokens"] == 4096 for body in seen_bodies)
+
+
+def test_run_single_records_max_tokens_on_trajectory() -> None:
+    """Trajectory carries max_tokens so the classifier can derive
+    token_budget_exhausted from the artifact without re-parsing CLI args."""
+    client = _scripted_client([_final_response("Done.")])
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=2048,
+    )
+    assert trajectory.max_tokens == 2048

@@ -39,3 +39,10 @@ class Trajectory:
     stop_reason: Literal["completed", "max_steps", "parse_failure"]
     parse_failure: ParseFailure | None = None
     final_state: Mapping[str, Any] | None = None
+    max_tokens: int | None = None
+    """The completion budget requested for this run (explicit eval parameter).
+
+    None for artifacts captured before fc-v2 (pre-explicit-budget runs); those
+    artifacts keep classifying as before (no token_budget_exhausted for them).
+    Present on all runs made with the fc-v2 harness.
+    """

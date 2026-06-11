@@ -1,5 +1,5 @@
 """Criterion 13: every committed live-run line parses through the existing
-loader and classifies totally under fc-v1. Skips until live artifacts land."""
+loader and classifies totally under fc-v2. Skips until live artifacts land."""
 
 from pathlib import Path
 
@@ -29,4 +29,4 @@ def test_committed_runs_parse_and_classify(path: Path) -> None:
     assert len({run.condition_id for run in runs}) == 1  # homogeneous file
     for run in runs:
         classification = classify_run(run)  # total: never raises
-        assert classification.classifier_version == "fc-v1"
+        assert classification.classifier_version == "fc-v2"

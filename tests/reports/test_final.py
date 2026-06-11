@@ -96,7 +96,7 @@ def test_header_names_dataset_k_seed_and_classifier_version() -> None:
     assert "`code_repair_v1`" in md
     assert "k=3" in md
     assert "seed=20260610" in md
-    assert "fc-v1" in md
+    assert "fc-v2" in md
     assert "not greedy-deterministic" in md  # temperature-honesty note
 
 
@@ -269,7 +269,7 @@ def test_sections_render_in_spec_order() -> None:
         "## Per-condition reliability",
         "## Per-tier pass^3",
         "## Per-capability pass^3",
-        "## Failure classification (fc-v1)",
+        "## Failure classification (fc-v2)",
         "## Task-defect candidates",
         "## Cost and latency",
         "## Context: prior baselines (workspace_tool_use v1/v2)",
