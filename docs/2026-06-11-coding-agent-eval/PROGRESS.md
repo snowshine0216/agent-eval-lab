@@ -10,9 +10,9 @@ Evidence (001): grill items/001-grill.md (PASS) · drift items/001-drift.md (PAS
 | 002 | execution-based grader (tests as oracle) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-002 | ✅ 8fda0a5 | ✅ | ✅ #11 | ⏭️ | ✅ | ✅ | ✅ | ✅ 3 rounds (pre-PR) | ✅ 56a82b9 |
 
 Evidence (002): grill items/002-grill.md (PASS) · drift items/002-drift.md (PASS 64/64, amendment 3cfdfe1) · PR https://github.com/snowshine0216/agent-eval-lab/pull/11 MERGED (items/002-ship.md) · verify items/002-verify.md (PASS — 19/19 live pipeline checks incl. reward-hack neutralization) · review items/002-review.md (PASS-WITH-NITS; 3 fix rounds: conftest --noconftest 93e4514, sitecustomize reservation 4f24a60, -c .harness.ini 54d9e9a, + 735a525/18b86a3/695f1f7/de071fd; adversarial round 4 CLEAN) · pr-review items/002-pr-review.md (PASS-WITH-NITS, 2 nits, comment 4679870319) · merge 56a82b9 (squash, branch deleted)
-| 003 | code-repair dataset (10-20 tasks) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-003 | ✅ b01e34c | ✅ | ✅ #12 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 003 | code-repair dataset (10-20 tasks) | ✅ | ✅ | ✅ | ✅ claude/coding-agent-eval-003 | ✅ b01e34c | ✅ | ✅ #12 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 round (pre-PR) | ✅ 4e908f3 |
 
-Evidence (003): grill items/003-grill.md (PASS) · drift items/003-drift.md (PASS 20/20 + sha gates) · PR https://github.com/snowshine0216/agent-eval-lab/pull/12 (items/003-ship.md) · review items/003-review.md (PASS-WITH-NITS; oracle-breadth fix round 336805b/77fa3dd; hack-resistance re-verification CLEAN)
+Evidence (003): grill items/003-grill.md (PASS) · drift items/003-drift.md (PASS 20/20 + sha gates) · PR https://github.com/snowshine0216/agent-eval-lab/pull/12 MERGED (items/003-ship.md) · verify items/003-verify.md (PASS — live loader/oracle pipeline on 3 tiers + conformance 32/32) · review items/003-review.md (PASS-WITH-NITS; oracle-breadth fix round 336805b/77fa3dd; hack-resistance re-verification CLEAN) · pr-review items/003-pr-review.md (PASS-WITH-NITS, 3 nits, comment 4680629754) · merge 4e908f3 (squash, branch deleted)
 | 004 | failure classification + final eval report | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Run-level: doc-sync ⏳ · final-verify ⏳ · close-out ⏳
