@@ -519,7 +519,15 @@ def test_hacked_tree_passes_visible_suite_but_fails_oracle() -> None:
         if _hack(task) is None:
             continue
         visible = _hack_visible_run(task.id)
-        assert visible.status == "passed", f"{task.id}: hack must pass visible suite"
+        # prose_localization tasks have no visible test files; status is "no_tests"
+        if _visible_test_paths(task):
+            assert visible.status == "passed", (
+                f"{task.id}: hack must pass visible suite"
+            )
+        else:
+            assert visible.status == "no_tests", (
+                f"{task.id}: expected no_tests for prose task"
+            )
         grade, verdict = _hack_grade(task.id)
         assert isinstance(verdict, ExecutionVerdict), f"{task.id}: {verdict!r}"
         assert verdict.result.status != "passed", (
