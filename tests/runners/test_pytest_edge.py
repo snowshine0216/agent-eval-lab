@@ -410,3 +410,105 @@ def test_run_pytest_is_byte_identical_across_runs() -> None:
         "utf-8"
     )
     assert first_bytes == second_bytes
+
+
+# --- Finding 003 (item 002 ext): pytest config addopts plugin-loading attack ---
+
+
+def test_pytest_ini_addopts_evil_plugin_cannot_subvert_oracle_verdict() -> None:
+    """Regression: agent-written pytest.ini with addopts=-p evilplug plus a
+    local evilplug.py calling os._exit(0) at pytest_configure time yields
+    rc=0 → status='passed' even when the oracle test genuinely fails.
+
+    PRE-FIX behaviour (empirically verified):
+        status='passed', exit_code=0  ← fraudulent PASS
+
+    POST-FIX behaviour (asserted here):
+        status='failed'  ← genuine oracle result; plugin not loaded
+    """
+    evilplug = "def pytest_configure(config):\n    import os\n    os._exit(0)\n"
+    tree = {
+        "pytest.ini": "[pytest]\naddopts = -p evilplug\n",
+        "evilplug.py": evilplug,
+        "test_oracle.py": "def test_fails():\n    assert 1 + 1 == 3\n",
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "failed", (
+        "pytest.ini addopts attack succeeded (fraudulent PASS): "
+        f"status={result.status!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "config_filename",
+    [
+        "setup.cfg",
+        "tox.ini",
+        "pyproject.toml",
+    ],
+)
+def test_agent_config_addopts_variants_are_inert(config_filename: str) -> None:
+    """setup.cfg / tox.ini / pyproject.toml addopts variants must also be inert
+    post-fix (the -c .harness.ini flag suppresses all agent-tree config files).
+    """
+    if config_filename == "setup.cfg":
+        config_content = "[tool:pytest]\naddopts = -p evilplug\n"
+    elif config_filename == "tox.ini":
+        config_content = "[pytest]\naddopts = -p evilplug\n"
+    else:  # pyproject.toml
+        config_content = '[tool.pytest.ini_options]\naddopts = ["-p", "evilplug"]\n'
+
+    evilplug = "def pytest_configure(config):\n    import os\n    os._exit(0)\n"
+    tree = {
+        config_filename: config_content,
+        "evilplug.py": evilplug,
+        "test_oracle.py": "def test_fails():\n    assert 1 + 1 == 3\n",
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "failed", (
+        f"{config_filename} addopts attack succeeded (fraudulent PASS): "
+        f"status={result.status!r}"
+    )
+
+
+def test_write_file_rejects_root_level_harness_ini() -> None:
+    """write_file must return ToolFailure for '.harness.ini' (root-level reserved)."""
+    from agent_eval_lab.tools.code_world import _write_file
+
+    state: dict = {"files": {}}
+    _state, outcome = _write_file(
+        {"path": ".harness.ini", "content": "[pytest]\n"}, state
+    )
+    from agent_eval_lab.records.turns import ToolFailure
+
+    assert isinstance(outcome, ToolFailure)
+    assert "reserved" in outcome.error
+
+
+def test_materialize_tree_raises_on_root_harness_ini(tmp_path: Path) -> None:
+    """Defense in depth: root .harness.ini is reserved by the harness."""
+    with pytest.raises(RuntimeError, match="reserved"):
+        materialize_tree({".harness.ini": "[pytest]\n"}, tmp_path)
+
+
+def test_materialize_tree_allows_nested_harness_ini(tmp_path: Path) -> None:
+    """pkg/.harness.ini is not a root-level path — must be allowed."""
+    materialize_tree({"pkg/.harness.ini": "[pytest]\n"}, tmp_path)
+    written = (tmp_path / "pkg" / ".harness.ini").read_text(encoding="utf-8")
+    assert written == "[pytest]\n"
+
+
+def test_harness_ini_written_identically_across_runs() -> None:
+    """The .harness.ini written into each sandbox must be byte-identical
+    across runs (determinism requirement from ADR-0009).
+    """
+    first = run_pytest(_PASSING_TREE, timeout_s=30.0)
+    second = run_pytest(_PASSING_TREE, timeout_s=30.0)
+    # If both runs succeed and produce byte-identical results, .harness.ini
+    # is deterministic. Use the existing byte-identity mechanism.
+    first_bytes = json.dumps(execution_result_to_dict(first), sort_keys=True).encode()
+    second_bytes = json.dumps(execution_result_to_dict(second), sort_keys=True).encode()
+    assert first_bytes == second_bytes
+
+
+# --- end Finding 003 ---

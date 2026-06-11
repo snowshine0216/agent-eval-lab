@@ -14,6 +14,16 @@ must therefore be self-contained (no conftest.py fixtures). Root-level
 sitecustomize.py and usercustomize.py are also reserved: Python's site module
 auto-imports them at interpreter startup before --noconftest takes effect.
 
+Agent-tree pytest config files (pytest.ini, setup.cfg, tox.ini, pyproject.toml)
+are rendered inert by the harness-owned -c .harness.ini flag: when -c is given,
+pytest ignores all other config file discovery and uses only the specified file.
+This neutralises the addopts=-p <plugin> attack vector (item 002), where a
+config file could inject an arbitrary plugin at pytest_configure time — before
+collection — causing os._exit(0) to produce a fraudulent rc=0 PASS. The harness
+writes .harness.ini (containing only "[pytest]\n") into the sandbox root before
+subprocess invocation, and .harness.ini is reserved (root-level ToolFailure in
+code_world; RuntimeError at materialize) so no agent file can collide with it.
+
 Residual trust boundary: the oracle suite imports agent-authored modules
 in-process, so import-time code in graded modules is a residual subversion
 surface. v1 accepts this (curated dataset, item 003 review rubric); full
@@ -123,6 +133,7 @@ def _has_prefix_collision(path_a: str, path_b: str) -> bool:
 
 _HARNESS_RESERVED_ROOTS = frozenset(
     {
+        ".harness.ini",
         ".junit.xml",
         "sitecustomize.py",
         "usercustomize.py",
@@ -134,7 +145,8 @@ def _check_tree_invariants(files: Mapping[str, str]) -> None:
     """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize.
 
     Checks:
-    - Harness-reserved root names (.junit.xml, sitecustomize.py, usercustomize.py)
+    - Harness-reserved root names (.harness.ini, .junit.xml, sitecustomize.py,
+      usercustomize.py)
     - Any pair of paths whose canonical prefix mapping is non-injective
       (covers full-path case differences, NFC/NFD pairs, and directory-segment
       case/normalization collisions).
@@ -267,6 +279,8 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 def _execute(root: Path, timeout_s: float) -> ExecutionResult:
     xml_path = root / ".junit.xml"
+    harness_ini = root / ".harness.ini"
+    harness_ini.write_text("[pytest]\n", encoding="utf-8")
     command = [
         sys.executable,
         "-m",
@@ -276,6 +290,8 @@ def _execute(root: Path, timeout_s: float) -> ExecutionResult:
         f"--junitxml={xml_path}",
         "-p",
         "no:cacheprovider",
+        "-c",
+        ".harness.ini",
     ]
     process = subprocess.Popen(
         command,

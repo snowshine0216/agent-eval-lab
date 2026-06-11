@@ -71,6 +71,7 @@ CODE_WORLD_TOOLS: Mapping[str, ToolDef] = {
 
 _HARNESS_RESERVED = frozenset(
     {
+        ".harness.ini",
         ".junit.xml",
         "sitecustomize.py",
         "usercustomize.py",
