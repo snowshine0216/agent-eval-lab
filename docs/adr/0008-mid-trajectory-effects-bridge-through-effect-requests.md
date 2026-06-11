@@ -41,4 +41,7 @@ shown to the agent. Replay semantics survive the effectful tool: recorded
 results are data, like recorded model replies; replaying a trajectory
 recomputes `final_state` through pure `apply` (`run_tests` is state-identity)
 and never re-executes. Item 002's `ExecutionSpec` grader reads the recorded
-results, completing the succession ADR-0005 named.
+results, completing the succession ADR-0005 named. (Clarified by item 002 /
+ADR-0011: "the recorded results" are the `ExecutionVerdict`s the oracle edge
+precomputes post-trajectory and threads in as data — not the agent's mid-run
+`run_tests` records, which cover only the visible tests.)

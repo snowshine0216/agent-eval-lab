@@ -12,7 +12,7 @@ into reliability and cost numbers. Functional core, imperative shell.
 **VerificationSpec**:
 The tagged union describing how a task is graded. Each variant
 (`OutputMatchSpec`, `ToolCallMatchSpec`, `FinalStateSpec`, `TrajectorySpec`,
-`AllOf`, and later `ExecutionSpec`/`LlmJudgeSpec`) carries only the fields that
+`AllOf`, `LlmJudgeSpec`, and `ExecutionSpec`) carries only the fields that
 variant needs, so illegal states are unrepresentable. It is inert serializable
 data — behavior lives in the pure graders, never on the record.
 _Avoid_: "grader config", "scorer spec", "rubric" (the rubric is a judge
@@ -326,7 +326,8 @@ verification*).
 The single place subprocess/filesystem I/O happens for code-world: materialize
 the file tree into a fresh temp dir, run pinned-interpreter pytest in a
 scrubbed from-scratch environment under a hard timeout, parse the JUnit XML,
-canonicalize the output, clean up in a `finally`.
+canonicalize the output, clean up in a `finally`. Distinct from the **oracle
+edge**, the grading-side precompute boundary that calls it.
 _Avoid_: "sandbox runner", "test harness" (overloaded).
 
 **sandbox**:
@@ -344,6 +345,60 @@ Reproducibility (byte-identical `ExecutionResult`) is claimed over this form,
 never over verbatim output (ADR-0009).
 _Avoid_: "raw output" (verbatim is precisely what is never recorded);
 "scrubbed output" (the *env* is scrubbed; the *record* is canonicalized).
+
+**oracle tests**:
+The held-out test files an `ExecutionSpec` carries (`held_out_tests`:
+POSIX-relative path → content): a file-tree fragment the agent never sees,
+overlaid onto the trajectory's final tree and run at the **oracle edge** as
+the Tier-2 verdict source. Distinct from the *visible* tests the agent runs
+mid-trajectory via `run_tests`, which prove nothing about the oracle.
+_Avoid_: "hidden tests" (vague), "test suite" unqualified; reusing mid-run
+`run_tests` results as the oracle (they cover only what the agent saw).
+
+**overlay (oracle-wins)**:
+The pure combination of **oracle tests** onto a final **file tree** before the
+grading run: on an exact-path collision the oracle file wins and the agent's
+path is recorded as a **displaced path**; a canonical-prefix collision
+(identical NFC+casefold form, different spelling) is a structured
+`tree_collision` error — a graded record, never a crash (ADR-0010).
+_Avoid_: "merge" (no content merging happens), "agent-wins" (a reward-hack
+vector).
+
+**displaced path**:
+An agent-written path the oracle replaced during the **overlay**. Displacement
+is evidence on the `ExecutionVerdict`, never an automatic fail — the oracle's
+verdict stays the verdict.
+_Avoid_: "shadowed" (suggests the file is merely hidden), "overwritten"
+(suggests mutation; the overlay is pure).
+
+**execution hash**:
+The sha256 over the canonical-JSON rendering of an `ExecutionSpec`'s oracle
+tests and raw timeout plus the final file tree — a pure function of
+`(spec, final_tree)` computable on both sides of the boundary and well-defined
+even when the overlay would collide. It keys the `ExecutionVerdict` in the
+shared verdict map: the execution analogue of the judge's **prompt hash**
+(ADR-0011).
+_Avoid_: "tree hash" (it is not a hash of the combined tree), "cache key" (no
+cache ships; auditability and dedup-by-construction are the point).
+
+**ExecutionVerdict**:
+The serializable record the **oracle edge** precomputes per reachable
+`ExecutionSpec` — the oracle run's `ExecutionResult` plus its **execution
+hash** and **displaced paths** — threaded into the pure `grade_execution`,
+which only reads it. A failed precompute yields a serializable
+`ExecutionError` (`tree_collision` | `harness`) at the same key instead —
+never an exception in the map, mirroring `JudgeVerdict`/`JudgeError`.
+_Avoid_: "execution result" (that is `ExecutionResult`, the suite record it
+wraps); "verdict" alone (which one?).
+
+**oracle edge**:
+The grading-side precompute boundary (`runners/oracle_edge.py`): collect the
+reachable `ExecutionSpec`s, **overlay** each onto the final tree (pure), run
+the **execution edge**'s sandboxed pytest, and emit a verdict map keyed by
+**execution hash** — post-trajectory, because the final tree is only knowable
+then. The execution analogue of the judge edge.
+_Avoid_: "execution edge" (taken — that is `pytest_edge`'s sandbox boundary),
+"grading edge" unqualified.
 
 ## Example dialogue
 
@@ -440,3 +495,22 @@ _Avoid_: "raw output" (verbatim is precisely what is never recorded);
 > temp dir is random per run, so verbatim output could never be byte-identical.
 > We canonicalize so reproducibility is a property of the record, then truncate
 > at the cap.
+>
+> **Dev:** Grading time: the agent wrote its own `tests/test_app.py`, and the
+> task's **oracle tests** carry the same path. Who wins?
+>
+> **Domain expert:** The oracle — the **overlay** is oracle-wins, and
+> `tests/test_app.py` is recorded as a **displaced path** in evidence. Anything
+> else lets the agent pre-write a trivial suite at the oracle's path and grade
+> itself. Displacement isn't a fail; the oracle's verdict stays the verdict.
+> But if the agent wrote `Tests/test_app.py` — same canonical path, different
+> spelling — that's a `tree_collision`: the **oracle edge** records a
+> structured `ExecutionError`, the grader emits a non-pass, nothing crashes.
+>
+> **Dev:** And that verdict is keyed how — task id?
+>
+> **Domain expert:** By **execution hash** — sha256 of the oracle tests, the
+> spec's raw timeout, and the final tree. Pure on both sides of the boundary,
+> like the judge's **prompt hash**, and well-defined even when the overlay
+> would collide. Same map, too: `ExecutionVerdict`s and `JudgeVerdict`s coexist
+> in the one `verdicts` mapping, discriminated by type.
