@@ -20,6 +20,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   byte-identical across runs (ADR-0009). Corrupt JUnit XML and reserved
   `.junit.xml` / casefold-colliding paths are rejected deterministically
   rather than silently mismatching the in-memory world.
+- `code_repair_v1` dataset (item 003): 15 hand-authored, reviewed code-repair
+  tasks (`cr-001`–`cr-015`; tiers 2/4/6/3, 60% T3/T4; 6 capabilities, 6 bug
+  classes, 6 difficulty knobs) over the code-world with held-out oracle tests;
+  visible/oracle disjointness and oracle breadth proven mechanically
+  (ADR-0012), hardcode-style hack fixtures per weak-oracle task, review ledger
+  under `cr-rubric-v1`, sha-frozen sidecars, and a 32-test anti-rote
+  conformance suite running the production oracle edge in CI (no-op agent
+  grades 0/15 by construction).
 - Execution-based grading (item 002): `ExecutionSpec` verification variant
   carrying held-out oracle tests; oracle-wins overlay over the agent's final
   tree (ADR-0010); pure `graders/execution.py` consuming a verdict map keyed
