@@ -1,8 +1,8 @@
 {
   "snapshot_date": "2026-06-11",
   "prices": {
-    "deepseek:deepseek-v4-pro": {"input_per_mtok": 0.27, "output_per_mtok": 1.10},
-    "glm:Pro/zai-org/GLM-5.1": {"input_per_mtok": 0.80, "output_per_mtok": 2.00},
-    "minimax:MiniMax-M3": {"input_per_mtok": 0.40, "output_per_mtok": 2.20}
+    "deepseek:deepseek-v4-pro": {"input_per_mtok": 0.435, "output_per_mtok": 0.87},
+    "glm:Pro/zai-org/GLM-5.1": {"input_per_mtok": 1.40, "output_per_mtok": 4.40},
+    "minimax:MiniMax-M3": {"input_per_mtok": 0.30, "output_per_mtok": 1.20}
   }
 }
