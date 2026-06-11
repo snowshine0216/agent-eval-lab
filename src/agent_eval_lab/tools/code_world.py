@@ -122,9 +122,7 @@ def _list_files(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutco
     return state, ToolSuccess(result={"paths": sorted(_files(state))})
 
 
-def _run_tests(
-    args: Mapping[str, Any], state: State
-) -> tuple[State, ExecutionRequest]:
+def _run_tests(args: Mapping[str, Any], state: State) -> tuple[State, ExecutionRequest]:
     """Read-only over the tree: identical state + a frozen snapshot request."""
     return state, ExecutionRequest(files={**_files(state)})
 

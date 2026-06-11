@@ -42,9 +42,7 @@ _TIMING_TOKEN = re.compile(r"in \d+(?:\.\d+)?s\b")
 
 def canonicalize_output(text: str, root: str) -> str:
     """Replace the sandbox root and pytest timing token (ADR-0009). Pure."""
-    return _TIMING_TOKEN.sub(
-        "in <duration>", text.replace(root, SANDBOX_PLACEHOLDER)
-    )
+    return _TIMING_TOKEN.sub("in <duration>", text.replace(root, SANDBOX_PLACEHOLDER))
 
 
 def _case_status(case: ET.Element) -> TestStatus:
@@ -90,9 +88,7 @@ def materialize_tree(files: Mapping[str, str], root: Path) -> None:
     for path in sorted(files):
         target = (resolved_root / path).resolve()
         if not target.is_relative_to(resolved_root):
-            raise RuntimeError(
-                f"refusing to materialize outside sandbox: {path!r}"
-            )
+            raise RuntimeError(f"refusing to materialize outside sandbox: {path!r}")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(files[path], encoding="utf-8")
 

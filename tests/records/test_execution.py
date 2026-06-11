@@ -34,12 +34,8 @@ RESULT = ExecutionResult(
 
 
 def test_execution_request_round_trips() -> None:
-    request = ExecutionRequest(
-        files={"a.py": "x = 1\n", "test_a.py": "import a\n"}
-    )
-    assert execution_request_from_dict(execution_request_to_dict(request)) == (
-        request
-    )
+    request = ExecutionRequest(files={"a.py": "x = 1\n", "test_a.py": "import a\n"})
+    assert execution_request_from_dict(execution_request_to_dict(request)) == (request)
 
 
 def test_execution_result_round_trips() -> None:

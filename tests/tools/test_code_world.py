@@ -9,11 +9,7 @@ STATE = {
     "files": {
         "calc.py": "def add(a, b):\n    return a - b\n",
         "tests/test_calc.py": (
-            "from calc import add\n"
-            "\n"
-            "\n"
-            "def test_add():\n"
-            "    assert add(1, 2) == 3\n"
+            "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
         ),
     }
 }
@@ -74,9 +70,7 @@ def test_list_files_returns_sorted_paths() -> None:
         registry=CODE_WORLD_TOOLS, name="list_files", arguments={}, state=STATE
     )
     assert state == STATE
-    assert outcome == ToolSuccess(
-        result={"paths": ["calc.py", "tests/test_calc.py"]}
-    )
+    assert outcome == ToolSuccess(result={"paths": ["calc.py", "tests/test_calc.py"]})
 
 
 @pytest.mark.parametrize("path", BAD_PATHS)

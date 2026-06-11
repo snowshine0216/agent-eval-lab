@@ -27,16 +27,12 @@ def test_apply_never_mutates_the_input_state(
     state = {"files": tree}
     snapshot = copy.deepcopy(state)
     for name, arguments in _calls(path, content):
-        apply(
-            registry=CODE_WORLD_TOOLS, name=name, arguments=arguments, state=state
-        )
+        apply(registry=CODE_WORLD_TOOLS, name=name, arguments=arguments, state=state)
         assert state == snapshot
 
 
 @given(tree=_TREES, path=_PATHS, content=_CONTENTS)
-def test_apply_is_deterministic(
-    tree: dict[str, str], path: str, content: str
-) -> None:
+def test_apply_is_deterministic(tree: dict[str, str], path: str, content: str) -> None:
     state = {"files": tree}
     for name, arguments in _calls(path, content):
         first = apply(

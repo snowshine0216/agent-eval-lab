@@ -80,8 +80,7 @@ def execution_result_to_dict(result: ExecutionResult) -> dict[str, Any]:
         "errors": result.errors,
         "skipped": result.skipped,
         "tests": [
-            {"test_id": case.test_id, "status": case.status}
-            for case in result.tests
+            {"test_id": case.test_id, "status": case.status} for case in result.tests
         ],
         "stdout": result.stdout,
         "stderr": result.stderr,

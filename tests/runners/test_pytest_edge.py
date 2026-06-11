@@ -39,8 +39,7 @@ def test_canonicalize_output_replaces_root_and_timing_token() -> None:
         "1 failed, 1 passed in 0.01s\n"
     )
     expected = (
-        "ImportError in '<sandbox>/test_a.py'\n"
-        "1 failed, 1 passed in <duration>\n"
+        "ImportError in '<sandbox>/test_a.py'\n1 failed, 1 passed in <duration>\n"
     )
     assert canonicalize_output(raw, "/tmp/agent-eval-sandbox-x1") == expected
 
@@ -71,9 +70,7 @@ def test_parse_junit_xml_sorts_by_test_id_and_maps_statuses() -> None:
         (5, "no_tests"),
     ],
 )
-def test_suite_status_classifies_pytest_exit_codes(
-    exit_code: int, status: str
-) -> None:
+def test_suite_status_classifies_pytest_exit_codes(exit_code: int, status: str) -> None:
     assert suite_status(exit_code) == status
 
 
@@ -97,11 +94,7 @@ def test_materialize_tree_refuses_escape_outside_root(tmp_path: Path) -> None:
 _PASSING_TREE = {
     "calc.py": "def add(a, b):\n    return a + b\n",
     "test_calc.py": (
-        "from calc import add\n"
-        "\n"
-        "\n"
-        "def test_add():\n"
-        "    assert add(1, 2) == 3\n"
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
     ),
 }
 
@@ -180,15 +173,11 @@ def test_sandbox_env_hides_parent_secrets(
 
 
 def test_run_pytest_collection_error_tree() -> None:
-    result = run_pytest(
-        {"test_broken.py": "import missing_module\n"}, timeout_s=30.0
-    )
+    result = run_pytest({"test_broken.py": "import missing_module\n"}, timeout_s=30.0)
     assert result.status == "error"
     assert result.exit_code == 2
     assert result.errors == 1
-    assert result.tests == (
-        TestCaseResult(test_id="::test_broken", status="error"),
-    )
+    assert result.tests == (TestCaseResult(test_id="::test_broken", status="error"),)
     assert "<sandbox>" in result.stdout
     assert "agent-eval-sandbox-" not in result.stdout
 
@@ -227,15 +216,7 @@ def test_run_pytest_counts_skipped_tests() -> None:
 
 
 def test_run_pytest_timeout_is_structured_and_reaped() -> None:
-    tree = {
-        "test_hang.py": (
-            "import time\n"
-            "\n"
-            "\n"
-            "def test_hang():\n"
-            "    time.sleep(30)\n"
-        )
-    }
+    tree = {"test_hang.py": ("import time\n\n\ndef test_hang():\n    time.sleep(30)\n")}
     before = _sandbox_dirs()
     result = run_pytest(tree, timeout_s=1.0)
     assert result.status == "timeout"
@@ -255,10 +236,10 @@ def test_run_pytest_timeout_is_structured_and_reaped() -> None:
 def test_run_pytest_is_byte_identical_across_runs() -> None:
     first = run_pytest(_FAILING_TREE, timeout_s=30.0)
     second = run_pytest(_FAILING_TREE, timeout_s=30.0)
-    first_bytes = json.dumps(
-        execution_result_to_dict(first), sort_keys=True
-    ).encode("utf-8")
-    second_bytes = json.dumps(
-        execution_result_to_dict(second), sort_keys=True
-    ).encode("utf-8")
+    first_bytes = json.dumps(execution_result_to_dict(first), sort_keys=True).encode(
+        "utf-8"
+    )
+    second_bytes = json.dumps(execution_result_to_dict(second), sort_keys=True).encode(
+        "utf-8"
+    )
     assert first_bytes == second_bytes
