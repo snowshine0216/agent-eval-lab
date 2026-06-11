@@ -284,3 +284,33 @@ def test_loop_with_real_edge_records_failed_suite() -> None:
         {"test_id": "test_bug::test_bug", "status": "failed"}
     ]
     assert "<duration>" in outcome.result["stdout"]
+
+
+def test_execute_request_fulfills_run_tests_through_the_loop() -> None:
+    """Criterion 2: the shipped pytest-edge executor, end to end through
+    run_single — a fulfilled run_tests records ToolSuccess carrying a
+    serialized ExecutionResult, whatever the suite status (ADR-0008)."""
+    from agent_eval_lab.runners.pytest_edge import execute_request
+
+    failing = {"test_bug.py": "def test_bug():\n    assert 1 == 2\n"}
+    client = _scripted_client(
+        [_tool_call_response("run_tests", {}, "c1"), _final_response("Done.")]
+    )
+
+    trajectory = run_single(
+        task=_task(failing),
+        registry=CODE_WORLD_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=4,
+        temperature=0.0,
+        apply_fn=code_world_apply,
+        executor=execute_request,
+    )
+
+    outcome = trajectory.turns[2].outcome
+    assert isinstance(outcome, ToolSuccess)
+    assert outcome.result["status"] == "failed"
+    assert outcome.result["exit_code"] == 1
+    assert "<sandbox>" in outcome.result["stdout"] or outcome.result["stdout"]
