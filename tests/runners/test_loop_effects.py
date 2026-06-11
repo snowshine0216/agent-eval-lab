@@ -237,6 +237,27 @@ def test_pure_validation_still_fails_as_tool_failure() -> None:
     assert isinstance(outcome, ToolFailure)
 
 
+def test_executor_exception_propagates_out_of_run_single() -> None:
+    """An executor that raises must not be swallowed — it propagates to caller."""
+    client = _scripted_client([_tool_call_response("run_tests", {}, "c1")])
+
+    def boom(request: ExecutionRequest) -> ExecutionResult:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_single(
+            task=TASK,
+            registry=CODE_WORLD_TOOLS,
+            config=CONFIG,
+            http_client=client,
+            run_index=0,
+            max_steps=4,
+            temperature=0.0,
+            apply_fn=code_world_apply,
+            executor=boom,
+        )
+
+
 def test_loop_with_real_edge_records_failed_suite() -> None:
     failing = {"test_bug.py": "def test_bug():\n    assert 1 == 2\n"}
     client = _scripted_client(
