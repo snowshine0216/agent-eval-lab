@@ -1,16 +1,21 @@
 """Pure execution-grading core: overlay, hash, collector, grader (no sandbox)."""
 
+import typing
+
 from agent_eval_lab.graders.execution import (
     ExecutionVerdict,
     OverlaidTree,
     OverlayCollision,
+    collect_execution_specs,
     execution_hash,
+    grade_execution,
     overlay_oracle,
 )
 from agent_eval_lab.records.execution import ExecutionResult, TestCaseResult
+from agent_eval_lab.records.grade import FailureCategory
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn
-from agent_eval_lab.tasks.schema import ExecutionSpec
+from agent_eval_lab.tasks.schema import AllOf, ExecutionSpec, TrajectorySpec
 
 ORACLE = {
     "test_oracle_calc.py": (
@@ -138,3 +143,132 @@ def test_execution_hash_is_well_defined_when_overlay_would_collide() -> None:
     assert execution_hash(SPEC, colliding_tree) == execution_hash(
         SPEC, dict(colliding_tree)
     )
+
+
+# --- spec collector ---
+
+
+def test_collect_execution_specs_finds_nested_specs_in_order() -> None:
+    other = ExecutionSpec(held_out_tests={"test_b.py": "def test_b():\n    pass\n"})
+    tree = AllOf(
+        specs=(
+            TrajectorySpec(constraints=()),
+            AllOf(specs=(SPEC,)),
+            other,
+        )
+    )
+    assert collect_execution_specs(tree) == (SPEC, other)
+
+
+def test_collect_execution_specs_returns_empty_for_non_execution_specs() -> None:
+    assert collect_execution_specs(TrajectorySpec(constraints=())) == ()
+
+
+# --- pure grader ---
+
+
+def test_grade_execution_passes_when_suite_passed_with_full_evidence() -> None:
+    key = execution_hash(SPEC, TREE)
+    verdict = ExecutionVerdict(
+        result=PASSED_RESULT, execution_hash=key, displaced_paths=("displaced.py",)
+    )
+    grade = grade_execution(
+        spec=SPEC, trajectory=_trajectory({"files": TREE}), verdicts={key: verdict}
+    )
+    assert grade.grader_id == "execution"
+    assert grade.passed is True
+    assert grade.score == 1.0
+    assert grade.failure_reason is None
+    assert grade.evidence == {
+        "execution": "run",
+        "status": "passed",
+        "exit_code": 0,
+        "counts": {"passed": 1, "failed": 0, "errors": 0, "skipped": 0},
+        "tests": [["test_oracle_calc::test_add", "passed"]],
+        "stdout": "1 passed in <duration>",
+        "stderr": "",
+        "execution_hash": key,
+        "displaced_paths": ["displaced.py"],
+    }
+
+
+def test_grade_execution_fails_on_failed_suite_with_no_failure_reason() -> None:
+    key = execution_hash(SPEC, TREE)
+    grade = grade_execution(
+        spec=SPEC,
+        trajectory=_trajectory({"files": TREE}),
+        verdicts={key: _verdict(FAILED_RESULT, key)},
+    )
+    assert grade.passed is False
+    assert grade.score == 0.0
+    assert grade.failure_reason is None
+    assert grade.evidence["execution"] == "run"
+    assert grade.evidence["status"] == "failed"
+
+
+def test_grade_execution_missing_final_state_short_circuits_before_lookup() -> None:
+    grade = grade_execution(spec=SPEC, trajectory=_trajectory(None), verdicts={})
+    assert grade.passed is False
+    assert grade.evidence == {"execution": "not_run", "reason": "missing_final_state"}
+
+
+def test_grade_execution_treats_missing_files_key_as_empty_tree() -> None:
+    key = execution_hash(SPEC, {})
+    grade = grade_execution(
+        spec=SPEC,
+        trajectory=_trajectory({"not_files": 1}),
+        verdicts={key: _verdict(FAILED_RESULT, key)},
+    )
+    assert grade.passed is False
+    assert grade.evidence["execution"] == "run"
+
+
+def test_grade_execution_reports_verdict_missing_with_hash() -> None:
+    key = execution_hash(SPEC, TREE)
+    grade = grade_execution(
+        spec=SPEC, trajectory=_trajectory({"files": TREE}), verdicts={}
+    )
+    assert grade.passed is False
+    assert grade.evidence == {
+        "execution": "not_run",
+        "reason": "verdict_missing",
+        "execution_hash": key,
+    }
+
+
+def test_grade_execution_is_total_over_foreign_values_at_the_key() -> None:
+    from agent_eval_lab.graders.judge import JudgeVerdict
+
+    key = execution_hash(SPEC, TREE)
+    foreign = JudgeVerdict(
+        score=5, rationale="r", raw="SCORE: 5", judge_model="m", prompt_hash=key
+    )
+    grade = grade_execution(
+        spec=SPEC, trajectory=_trajectory({"files": TREE}), verdicts={key: foreign}
+    )
+    assert grade.passed is False
+    assert grade.evidence["execution"] == "error"
+    assert grade.evidence["execution_error"]["kind"] == "unknown"
+
+
+def test_failure_category_member_set_is_unchanged() -> None:
+    assert typing.get_args(FailureCategory) == (
+        "malformed_call",
+        "schema_violation",
+        "wrong_tool",
+        "wrong_args",
+        "missing_call",
+        "extra_call",
+        "order_mismatch",
+        "forbidden_action",
+        "step_limit_exceeded",
+    )
+
+
+def test_execution_grader_module_imports_nothing_effectful() -> None:
+    import agent_eval_lab.graders.execution as execution_mod
+
+    src = open(execution_mod.__file__).read()
+    assert "subprocess" not in src
+    assert "from agent_eval_lab.runners" not in src
+    assert "import agent_eval_lab.runners" not in src
