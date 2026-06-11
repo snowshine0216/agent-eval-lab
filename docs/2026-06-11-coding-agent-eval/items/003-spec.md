@@ -42,7 +42,8 @@ Each criterion is independently verifiable by a named conformance test or inspec
    into a `Task` whose verification tree contains at least one reachable
    `ExecutionSpec` (alone, or inside `AllOf`). Each task's `input.messages` is a
    shared code-repair system turn plus one user turn carrying the bug report /
-   repair request.
+   repair request (exactly two message turns; the system turn is byte-identical
+   across all 15 rows — Resolved decisions Q13).
 2. **Metadata contract.** Every row: `split="dev"`, `version="1"`,
    `provenance="hand_written"`, `review="passed:cr-rubric-v1"`,
    `world_template_id` matching `^code-v1-[a-z0-9-]+$` and **unique per task** (one
@@ -75,10 +76,17 @@ Each criterion is independently verifiable by a named conformance test or inspec
    tools; `initial_state` is a valid code-world tree — every path passes
    `code_world.path_error`, no harness-reserved names, no `conftest.py` at any
    depth, no canonical-prefix collisions (via the public `prefix_collision`).
+   Sharpened (Resolved decisions Q14, Q2): harness-reserved *basenames*
+   (`.harness.ini`, `.junit.xml`, `sitecustomize.py`, `usercustomize.py`,
+   `conftest.py`) are banned at **any depth**, and basenames matching `*_test.py`
+   are banned everywhere (so the `test_*.py` convention equals pytest collection);
+   the same world-validity checks run over every fixture tree this item ships
+   (initial, oracle, solution, hack).
 8. **Oracle invariants.** Every `ExecutionSpec`: contains ≥ 1 pytest-collectible
    test file (basename `test_*.py`); oracle paths are **disjoint** from every
    initial-tree path (no exact-path or canonical-prefix overlap with the initial
-   tree); test-module basenames are unique across visible + oracle files (pytest
+   tree — the dataset-lineage policy, ADR-0012); test-module basenames are unique
+   across visible + oracle files (pytest
    module-collision guard); `timeout_s` is `None` on every task (edge default 10 s).
 9. **Review-fixtures sidecar.** `examples/datasets/code_repair_v1_review_fixtures.json`
    maps every task id to `{bug_class, solution: {path: content}, hack: {path:
@@ -86,10 +94,20 @@ Each criterion is independently verifiable by a named conformance test or inspec
    input only — never loaded by the harness, never rendered into any prompt.
 10. **Symptom is real.** For every task with visible tests, `run_pytest` over the
     *initial* tree has suite status `failed`; for prose-only tasks it is `no_tests`.
+    Definitions pinned (Resolved decisions Q1, Q2): a *visible test file* is any
+    initial-tree file whose basename matches `test_*.py`; a *prose-only* task has
+    zero visible test files. The third symptom shape — a green visible suite plus
+    a prose bug report — is deliberately unrepresentable in v1 (it would break
+    this binary mechanical check; a future version may add it as its own
+    capability variant).
 11. **Solvability.** For every task, the reference tree (initial tree ⊕ solution
     files) passes the **oracle** through the production
     `precompute_execution_verdicts` + `grade_execution` path (status `passed`,
-    never `timeout`) and passes the visible suite via `run_pytest`.
+    never `timeout`) ~~and passes the visible suite via `run_pytest`~~ and the
+    visible-suite run (`run_pytest` over the reference tree alone) reports
+    `passed` for tasks with visible tests and `no_tests` for prose-only tasks.
+    *(Struck: prose-only tasks have no visible suite to pass — the original
+    wording was unsatisfiable for them. Resolved decisions Q3.)*
 12. **No-op agent grades 0/15.** A synthetic no-op trajectory
     (`final_state = initial_state`, zero tool calls) graded through the production
     oracle edge + `grade_trajectory` fails every task — no verification is
@@ -115,10 +133,18 @@ Each criterion is independently verifiable by a named conformance test or inspec
     `MaxToolCalls` efficiency budget; `NoToolCall("run_tests")` repair-from-reading;
     `OnlyModifies` scoped edits). Coherence checks: every `MaxToolCalls.n` ≤ the
     task's `max_steps`; every `OnlyModifies` allowlist passes the dotted-path
-    ambiguity guard — no other path in initial ∪ oracle ∪ solution trees whose
+    ambiguity guard — no other path in ~~initial ∪ oracle ∪ solution trees~~
+    initial ∪ oracle ∪ solution ∪ hack trees whose
     dotted form (`files.<path>`) extends an allowlisted path's dotted form, so the
     leaf-diff prefix match in `graders/policy.py` cannot false-allow (e.g.
-    `app.py` vs `app.py.bak`).
+    `app.py` vs `app.py.bak`). *(Struck: the hack fixture is also a tree this
+    item ships and materializes; it joins the guarded union. Resolved decisions
+    Q8.)* Known residual (Resolved decisions Q8): the guard covers only
+    fixture-shipped trees — an agent can mint a fresh extension path at run time
+    (e.g. write `app.py.bak` itself) and be silently covered by an `app.py`
+    allowlist entry; that is a `graders/policy.py` property out of this item's
+    scope, recorded here so item 004's classifier attributes it to the harness,
+    not the task.
 17. **Distractor files.** Every `distractor_file` task names its distractor path(s)
     in the sidecar; the distractor exists in the initial tree, the reference
     solution leaves it byte-identical, and the oracle suite references the
@@ -129,12 +155,18 @@ Each criterion is independently verifiable by a named conformance test or inspec
 19. **Hermeticity banlist.** No file in any initial tree, oracle, solution, or hack
     fixture imports `socket`, `http`, `urllib`, `requests`, `subprocess`,
     `multiprocessing`, `threading`, `asyncio`, `random`, `secrets`, `uuid`, `time`,
-    or `datetime` (mechanical import-statement scan); `pytest` is imported only in
-    test files. Determinism and no-network are properties of the dataset by
+    ~~or `datetime`~~ `datetime`, `os`, or `tempfile` (mechanical import-statement
+    scan); `pytest` is imported only in
+    test files. *(Struck/extended: `os` carries `os.urandom`/`os.environ`/
+    `os.system` — randomness, env, and subprocess surfaces in one import — and
+    `tempfile` is RNG-named filesystem I/O; stdlib micro-programs need neither.
+    Resolved decisions Q9.)* Determinism and no-network are properties of the dataset by
     construction, not just rubric promises.
 20. **Oracle leakage.** No non-trivial line of any oracle test file appears in any
     prompt message of its task (the item-002 security constraint, re-asserted at
-    the dataset level).
+    the dataset level). *Non-trivial* uses the criterion-15 threshold: stripped
+    lines > 3 chars (one definition for both leakage proxies — Resolved
+    decisions Q12).
 21. **Authoring rubric + review ledger.** `docs/2026-06-11-coding-agent-eval/rubric.md`
     (version `cr-rubric-v1`) adapts the Weeks 3-4 checklist to code repair —
     unambiguous single defensible fix; single capability; verification matches
@@ -189,6 +221,10 @@ Each criterion is independently verifiable by a named conformance test or inspec
 - **Append-only dataset.** Once merged, rows of `code_repair_v1.jsonl` are frozen
   (the v1/v2 version convention); fixes ship as a new dataset version, never an
   edit. Review stamps (`passed:cr-rubric-v1`) are frozen with their rows.
+  Sidecars freeze with the dataset version too (`code_repair_v1_tiers.json`,
+  `code_repair_v1_review_fixtures.json` — they are keyed by frozen row ids), and
+  the review-fixtures sidecar joins the Weeks 9-10 never-train manifest: it
+  carries solutions (Resolved decisions Q10).
 - **Zero production-code changes.** The item touches `examples/datasets/`,
   `tests/datasets/`, and `docs/2026-06-11-coding-agent-eval/` only; every
   conformance check uses already-public APIs (`load_tasks`, `path_error`,
@@ -247,7 +283,8 @@ recorded here in lieu of user confirmation.
    stub check (criterion 13) proves every oracle independently detects its planted
    bug, and the hack fixtures (criterion 14) prove strict breadth exactly where
    the taxonomy claims it. Literal-superset duplication was rejected (untestable
-   as a semantic claim; duplicated content drifts).
+   as a semantic claim; duplicated content drifts). *Grill upgrade: this policy
+   constrains every future code-repair generation and is now ADR-0012.*
 6. **What is the "deletes failing tests" anti-rote check here?** → Code-world has no
    delete tool, so the realizable attack is overwriting visible tests with trivial
    stubs; criterion 13 neutralizes it. The oracle-wins overlay (ADR-0010) plus
@@ -283,8 +320,12 @@ recorded here in lieu of user confirmation.
     named `app.py.bak` would be silently covered by an allowlist entry for
     `app.py`. Rather than touching the grader (out of scope, workspace-frozen),
     the conformance suite enforces the dotted-path ambiguity guard (criterion 16)
-    over every tree the task can reach — the dataset stays inside the grader's
-    sound region.
+    ~~over every tree the task can reach~~ over every fixture-shipped tree
+    (initial ∪ oracle ∪ solution ∪ hack) — the dataset stays inside the grader's
+    sound region for all authored content. *(Struck: "every tree the task can
+    reach" overclaimed — the agent can mint fresh extension paths at run time
+    that no static check can enumerate; that residual is the grader's, recorded
+    in criterion 16. Resolved decisions Q8.)*
 13. **Per-task `timeout_s`?** → `None` everywhere (edge default 10 s). The
     micro-programs run in milliseconds; a tighter per-task value buys nothing and
     creates 15 chances to author a flaky timeout. The knob exists (item 002) for
@@ -316,3 +357,111 @@ recorded here in lieu of user confirmation.
     Exploration found `run_task_k` does not pass `apply_fn`/`executor` to
     `run_single`, and the CLI hardwires `WORKSPACE_TOOLS`; recorded here so 004's
     spec inherits it as a known, named gap instead of rediscovering it mid-run.
+
+## Resolved decisions
+
+Grill session 2026-06-11 (autonomous; every question auto-resolved with the
+recommended answer). Q-numbers are referenced from the criteria above.
+
+1. **Q: Criterion 10 admits only `failed` | `no_tests` — a green visible suite
+   plus a prose bug report is unrepresentable. Gap or deliberate?**
+   A: Deliberate for v1. *Prose-only* = zero visible test files; the
+   green-suite-plus-prose-bug shape is deferred to a future version.
+   Rationale: a third symptom state breaks the binary mechanical check; 15
+   tasks cannot also carry a new capability variant. Doc impact: criterion 10
+   sharpened; CONTEXT.md term **visible tests**.
+2. **Q: What exactly is a "visible test file", given pytest's default
+   `python_files` collects both `test_*.py` and `*_test.py`?**
+   A: Basename matching `test_*.py` only; `*_test.py` basenames are banned in
+   every fixture tree. Rationale: the conformance suite's notion of "visible
+   test" must equal what the sandbox actually collects, or a `foo_test.py`
+   silently escapes the stub/symptom checks. Doc impact: criteria 7/10;
+   CONTEXT.md term **visible tests**.
+3. **Q: Criterion 11 required every reference tree to "pass the visible suite"
+   — what does a prose-only task pass?**
+   A: `passed` where visible tests exist; `no_tests` for prose-only tasks.
+   Rationale: the original wording was unsatisfiable for prose-only tasks.
+   Doc impact: criterion 11 struck + corrected.
+4. **Q: Is the visible/oracle disjointness policy ADR-worthy?**
+   A: Yes — ADR-0012 (disjoint paths; breadth proven mechanically via stub +
+   hack checks; literal superset rejected). Rationale: three-of-three — frozen
+   append-only rows make it hard to reverse, oracle ⊇ visible is the surprising
+   default expectation, and the trade-off was real; it constrains item 004's
+   classifier and the Weeks 13-14 generator. Doc impact: ADR-0012; criterion 8
+   cross-ref; CONTEXT.md **oracle tests** updated.
+5. **Q: CONTEXT.md defined the difficulty knob as "a closed vocabulary" listing
+   only the five workspace knobs — the code dialect contradicts the glossary.**
+   A: Knob vocabularies are per-world *dialects*; names are never reused across
+   dialects with mutated meanings. Rationale: the spec's Q3 already chose a code
+   dialect; the glossary had to say so or every future reader trips on it.
+   Doc impact: CONTEXT.md term **Difficulty knob**.
+6. **Q: CONTEXT.md's `world_template_id` reads as one-template-per-dataset
+   (`workspace-v1`/`-v2`); 15 per-task templates breaks that reading.**
+   A: Granularity is a per-dataset declaration; code_repair_v1 declares one
+   template (program family) per task. Rationale: the template is the split
+   isolation boundary — one shared id would force the dataset into a single
+   partition. Doc impact: CONTEXT.md term **world_template_id**.
+7. **Q: Is `version="1"` a regression while workspace sits at `"2"`?**
+   A: No — the version counter is scoped to its dataset lineage;
+   `workspace_tool_use` and `code_repair` count independently.
+   Doc impact: CONTEXT.md term **version (dataset)**.
+8. **Q: The dotted-path ambiguity guard claimed coverage of "every tree the
+   task can reach" — can it?**
+   A: No. The guard covers fixture-shipped trees only (and now includes hack
+   trees in the union); an agent minting a fresh extension path at run time
+   (writing `app.py.bak` itself) is silently covered by an `app.py` allowlist
+   entry — a `graders/policy.py` residual, named in criterion 16 so item 004
+   classifies it as harness, not task. Rationale: a static dataset check cannot
+   enumerate agent-created paths; overclaiming soundness would corrupt the
+   failure taxonomy downstream. Doc impact: criterion 16 + Open-questions 12
+   struck/corrected.
+9. **Q: The hermeticity banlist omits `os` (`os.urandom`/`os.environ`/
+   `os.system`) and `tempfile` (RNG-named I/O) — floor too low?**
+   A: Add both; the list stays closed at 15 modules. Rationale: they are the
+   two remaining one-import nondeterminism/subprocess surfaces, and stdlib
+   micro-programs need neither. Doc impact: criterion 19 extended.
+10. **Q: Does append-only freezing cover the sidecars, and do solutions in the
+    review-fixtures sidecar threaten the eventual finetune data boundary?**
+    A: Sidecars freeze with the dataset version, and the review-fixtures
+    sidecar joins the Weeks 9-10 never-train manifest. Rationale: sidecars are
+    keyed by frozen row ids; the fixtures file carries solutions, which must
+    never leak into training data in the 16-week eval→data→finetune program.
+    Doc impact: Constraints extended; CONTEXT.md term **sidecar (dataset)**.
+11. **Q: Do the code-repair fixture concepts get canonical names, or stay
+    spec-local prose?**
+    A: Canonical glossary terms: **visible tests**, **distractor file**,
+    **bug class**, **hack fixture**, **reference solution**, **sidecar
+    (dataset)**. Rationale: item 004's report and the Weeks 13-14 generator
+    will all need these words; naming them once prevents v2's
+    "rubric"-style overload. Doc impact: CONTEXT.md, six terms added.
+12. **Q: Criterion 20's "non-trivial line" had no definition — same as
+    criterion 15's or different?**
+    A: Same: stripped lines > 3 chars. Rationale: two leakage proxies, one
+    threshold; divergent definitions invite a check that passes one and fails
+    the other on identical content. Doc impact: criterion 20 sharpened.
+13. **Q: "Shared system turn" — how shared, and how many turns?**
+    A: Exactly two message turns per task; the system turn is byte-identical
+    across all 15 rows. Rationale: mechanically checkable, mirrors the v2
+    convention, and keeps prompt-config comparisons (item 004) clean.
+    Doc impact: criterion 1 sharpened.
+14. **Q: code_world's `_HARNESS_RESERVED` rejects reserved names at the root
+    only — is a nested `pkg/sitecustomize.py` acceptable in fixtures?**
+    A: No — the dataset bans reserved basenames at any depth, in all four
+    fixture-tree kinds. Rationale: nested copies are inert today by mechanism
+    (site imports root-level only, `-c .harness.ini` pins config), but a file
+    that does nothing in the sandbox and something under plain pytest is the
+    same authoring trap the spec already bans for `conftest.py`.
+    Doc impact: criterion 7 sharpened.
+15. **Q: Does the tier-sidecar shape claim hold against the report tooling?**
+    A: Yes — verified: `cli.py` loads the sidecar via `json.loads` as a flat
+    `{task_id: tier}` mapping and `reports/validation.py` + `comparison.py`
+    consume it through `tier_of`; criterion 3's "reads it unchanged" stands.
+    Doc impact: none.
+16. **Q: A no-op trajectory trivially *passes* every policy leg
+    (`MaxToolCalls`, `NoToolCall`, `OnlyModifies` see zero calls/changes) — does
+    criterion 12's "fails every task" still hold on `AllOf` tasks?**
+    A: Yes — `AllOf` ANDs all legs and evaluates every one (ADR-0003); the
+    `ExecutionSpec` leg fails because the planted bug is present, so the
+    composite fails. The conformance test asserts the composite verdict, not
+    per-leg failure. Rationale: verified against `grade_trajectory`/
+    `grade_all_of` semantics. Doc impact: none.

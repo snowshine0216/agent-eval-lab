@@ -111,11 +111,14 @@ distinguishes against. The conformance test enforces "distractor never expected"
 _Avoid_: "filler tool", "decoy" (a distractor must be gradeable, not noise).
 
 **Difficulty knob**:
-A named lever from a closed vocabulary (`multi_step_depth`, `derived_argument`,
-`distractor_count`, `argument_complexity`, `layered_constraint`) that a task
-records in `metadata.difficulty_knob` to declare *the one thing* that makes it
-hard. Long-horizon is a *property* (chain depth via `multi_step_depth` +
-`max_steps`), not a knob of its own.
+A named lever from a closed *per-world dialect* that a task records in
+`metadata.difficulty_knob` to declare *the one thing* that makes it hard.
+Workspace dialect: `multi_step_depth`, `derived_argument`, `distractor_count`,
+`argument_complexity`, `layered_constraint`. Code dialect (code_repair_v1):
+`fault_distance`, `multi_hunk`, `oracle_breadth`, `spec_obliqueness`,
+`constraint_budget`, `distractor_file`. A knob name is never reused across
+dialects with a mutated meaning. Long-horizon is a *property* (chain depth via
+`multi_step_depth` + `max_steps`), not a knob of its own.
 _Avoid_: "hardness", "difficulty level" (the *tier* is the level; the knob is the
 mechanism).
 
@@ -145,18 +148,23 @@ _Avoid_: "hand_authored", "hand-authored", "manual" (synonyms fracture the count
 
 **version (dataset)**:
 The `metadata.version` string naming the *dataset/world generation* a task belongs
-to (`"1"` for v1, `"2"` for v2). Co-varies with `world_template_id`
-(`workspace-v1`/`workspace-v2`). It is the world-revision counter, NOT a per-row
-append-only revision number.
+to (`"1"` for v1, `"2"` for v2). Co-varies with the dataset's `world_template_id`
+family (`workspace-v1`/`workspace-v2`, `code-v1-*`). The counter is scoped to its
+dataset lineage — `workspace_tool_use` and `code_repair` count independently, so
+`code_repair_v1` is not "older" than `workspace_tool_use_v2`. It is the
+world-revision counter, NOT a per-row append-only revision number.
 _Avoid_: "schema version", "row version" (it versions the world+task-set, not the
 record schema).
 
 **world_template_id**:
 The `metadata.world_template_id` naming the parametrized world a task is built on
-(`workspace-v1`, `workspace-v2`). It is the §7 *isolation boundary* for the
-Weeks 9-10 train/dev/held-out splits — a template (and its seed family) belongs to
-exactly one partition. Carried on every task from day one so splits never need
-retrofitting.
+(`workspace-v1`, `workspace-v2`, `code-v1-<program-slug>`). It is the §7
+*isolation boundary* for the Weeks 9-10 train/dev/held-out splits — a template
+(and its seed family) belongs to exactly one partition. Granularity is a
+per-dataset declaration: workspace datasets share one template per generation;
+code_repair_v1 declares one template per task (one program family each) so split
+partitioning never has to treat the dataset as a single block. Carried on every
+task from day one so splits never need retrofitting.
 _Avoid_: "world id", "scenario id" (it names the *template*, not an instance).
 
 **max_steps (task hint)**:
@@ -196,6 +204,57 @@ view keyed by task id; the field, not the ledger, is the source of truth for rev
 coverage.
 _Avoid_: "rubric" alone (the *rubric* is the author's task-validity checklist —
 distinct from the item-003 judge rubric, a known naming hazard).
+
+**sidecar (dataset)**:
+A dataset-adjacent JSON keyed by task id (`*_tiers.json`,
+`*_review_fixtures.json`) carrying data the harness never loads — tiers for the
+report tooling; bug classes and solution/hack/distractor fixtures for conformance
+and review. Sidecars freeze with their dataset version (the append-only convention
+covers them), and a fixtures sidecar joins the Weeks 9-10 never-train manifest
+because it carries solutions.
+_Avoid_: "metadata file" (`TaskMetadata` is the in-row contract; sidecars are
+deliberately outside it), "fixture dataset" (sidecars are not task sets).
+
+**visible tests**:
+The test files present in the agent-visible file tree — basename matching
+`test_*.py`; `*_test.py` basenames are banned so the naming convention equals
+pytest collection. Collected mid-trajectory by `run_tests` and again at the oracle
+run via the combined tree; they prove nothing about the **oracle tests**, whose
+paths are disjoint by policy (ADR-0012). A *prose-only* task has none — its
+initial-tree suite status is `no_tests`.
+_Avoid_: "public tests", "agent tests" (the agent may also *write* tests; visible
+names tree membership, not authorship).
+
+**distractor file**:
+code-world's analog of the **distractor tool**: a correct file in the initial tree
+that plausibly looks at fault. The reference solution leaves it byte-identical and
+an oracle regression test references it, so modifying the red herring is a
+*gradeable* wrong path, never noise.
+_Avoid_: "decoy file", "filler file" (a distractor must be gradeable).
+
+**bug class**:
+The closed per-dataset vocabulary naming the planted defect's species
+(code_repair_v1: `off_by_one`, `logic_inversion`, `exception_handling`,
+`type_coercion`, `boundary_condition`, `aliasing_mutation`), recorded in the
+review-fixtures sidecar and the ledger — never on `TaskMetadata`. Orthogonal to
+capability (evidence source), knob (hardness mechanism), and tier (band).
+_Avoid_: "bug type"; "defect category" (collides with `FailureCategory`).
+
+**hack fixture**:
+The minimal patch that satisfies a task's **visible tests** by special-casing
+their inputs while leaving the program unrepaired. Conformance/review input only
+(it rides the review-fixtures sidecar): it must pass the visible suite and fail
+the oracle, proving oracle breadth mechanically exactly where the taxonomy claims
+overfit resistance (ADR-0012).
+_Avoid_: "cheat solution" (it is an authored fixture, not an agent behavior).
+
+**reference solution**:
+The per-task solution files in the review-fixtures sidecar whose overlay onto the
+initial tree passes both the visible suite and the oracle inside the sandbox
+budget — the mechanical solvability witness. Never rendered into any prompt;
+agents are never compared to it line-by-line.
+_Avoid_: "golden patch", "answer key" (it witnesses solvability, not the unique
+fix).
 
 ### Model-based grading & calibration
 
@@ -350,8 +409,10 @@ _Avoid_: "raw output" (verbatim is precisely what is never recorded);
 The held-out test files an `ExecutionSpec` carries (`held_out_tests`:
 POSIX-relative path → content): a file-tree fragment the agent never sees,
 overlaid onto the trajectory's final tree and run at the **oracle edge** as
-the Tier-2 verdict source. Distinct from the *visible* tests the agent runs
-mid-trajectory via `run_tests`, which prove nothing about the oracle.
+the Tier-2 verdict source. Distinct from the **visible tests** the agent runs
+mid-trajectory via `run_tests`, which prove nothing about the oracle; in
+code-repair datasets oracle paths are disjoint from every initial-tree path,
+with breadth proven mechanically rather than by superset (ADR-0012).
 _Avoid_: "hidden tests" (vague), "test suite" unqualified; reusing mid-run
 `run_tests` results as the oracle (they cover only what the agent saw).
 
