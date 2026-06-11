@@ -285,3 +285,26 @@ def test_loop_rejects_task_referencing_unregistered_tool() -> None:
             max_steps=6,
             temperature=0.0,
         )
+
+
+def test_empty_choices_records_the_shared_constant_verbatim() -> None:
+    """Grill Q3: the classifier's harness/agent parse split keys on this exact
+    string; loop and classifier share one constant so the split cannot drift."""
+    from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR
+
+    client = _scripted_client(
+        [{"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}}]
+    )
+
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        max_steps=6,
+        temperature=0.0,
+    )
+
+    assert trajectory.parse_failure is not None
+    assert trajectory.parse_failure.error == NO_CHOICES_ERROR

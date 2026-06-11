@@ -6,6 +6,14 @@ from typing import Any, Literal
 
 from agent_eval_lab.records.turns import Turn
 
+# The loop's empty-choices parse-failure literal: the provider envelope carried
+# no completion at all, so the model under test never acted on the turn.
+# Schema-adjacent (no record-shape change) and shared between runners/loop.py,
+# which records it, and reports/classify.py, whose fc-v1 harness/agent
+# parse-failure split keys on it (ADR-0013) — one constant, so the two sides
+# cannot drift (item 004 grill Q3).
+NO_CHOICES_ERROR = "no choices in provider response"
+
 
 @dataclass(frozen=True, kw_only=True)
 class ParseFailure:

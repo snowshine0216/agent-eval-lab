@@ -19,7 +19,12 @@ from agent_eval_lab.records.execution import (
     ExecutionResult,
     execution_result_to_dict,
 )
-from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
+from agent_eval_lab.records.trajectory import (
+    NO_CHOICES_ERROR,
+    ParseFailure,
+    Trajectory,
+    Usage,
+)
 from agent_eval_lab.records.turns import (
     MessageTurn,
     ToolOutcome,
@@ -90,7 +95,7 @@ def run_single(
         if not choices:
             parse_failure = ParseFailure(
                 raw=json.dumps(dict(response.payload)),
-                error="no choices in provider response",
+                error=NO_CHOICES_ERROR,
             )
             stop_reason = "parse_failure"
             break
