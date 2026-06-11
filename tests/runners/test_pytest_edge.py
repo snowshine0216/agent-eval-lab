@@ -1,11 +1,15 @@
 """Execution edge: pure helpers + sandboxed pytest integration (ADR-0009)."""
 
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from agent_eval_lab.records.execution import TestCaseResult
+from agent_eval_lab.records.execution import (
+    TestCaseResult,
+    execution_result_to_dict,
+)
 from agent_eval_lab.runners.pytest_edge import (
     canonicalize_output,
     materialize_tree,
@@ -246,3 +250,15 @@ def test_run_pytest_timeout_is_structured_and_reaped() -> None:
     assert result.stdout == ""
     assert result.stderr == ""
     assert _sandbox_dirs() == before
+
+
+def test_run_pytest_is_byte_identical_across_runs() -> None:
+    first = run_pytest(_FAILING_TREE, timeout_s=30.0)
+    second = run_pytest(_FAILING_TREE, timeout_s=30.0)
+    first_bytes = json.dumps(
+        execution_result_to_dict(first), sort_keys=True
+    ).encode("utf-8")
+    second_bytes = json.dumps(
+        execution_result_to_dict(second), sort_keys=True
+    ).encode("utf-8")
+    assert first_bytes == second_bytes
