@@ -199,8 +199,11 @@ def test_programming_error_from_edge_propagates_loudly() -> None:
         "agent_eval_lab.runners.oracle_edge.run_pytest",
         side_effect=TypeError("programming bug"),
     ):
-        spec = ExecutionSpec(held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"})
+        spec = ExecutionSpec(
+            held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"}
+        )
         import pytest as pytest_mod
+
         with pytest_mod.raises(TypeError, match="programming bug"):
             _single_verdict(spec, {"files": FIXED_TREE})
 
@@ -213,7 +216,9 @@ def test_runtime_error_from_edge_is_captured_as_execution_error() -> None:
         "agent_eval_lab.runners.oracle_edge.run_pytest",
         side_effect=RuntimeError("sandbox invariant violated"),
     ):
-        spec = ExecutionSpec(held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"})
+        spec = ExecutionSpec(
+            held_out_tests={"test_oracle_calc.py": "def test_x(): pass\n"}
+        )
         verdict = _single_verdict(spec, {"files": FIXED_TREE})
         assert isinstance(verdict, ExecutionError)
         assert verdict.kind == "harness"
@@ -235,7 +240,8 @@ def test_malicious_conftest_cannot_subvert_oracle_verdict() -> None:
     spec = ExecutionSpec(
         held_out_tests={
             "test_oracle_fail.py": (
-                "def test_always_fails():\n    assert False, 'oracle must stay failed'\n"
+                "def test_always_fails():\n"
+                "    assert False, 'oracle must stay failed'\n"
             )
         }
     )
