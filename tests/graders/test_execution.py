@@ -4,6 +4,7 @@ from agent_eval_lab.graders.execution import (
     ExecutionVerdict,
     OverlaidTree,
     OverlayCollision,
+    execution_hash,
     overlay_oracle,
 )
 from agent_eval_lab.records.execution import ExecutionResult, TestCaseResult
@@ -103,3 +104,37 @@ def test_overlay_never_mutates_its_inputs() -> None:
     overlay_oracle(agent_tree, oracle)
     assert agent_tree == {"test_oracle_calc.py": "agent\n", "calc.py": "x = 1\n"}
     assert oracle == ORACLE
+
+
+# --- execution hash (ADR-0011) ---
+
+
+def test_execution_hash_is_deterministic() -> None:
+    assert execution_hash(SPEC, TREE) == execution_hash(SPEC, TREE)
+
+
+def test_execution_hash_changes_with_oracle_path_content_tree_and_timeout() -> None:
+    base = execution_hash(SPEC, TREE)
+    other_path = ExecutionSpec(
+        held_out_tests={"test_other.py": ORACLE["test_oracle_calc.py"]}
+    )
+    other_content = ExecutionSpec(held_out_tests={"test_oracle_calc.py": "changed\n"})
+    other_timeout = ExecutionSpec(held_out_tests=ORACLE, timeout_s=10.0)
+    assert execution_hash(other_path, TREE) != base
+    assert execution_hash(other_content, TREE) != base
+    assert execution_hash(SPEC, {**TREE, "extra.py": ""}) != base
+    assert execution_hash(other_timeout, TREE) != base
+
+
+def test_execution_hash_covers_raw_timeout_none_vs_explicit_default() -> None:
+    # None and the edge default (10.0) hash apart: dedup is a non-goal.
+    explicit = ExecutionSpec(held_out_tests=ORACLE, timeout_s=10.0)
+    assert execution_hash(SPEC, TREE) != execution_hash(explicit, TREE)
+
+
+def test_execution_hash_is_well_defined_when_overlay_would_collide() -> None:
+    colliding_tree = {"Test_oracle_calc.py": "agent\n"}
+    assert isinstance(overlay_oracle(colliding_tree, ORACLE), OverlayCollision)
+    assert execution_hash(SPEC, colliding_tree) == execution_hash(
+        SPEC, dict(colliding_tree)
+    )

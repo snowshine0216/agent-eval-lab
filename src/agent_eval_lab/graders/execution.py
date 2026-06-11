@@ -7,10 +7,13 @@ grader, which only reads it. This module imports no process or filesystem
 machinery; importing it never executes anything.
 """
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from agent_eval_lab.records.execution import ExecutionResult
+from agent_eval_lab.tasks.schema import ExecutionSpec
 from agent_eval_lab.tools.code_world import prefix_collision
 
 GRADER_ID = "execution"
@@ -56,3 +59,21 @@ def overlay_oracle(
     return OverlaidTree(
         files={**final_tree, **held_out_tests}, displaced_paths=displaced
     )
+
+
+def execution_hash(spec: ExecutionSpec, final_tree: Mapping[str, str]) -> str:
+    """sha256 over canonical JSON of oracle tests + final tree + raw timeout_s.
+
+    The `prompt_hash` convention (ADR-0011): computable on both sides of the
+    boundary, well-defined even when the overlay would collide, and covering
+    the RAW `timeout_s` field (null when None), never the edge default.
+    """
+    blob = json.dumps(
+        {
+            "held_out_tests": dict(spec.held_out_tests),
+            "final_tree": dict(final_tree),
+            "timeout_s": spec.timeout_s,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
