@@ -169,3 +169,56 @@ def test_write_file_rejects_file_prefix_collision() -> None:
     assert outcome == ToolFailure(
         error="path collision: 'calc.py' is a file in the tree"
     )
+
+
+def test_run_tests_returns_request_and_identical_state() -> None:
+    state, request = apply(
+        registry=CODE_WORLD_TOOLS, name="run_tests", arguments={}, state=STATE
+    )
+    assert state == STATE
+    assert isinstance(request, ExecutionRequest)
+    assert dict(request.files) == STATE["files"]
+
+
+def test_run_tests_snapshot_survives_caller_mutation() -> None:
+    files = {"a.py": "x = 1\n"}
+    _, request = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="run_tests",
+        arguments={},
+        state={"files": files},
+    )
+    files["b.py"] = "y = 2\n"
+    assert dict(request.files) == {"a.py": "x = 1\n"}
+
+
+def test_run_tests_rejects_unexpected_arguments() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="run_tests",
+        arguments={"path": "tests"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)
+    assert outcome.error.startswith("schema violation")
+
+
+def test_registered_but_unimplemented_tool_raises_runtime_error() -> None:
+    ghost = ToolDef(
+        name="ghost",
+        description="registered but unimplemented",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+    )
+    with pytest.raises(RuntimeError, match="misconfiguration"):
+        apply(
+            registry={**CODE_WORLD_TOOLS, "ghost": ghost},
+            name="ghost",
+            arguments={},
+            state=STATE,
+        )
