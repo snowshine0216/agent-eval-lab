@@ -7,6 +7,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Weeks 5–6 coding agent evaluation
+
+- Code-world (item 001): in-memory file-tree state with four agent tools
+  (`read_file`, `write_file`, `list_files`, `run_tests`) following the pure
+  `apply()` pattern; `run_tests` returns an `ExecutionRequest` effect-request
+  fulfilled by the runner loop at the edge (ADR-0008).
+- Hermetic pytest execution edge: materializes a file tree into a fresh temp
+  dir, runs pinned-interpreter pytest in a from-scratch scrubbed environment
+  under a hard timeout (process-group SIGKILL), parses JUnit XML into typed
+  per-test records, and canonicalizes output so serialized results are
+  byte-identical across runs (ADR-0009). Corrupt JUnit XML and reserved
+  `.junit.xml` / casefold-colliding paths are rejected deterministically
+  rather than silently mismatching the in-memory world.
+
 ### Added — Weeks 3–4 dataset and grader quality
 
 - Live v2 validation: four conditions at k=3 (deepseek-v4-pro 1.000/1.000,
