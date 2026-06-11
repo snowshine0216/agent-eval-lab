@@ -372,3 +372,13 @@ def test_registered_but_unimplemented_tool_raises_runtime_error() -> None:
             arguments={},
             state=STATE,
         )
+
+
+def test_prefix_collision_is_the_public_shared_predicate() -> None:
+    """Item 002: the single collision predicate, exported for the oracle
+    overlay and the oracle-path parser (grill resolved decision 8)."""
+    from agent_eval_lab.tools.code_world import prefix_collision
+
+    assert prefix_collision("Tests/test_app.py", "tests/test_app.py") is True
+    assert prefix_collision("tests/test_app.py", "tests/test_app.py") is False
+    assert prefix_collision("tests/a.py", "tests/b.py") is False

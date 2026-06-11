@@ -97,13 +97,17 @@ def _canonical(path: str) -> str:
     return unicodedata.normalize("NFC", path).casefold()
 
 
-def _prefix_collision(new_path: str, existing_path: str) -> bool:
+def prefix_collision(new_path: str, existing_path: str) -> bool:
     """True when new_path and existing_path share a canonically identical prefix
     at some depth but spell it differently — unsafe on normalization-insensitive
     (APFS) or case-insensitive filesystems.
 
     Two paths with the exact same spelling are not a collision (overwrite allowed).
     Same-spelled directory, different filenames: not a collision.
+
+    Public: this is the project's single collision predicate — the oracle
+    overlay (graders/execution.overlay_oracle) and the oracle-path parser
+    reuse it; pytest_edge's materializer guard stays defense-in-depth only.
     """
     if new_path == existing_path:
         return False
@@ -133,7 +137,7 @@ def _prefix_collision_error(path: str, files: Mapping[str, str]) -> str | None:
     Same-spelling overwrites remain allowed.
     """
     clash = next(
-        (existing for existing in files if _prefix_collision(path, existing)),
+        (existing for existing in files if prefix_collision(path, existing)),
         None,
     )
     if clash is None:
