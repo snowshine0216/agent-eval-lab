@@ -61,6 +61,8 @@ failed (`malformed_call`, `schema_violation`, `wrong_tool`, …,
 simply does not match (a `StateEquals`/`StateContains`/`OutputMatchSpec` miss)
 carries `failure_reason=None` — it is a missed expectation, not a forbidden
 action.
+The task/agent/harness axis is *not* here — that is **RunClassification**, a
+derived report-time interpretation, never a grade field.
 _Avoid_: adding a category for plain assertion misses; `None` is the category
 for "the answer was wrong, no policy was violated".
 
@@ -460,6 +462,42 @@ the **execution edge**'s sandboxed pytest, and emit a verdict map keyed by
 then. The execution analogue of the judge edge.
 _Avoid_: "execution edge" (taken — that is `pytest_edge`'s sandbox boundary),
 "grading edge" unqualified.
+
+### Failure classification & final report
+
+**RunClassification (failure classification)**:
+The derived, versioned (`fc-v1`) interpretation layer mapping every graded
+`RunResult` to exactly one of `passed | task_failure | agent_failure |
+harness_failure` plus one closed subcategory, computed at report time from the
+mechanical discriminators already on the record (suite **status (execution)**,
+execution-error kind, stop reason, parse failure, `failure_reason`). Derived,
+never stored: it is an interpretation *over* grades, not a grade —
+`GradeResult` and `FailureCategory` are untouched, and a classifier-version
+bump is a pure re-render of committed runs, never a re-run.
+_Avoid_: "failure taxonomy" (that is `FailureCategory`, the grade-level
+vocabulary); "error class"; storing the classification on `RunResult`.
+
+**world binding**:
+The frozen `(registry, apply_fn, executor)` triple a pure resolver derives from
+a task's `available_tools` by tool-name membership — the dataset row is the
+single source of world truth (workspace-world vs code-world). Tool-name spaces
+are disjoint across worlds by tested invariant; an unknown name, a cross-world
+mix, or an empty tool list refuses to resolve (fail loud, never a silent
+default).
+_Avoid_: "world config", "world flag" (the rejected CLI-flag alternative);
+"environment" (overloaded).
+
+**task-defect candidate**:
+A task id that every non-blocked condition with records for it unanimously
+fails (all recorded runs), flagged by the final report for *human review* —
+never auto-classified as `task_failure`. Conformance already proves
+solvability, oracle breadth, and symptom reality, so unanimity defaults to
+"hard, not defective" pending adjudication. The only *mechanical*
+post-conformance task-defect signal is an empty oracle at grading time
+(suite status `no_tests`).
+_Avoid_: "broken task" (presumes the adjudication); "task failure" unqualified
+(that is the classifier category, which the queue deliberately does not
+assign).
 
 ## Example dialogue
 

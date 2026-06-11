@@ -55,9 +55,15 @@ Each criterion is independently verifiable by a named test, a command, or inspec
    (`CODE_WORLD_TOOLS`, `code_world.apply`, the pytest executor of criterion 2).
    Resolution is by tool-name membership: every name must belong to exactly one
    world's registry and all of a task's tools must belong to the same world; an
-   unknown name or a cross-world mix raises a `ValueError` naming the offending
-   tools (fail loud, never a silent default). Unit-tested on: pure workspace set,
-   pure code set, mixed set, unknown name, empty set.
+   unknown name, a cross-world mix, or an **empty tool list** raises a
+   `ValueError` naming the offending tools (fail loud, never a silent default —
+   no shipped dataset has a tool-less task, verified across v1/v2/code_repair_v1,
+   so empty has no data to define semantics for; grill Q4). Unit-tested on: pure
+   workspace set, pure code set, mixed set, unknown name, empty set (expected:
+   `ValueError`). A companion unit test pins the resolver's load-bearing
+   invariant: `set(WORKSPACE_TOOLS) & set(CODE_WORLD_TOOLS) == set()` — a future
+   tool name reused across worlds must fail CI, not silently make membership
+   resolution ambiguous.
 2. **Executor.** A `run_pytest`-backed executor satisfying loop.py's
    `Executor = Callable[[ExecutionRequest], ExecutionResult]` ships at the pytest
    edge: `execute_request(request) = run_pytest(request.files,
@@ -100,11 +106,14 @@ Each criterion is independently verifiable by a named test, a command, or inspec
    category. Classification is computed at report time only; no change to
    `RunResult`, its serializer, or captured artifacts.
 7. **Mapping table.** The classifier implements exactly this priority-ordered table
-   (first match wins; `exec_ev` = the evidence of the first execution leg, found at
-   top level when `grade.grader_id == "execution"` or by recursing
-   `evidence["sub_results"]` when `grader_id == "all_of"` — nested `AllOf` evidence
-   is walked, declared order); every row has a dedicated unit test with a synthetic
-   `RunResult`:
+   (first match wins; rows 2-16 are evaluated **only when `grade.passed` is
+   false** — row 1 wins first, so a run that passes despite a recorded
+   `parse_failure` classifies as `passed`; `exec_ev` = the evidence of the first
+   execution leg, found at top level when `grade.grader_id == "execution"` or by
+   recursing `evidence["sub_results"]` when `grader_id == "all_of"` — nested
+   `AllOf` evidence is walked in declared order, reading the **plain dicts** the
+   JSONL round-trip yields, never reconstructed dataclasses); every row has a
+   dedicated unit test with a synthetic `RunResult`:
 
    | # | condition | category | subcategory |
    |---|-----------|----------|-------------|
@@ -114,36 +123,76 @@ Each criterion is independently verifiable by a named test, a command, or inspec
    | 4 | `exec_ev["execution"] == "not_run"` (missing final_state) | harness_failure | `missing_final_state` |
    | 5 | `exec_ev["execution"] == "error"`, kind `harness` | harness_failure | `sandbox_fault` |
    | 6 | `exec_ev["execution"] == "error"`, kind `verdict_missing` | harness_failure | `verdict_missing` |
-   | 7 | `exec_ev["execution"] == "error"`, kind `unknown` | harness_failure | `foreign_verdict` |
-   | 8 | `exec_ev["execution"] == "error"`, kind `tree_collision` | agent_failure | `tree_collision` |
+   | 7 | `exec_ev["execution"] == "error"`, kind `tree_collision` | agent_failure | `tree_collision` |
+   | 8 | `exec_ev["execution"] == "error"`, **any other kind** (incl. `unknown`) | harness_failure | `foreign_verdict` |
    | 9 | `exec_ev` run, suite status `no_tests` | task_failure | `oracle_empty` |
    | 10 | `grade.failure_reason == "forbidden_action"` | agent_failure | `forbidden_action` |
    | 11 | `grade.failure_reason == "step_limit_exceeded"` | agent_failure | `step_limit_exceeded` |
    | 12 | `stop_reason == "max_steps"` (failed, budget truncated the attempt) | agent_failure | `step_exhaustion` |
-   | 13 | `exec_ev` run, suite status `timeout` | agent_failure | `sandbox_timeout` |
+   | 13 | `exec_ev` run, suite status `timeout` | agent_failure | `oracle_timeout` |
    | 14 | `exec_ev` run, suite status `failed` | agent_failure | `oracle_red` |
    | 15 | `exec_ev` run, suite status `error` | agent_failure | `oracle_error` |
    | 16 | fallback (failed, no rule above) | agent_failure | `other_miss` |
 
+   ~~row 7: kind `unknown` → `foreign_verdict`~~ *(struck by grill Q1: the
+   evidence `kind` is an OPEN string — `graders/execution._error_evidence` uses
+   `getattr(value, "kind", "unknown")`, and a foreign value at a colliding hash
+   carries its own `kind` (e.g. a `JudgeError`'s `transport`/`parse`), which
+   would have fallen through rows 5-8 past 9/13-15 into row 16
+   `agent_failure/other_miss` — a verdict-plumbing fault misfiled as an agent
+   miss. Row 8 is now the error-branch fallback, closing the branch by
+   construction; rows 7/8 swapped so the named kind precedes the fallback.)*
+
+   ~~row 13: `sandbox_timeout`~~ *(renamed `oracle_timeout` by grill Q7: the
+   timeout fires in the oracle run over the submitted tree, and conformance
+   proves the reference solution passes the same oracle inside the same budget
+   — the hang indicts the agent's code. `sandbox_*` names are reserved for
+   harness faults, e.g. `sandbox_fault`.)*
+
+   The row-2 discriminator is pinned mechanically (grill Q3): the literal
+   `"no choices in provider response"` is hoisted to a shared constant in
+   `records/trajectory.py` (schema-adjacent pure module; no record shape
+   changes, so the frozen-interface constraint holds), referenced by both
+   `runners/loop.py` and `reports/classify.py`, plus an integration test
+   driving `run_single` against an empty-choices stub and asserting the
+   recorded `parse_failure.error` equals the constant — the split cannot drift.
+
    Documented judgments inside the table (rendered as table footnotes in the
-   report): row 8 — a canonical-prefix collision can only arise from a run's own
-   write at a path colliding with an oracle module's canonical form (oracle paths
-   are disjoint from the initial tree by ADR-0012), so the run's own artifact made
-   the tree ungradeable; row 9 — conformance proves every shipped oracle collects
-   ≥ 1 test (003 criterion 8), so an empty oracle at grading time indicts the task
-   data; row 4 — the runner always seeds `final_state` from `initial_state`, so its
-   absence is a wiring defect; row 12 outranks 13-15 because a budget-truncated
-   attempt's red oracle is an artifact of the truncation.
+   report): row 7 — a canonical-prefix collision can only arise from a run's own
+   write at a path colliding with an oracle module's canonical form: oracle paths
+   are disjoint from every initial-tree path (ADR-0012's conformance contract,
+   whose consequences pre-authorize this row), code-world has no delete tool (the
+   final tree is initial ∪ agent writes), and exact-path equality is displacement,
+   never collision (ADR-0010, `prefix_collision` returns false on equality) — the
+   judgment is therefore conditional on the dataset's conformance contract, which
+   holds for the whole code-repair lineage; row 9 — conformance proves every
+   shipped oracle collects ≥ 1 test (003 criterion 8) and the overlay always
+   contributes the oracle files (a collection-breaking agent write yields status
+   `error`, pytest exit 2, never `no_tests`), so an empty oracle at grading time
+   indicts the task data; row 4 — the runner always seeds `final_state` from
+   `initial_state`, so its absence is a wiring defect; row 12 outranks 13-15
+   because a budget-truncated attempt's red oracle is an artifact of the
+   truncation — and the budget itself is data-validated (per-task
+   `metadata.max_steps` honored via `effective_max_steps`, ADR-0004 wiring
+   already landed; conformance floors the budget), so exhaustion is the agent's
+   spend, not harness starvation; row 3 — message-level emptiness ("assistant
+   message has neither content nor tool_calls") stays agent-side: the provider
+   envelope was well-formed, the model's own message was unparseable.
 8. **Taxonomy untouched.** `FailureCategory` gains no new values; a test asserts the
    literal's member set is unchanged. The task/agent/harness axis lives only in
    `RunClassification` — it is an interpretation layer over grades, not a grade.
 9. **Task-defect review queue (report-level, not per-run).** The report builder
-   computes "task-defect candidates": task ids failing **all k runs on every
-   non-blocked condition**. These are *flagged for human review*, never
-   auto-classified as `task_failure` — the conformance suite already proves
-   solvability, oracle breadth, and symptom reality, so a unanimous failure defaults
-   to "hard, not defective" pending adjudication. Unit-tested (unanimous-fail,
-   one-condition-passes, blocked-condition-excluded cases).
+   computes "task-defect candidates": task ids failing **all recorded runs on
+   every non-blocked condition that has records for the task** (grill Q10: an
+   incomplete condition with zero records for a task contributes nothing to that
+   task's unanimity — no fabricated evidence; blocked conditions are excluded
+   entirely). The rendered queue cites per-task evidence strength
+   (`n_conditions`, `n_runs`) so a reviewer sees how unanimous "unanimous" was.
+   These are *flagged for human review*, never auto-classified as `task_failure`
+   — the conformance suite already proves solvability, oracle breadth, and
+   symptom reality, so a unanimous failure defaults to "hard, not defective"
+   pending adjudication. Unit-tested (unanimous-fail, one-condition-passes,
+   blocked-condition-excluded, missing-records-on-one-condition cases).
 10. **Pinned harness residuals (documentation, not detection).** The report's known-
     limitations section names, with citations: (a) the `graders/policy.py` dotted-
     path false-allow — an agent minting a fresh extension path at run time (e.g.
@@ -172,16 +221,23 @@ Each criterion is independently verifiable by a named test, a command, or inspec
     committed. This deliberately extends the Weeks 3-4 convention (which committed
     only rendered reports): the exit gate claims byte-deterministic regeneration
     *from captured runs*, and that claim is only reviewer-verifiable when the runs
-    are in the repo. Size is bounded (15 tasks, head-capped canonicalized output;
+    are in the repo. No `.gitignore` conflict (grill Q6, verified with
+    `git check-ignore`): `/reports/` and `/runs/` are root-anchored patterns, so
+    the run-dir `runs/` subdirectory is committable as-is. Because the JSONLs
+    embed agent solution trees (`final_state`) and oracle stdout, they join the
+    Weeks 9-10 **never-train manifest** beside the review-fixtures sidecar (the
+    003 precedent). Size is bounded (15 tasks, head-capped canonicalized output;
     single-digit MB total). Every committed line parses through the existing
     `_load_run_results` loader (round-trip test on a sample of each file).
 14. **Cost capture.** Token usage rides every trajectory (already recorded);
     per-condition prices live in a committed
-    `docs/2026-06-11-coding-agent-eval/prices.json` mapping `condition_id` →
-    `{input_per_mtok, output_per_mtok}` with a snapshot date; conditions absent from
-    the file (e.g. `local`) render as "not computed". A partial or unreachable
-    condition is recorded as `incomplete`/`blocked` in the report with its reason —
-    runs for the other conditions proceed and are committed regardless.
+    `docs/2026-06-11-coding-agent-eval/prices.json` with the pinned shape
+    (grill Q11) `{"snapshot_date": "YYYY-MM-DD", "prices": {"<condition_id>":
+    {"input_per_mtok": float, "output_per_mtok": float}}}`; conditions absent
+    from the map (e.g. `local`) render as "not computed". A partial or
+    unreachable condition is recorded as `incomplete`/`blocked` in the report
+    with its reason — runs for the other conditions proceed and are committed
+    regardless.
 
 ### D. Final evaluation report (exit gate)
 
@@ -189,7 +245,13 @@ Each criterion is independently verifiable by a named test, a command, or inspec
     `--runs LABEL=condition_id=path` (one per condition, C1-C3 hosted / C4 local,
     the report-validation label convention), `--dataset`, `--tiers`, `--prices`,
     `--context-file`, `--k 3`, `--expected-n-tasks 15`, `--seed 20260610`,
-    `--n-resamples 2000`, `--alpha 0.05`, `--out`. Pure build
+    `--n-resamples 2000`, `--alpha 0.05`, `--out`. Unlike `report-validation`
+    (whose parser discards the middle `condition_id` segment — verified in
+    `cli._parse_runs_spec`), `report-final` makes it live (grill Q11): each
+    condition's `condition_id` is **derived from its records**, a heterogeneous
+    runs file is a loud error, and when the middle segment is present it is
+    cross-checked against the records (mismatch = exit 1, no silent
+    mislabeling) — the prices lookup joins on this derived id. Pure build
     (`reports/final.py: build_final_report`) + pure `render_markdown`; file I/O and
     JSON parsing stay in `cli.py`; output written atomically (`_atomic_write`
     precedent). No model calls, no subprocess: the command is replay-only over
@@ -209,13 +271,21 @@ Each criterion is independently verifiable by a named test, a command, or inspec
     verbatim under "Context: prior baselines (workspace_tool_use v1/v2)";
     (9) discriminativeness verdict; (10) known limitations; (11) roadmap takeaways;
     (12) excluded conditions — `openrouter:gpt-5.5` with the region/ToS reason.
+    The report carries **no generation timestamp** anywhere (grill Q5, the
+    Weeks 3-4 validation-report precedent): time-like values appear only as
+    *recorded data* — mean latency summed from trajectory `usage.latency_s`,
+    the `prices.json` snapshot date — and the footer's regeneration command is
+    static text, so build+render stays a pure function of its inputs.
 17. **Discriminativeness verdict.** The mechanical Weeks 3-4 rule, reused (shared or
     extracted from `reports/validation.py`, not re-invented): weak rung = hosted
     conditions differ on ≥ 1 task AND ≥ 1 hosted pass^3 < 1.000; strong rung = a
     hosted pair separated by a paired cluster-bootstrap CI excluding 0, or a
     non-trivial monotone tier gradient; near-misses, skipped pairs, and the n=15
     honesty line ("intervals are wide; absence of separation is not evidence of no
-    separation") are rendered.
+    separation") are rendered. Any extraction refactor of `reports/validation.py`
+    must keep `report-validation` output **byte-identical** over a fixture run
+    set (grill Q12: the committed Weeks 3-4 reports are regenerable artifacts;
+    a drifting render would orphan them), proven by a regression test.
 18. **Known limitations (pinned list).** At minimum: ADR-0010 residual trust
     boundary (oracle imports agent-authored modules in-process; import-time code
     runs); sandbox isolation is temp-dir-and-convention, not kernel-level (no
@@ -229,6 +299,10 @@ Each criterion is independently verifiable by a named test, a command, or inspec
     `docs/2026-06-11-coding-agent-eval/final-evaluation-report.md` (verified by
     `diff` at final-verify; the exact regeneration command is recorded in the report
     footer). A unit test asserts build+render determinism over a fixture run set.
+    Determinism scope (grill Q5): **nothing is excluded** from the byte claim —
+    there is no "generated at" line to exempt; latencies and costs are
+    deterministic functions of recorded usage data and the committed prices
+    file, mirroring the Weeks 3-4 convention.
 20. **Exit-gate artifact.** `final-evaluation-report.md` is committed in the run dir
     (never gitignored), generated from real live-run data (no fabricated numbers:
     blocked conditions render as blocked), and is presented to the user at run
@@ -350,7 +424,9 @@ recorded here in lieu of user confirmation.
    turn), while any other parse failure is the model emitting an unparseable payload
    (agent — the capability failure `malformed_call` already names in the workspace
    taxonomy). The discriminator is mechanical: the loop records distinct error
-   strings for the two sources.
+   strings for the two sources. *(Sharpened by grill Q3: the literal is hoisted
+   to a shared constant in `records/trajectory.py` and pinned by a stub-loop
+   test — see criterion 7.)*
 6. **How are residual task defects detected post-conformance?** → Two channels:
    the mechanical `no_tests` rule (table row 9), and the report-level unanimous-
    failure review queue (criterion 9) that *flags without classifying*. Conformance
@@ -419,4 +495,87 @@ recorded here in lieu of user confirmation.
     table), versioned with the classifier (`fc-v1`). An open string field was
     rejected: the Weeks 9-10 failure-mining work needs stable categories to mine
     against, and free-form strings fracture counts exactly the way CONTEXT.md's
-    provenance lesson warns.
+    provenance lesson warns. *(Grill Q7 renamed one value —
+    `sandbox_timeout` → `oracle_timeout` — count unchanged at 15.)*
+
+## Grill session — resolved decisions (2026-06-11)
+
+Autonomous grill (grill-with-docs, no user in loop); every question resolved with
+the recommended answer, verified against the code surfaces named below. Docs
+synced inline: CONTEXT.md (terms **RunClassification (failure classification)**,
+**world binding**, **task-defect candidate**; cross-ref added to
+**FailureCategory**) and ADR-0013 (the fc-v1 classification decision).
+
+- **Q1 — Row "kind `unknown`" leaked foreign kinds into agent rows.**
+  `graders/execution._error_evidence` reads `getattr(value, "kind", "unknown")`
+  — an open string. A foreign value at a colliding hash carries its *own* kind
+  (`JudgeError.kind ∈ {transport, parse, …}`), which matched no error row and
+  fell through to `agent_failure/other_miss`. Resolved: the error branch closes
+  with an any-other-kind fallback → `harness_failure/foreign_verdict` (rows 7/8
+  reordered). The Hypothesis totality test gains an explicit foreign-kind case.
+- **Q2 — `tree_collision → agent` is sound under ADR-0012.** Three mechanical
+  facts: conformance bans oracle paths equal/prefix-colliding with any
+  initial-tree path; code-world has no delete tool (final tree = initial ∪ agent
+  writes); exact equality is displacement, not collision (`prefix_collision`
+  returns false on equality). So a collision pair always involves an
+  agent-minted spelling. ADR-0012's consequences pre-authorize the row; the
+  footnote now states the judgment is conditional on the conformance contract
+  (holds for the code-repair lineage).
+- **Q3 — Parse-split criterion was a magic string.** The harness/agent split
+  keyed on a literal duplicated from `runners/loop.py`. Resolved: shared
+  constant in `records/trajectory.py` (no record-shape change; frozen-interface
+  constraint holds) + a stub-loop test pinning the recorded error. Judgment
+  recorded: message-level emptiness stays agent-side.
+- **Q4 — World resolver: empty tool list pinned to `ValueError`.** No shipped
+  dataset has a tool-less task (verified v1=20, v2=50, code_repair_v1=15 rows);
+  fail loud beats inventing semantics with no data. Registry-name disjointness
+  (workspace 9 names ∩ code 4 names = ∅, verified) becomes a tested invariant.
+  No schema-ADR conflict: resolution reads only the frozen `available_tools`.
+- **Q5 — Byte-determinism scope made explicit.** No generation timestamp
+  anywhere (Weeks 3-4 precedent: `reports/validation.py` renders none);
+  time-like values only as recorded data (usage latency sums, prices snapshot
+  date); nothing exempted from the byte claim.
+- **Q6 — Committed run JSONLs conflict with no repo convention.**
+  `git check-ignore` verified `/reports/` and `/runs/` are root-anchored;
+  `docs/<run-dir>/runs/` is committable unchanged. New obligation: the JSONLs
+  embed agent solution trees and oracle stdout, so they join the Weeks 9-10
+  never-train manifest (003 sidecar precedent).
+- **Q7 — `sandbox_timeout` renamed `oracle_timeout`.** The timeout fires in the
+  oracle run over the submitted tree and conformance proves the reference
+  solution finishes inside the same budget — the hang indicts the agent's code;
+  `sandbox_*` is harness vocabulary (`sandbox_fault`). Vocabulary stays 15.
+- **Q8 — Implicit pass guard made explicit.** Rows 2-16 evaluate only when
+  `grade.passed` is false; a run that passes despite a recorded `parse_failure`
+  (e.g. state already satisfying the spec before the failed turn) is `passed`.
+- **Q9 — `exec_ev` walk reads round-tripped dicts.** `sub_results` entries are
+  plain dicts post-JSONL (`composite.py` serializes nested evidence as dicts);
+  the walk is specified over dict keys (`grader_id`, `evidence`), first
+  execution leg in declared order, recursing nested `all_of` entries.
+- **Q10 — Task-defect unanimity under incomplete conditions pinned.** Unanimity
+  quantifies over non-blocked conditions *with records for the task*; the queue
+  renders per-task `n_conditions`/`n_runs` so evidence strength is visible. No
+  invented minimum-condition threshold.
+- **Q11 — `--runs` middle segment goes live; prices schema pinned.**
+  `cli._parse_runs_spec` discards `condition_id` today; `report-final` derives
+  it from records (heterogeneous file = loud error), cross-checks the segment
+  when present, and joins `prices.json`
+  (`{"snapshot_date", "prices": {condition_id: {input_per_mtok,
+  output_per_mtok}}}`) on the derived id.
+- **Q12 — Extraction must not byte-drift the frozen validation report.** Any
+  sharing/extraction of the discriminativeness rule keeps `report-validation`
+  output byte-identical over a fixture set, proven by a regression test — the
+  committed Weeks 3-4 reports are regenerable artifacts.
+- **Q13 — Row 12 (`step_exhaustion` = agent) upheld.** The budget is
+  data-validated (per-task `metadata.max_steps` honored via
+  `effective_max_steps` — ADR-0004 wiring already landed in
+  `runners/multi_run.py` — and conformance-floored), so exhaustion is the
+  agent's spend; the validation report's "starvation suspects" lens remains in
+  working artifacts. Footnote sharpened.
+- **Q14 — ADR scope: one ADR.** fc-v1 classification = ADR-0013 (three-of-three:
+  semantics anchor Weeks 9-10 mining and Release #1; tree_collision→agent /
+  parse split / no-unknown-bucket are surprising; derived-vs-stored and
+  queue-vs-auto-defect were real trade-offs). World resolver and committed-runs
+  divergence stay spec-level resolved decisions (reversible; two-of-three).
+- **Q15 — Hypothesis dependency verified present** (`pyproject.toml`
+  `hypothesis>=6.100`): criterion 6's property test adds no new dependency, no
+  CI-lane change.
