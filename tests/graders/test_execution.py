@@ -236,6 +236,22 @@ def test_grade_execution_reports_verdict_missing_with_hash() -> None:
     }
 
 
+def test_grade_execution_reports_structured_error_for_execution_error() -> None:
+    from agent_eval_lab.runners.oracle_edge import ExecutionError
+
+    key = execution_hash(SPEC, TREE)
+    error = ExecutionError(kind="tree_collision", detail="boom", execution_hash=key)
+    grade = grade_execution(
+        spec=SPEC, trajectory=_trajectory({"files": TREE}), verdicts={key: error}
+    )
+    assert grade.passed is False
+    assert grade.evidence == {
+        "execution": "error",
+        "execution_error": {"kind": "tree_collision", "detail": "boom"},
+        "execution_hash": key,
+    }
+
+
 def test_grade_execution_is_total_over_foreign_values_at_the_key() -> None:
     from agent_eval_lab.graders.judge import JudgeVerdict
 
