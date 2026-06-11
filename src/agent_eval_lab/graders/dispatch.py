@@ -5,6 +5,7 @@ from typing import Any
 
 from agent_eval_lab.graders.composite import grade_all_of
 from agent_eval_lab.graders.exact_match import grade_exact_match
+from agent_eval_lab.graders.execution import grade_execution
 from agent_eval_lab.graders.judge import grade_llm_judge
 from agent_eval_lab.graders.policy import grade_trajectory_spec
 from agent_eval_lab.graders.state import grade_final_state
@@ -14,6 +15,7 @@ from agent_eval_lab.records.trajectory import Trajectory
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.tasks.schema import (
     AllOf,
+    ExecutionSpec,
     FinalStateSpec,
     LlmJudgeSpec,
     OutputMatchSpec,
@@ -71,6 +73,10 @@ def grade_trajectory(
         )
     if isinstance(verification, LlmJudgeSpec):
         return grade_llm_judge(
+            spec=verification, trajectory=trajectory, verdicts=verdicts
+        )
+    if isinstance(verification, ExecutionSpec):
+        return grade_execution(
             spec=verification, trajectory=trajectory, verdicts=verdicts
         )
     if isinstance(verification, AllOf):
