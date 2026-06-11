@@ -74,8 +74,14 @@ def test_oracle_contents_never_appear_in_any_trajectory_turn() -> None:
         case = json.loads(path.read_text())
         specs = collect_execution_specs(verification_from_dict(case["verification"]))
         turn_texts = _strings(case["trajectory"]["turns"])
+        initial_state_texts = _strings(case.get("initial_state") or {})
         for spec in specs:
             for content in spec.held_out_tests.values():
-                assert all(content not in text for text in turn_texts), path.stem
+                assert all(content not in text for text in turn_texts), (
+                    f"{path.stem}: oracle content leaked into trajectory turns"
+                )
+                assert all(content not in text for text in initial_state_texts), (
+                    f"{path.stem}: oracle content leaked into initial_state"
+                )
                 oracle_files_checked += 1
     assert oracle_files_checked >= 9  # every execution golden was exercised
