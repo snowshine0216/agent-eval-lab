@@ -270,6 +270,81 @@ human fills the packet.
 _Avoid_: "calibration" unqualified (the real calibration is human-human first);
 treating LLM-LLM κ as a reliability verdict.
 
+### Code-world & execution
+
+**code-world**:
+The second world (after workspace-world): its state is a **file tree** and its
+tools are `read_file`, `write_file`, `list_files`, `run_tests`. Same pure
+`apply` contract as workspace-world; only `run_tests` reaches the **execution
+edge**, via an **effect-request**.
+_Avoid_: "code workspace" (collides with workspace-world), "repo world",
+"sandbox world" (the sandbox is the edge's temp dir, not the world).
+
+**file tree**:
+Code-world's state shape: a flat immutable mapping of POSIX-relative path →
+text content. Every reachable tree is materializable by construction — path
+canonical-form and file/directory-collision rules are enforced by the pure
+tools, so no valid state can fail to land on disk.
+_Avoid_: "filesystem" (that's the materialized temp dir at the edge), "repo",
+"workspace" (taken).
+
+**effect-request**:
+The bridge for a tool whose result requires I/O: pure `apply` returns a
+serializable request describing *what* to execute (in the outcome position,
+instead of a `ToolOutcome`); the runner loop — matching on the request *type*,
+never the tool name — fulfills it at the edge and records the fulfilled result
+on the trajectory as ordinary data. The mid-trajectory generalization of
+ADR-0005's precompute rule (ADR-0008). Replay never re-fulfills: a recorded
+result is data, like a recorded model reply.
+_Avoid_: "thunk", "deferred effect", "callback" (mechanics, not the contract);
+"tool interception" (the rejected name-based alternative).
+
+**ExecutionRequest**:
+The code-world effect-request: a frozen, serializable snapshot of the file tree
+to run tests over. It carries *only* the tree — timeout and interpreter are
+edge policy — so the request stays a pure function of state and the agent
+controls neither.
+_Avoid_: "test request", "exec command".
+
+**ExecutionResult**:
+The structured, deterministic record of one sandboxed pytest run: suite
+**status (execution)**, exit code, counts (passed/failed/errors/skipped),
+per-test statuses sorted by test id, and head-truncated **canonicalized
+output**. Wall-clock duration is deliberately absent — it is the one
+nondeterministic observable.
+_Avoid_: "run result" (that is `RunResult`, the task×condition×grade record),
+"test result" (a per-test entry, not the suite record).
+
+**status (execution)**:
+The closed suite-level literal on an `ExecutionResult`:
+`passed | failed | error | timeout | no_tests` (per-test entries use
+`passed | failed | error | skipped`).
+_Avoid_: "outcome" (already two senses: `ToolOutcome` and *outcome
+verification*).
+
+**execution edge**:
+The single place subprocess/filesystem I/O happens for code-world: materialize
+the file tree into a fresh temp dir, run pinned-interpreter pytest in a
+scrubbed from-scratch environment under a hard timeout, parse the JUnit XML,
+canonicalize the output, clean up in a `finally`.
+_Avoid_: "sandbox runner", "test harness" (overloaded).
+
+**sandbox**:
+The throwaway execution environment the edge builds per run: fresh temp dir +
+from-scratch env (no inherited secrets or proxy vars) + process-group kill on
+timeout. Isolation is temp-dir-and-convention level, not kernel level — a
+documented limitation; no containers.
+_Avoid_: "container", "jail" (over-claim kernel isolation).
+
+**canonicalized output**:
+The recorded form of a sandbox run's stdout/stderr: the random temp-dir root
+replaced by the fixed `<sandbox>` placeholder and the pytest timing token
+normalized, then head-truncated at a fixed byte cap with an explicit marker.
+Reproducibility (byte-identical `ExecutionResult`) is claimed over this form,
+never over verbatim output (ADR-0009).
+_Avoid_: "raw output" (verbatim is precisely what is never recorded);
+"scrubbed output" (the *env* is scrubbed; the *record* is canonicalized).
+
 ## Example dialogue
 
 > **Dev:** The task says "close ticket T-1 and don't email anyone". Is that one
@@ -340,3 +415,28 @@ treating LLM-LLM κ as a reliability verdict.
 > an autonomous run, so we ship a **provisional calibration** — `deepseek` vs
 > `glm` as annotators — loudly labeled NOT the human reliability the protocol
 > requires, just proof the pipeline runs.
+>
+> **Dev:** In code-world the agent calls `run_tests` and three tests fail.
+> That's a `ToolFailure`, right?
+>
+> **Domain expert:** No — the tool did its job: it ran the tests and reported.
+> A fulfilled **effect-request** always records a `ToolSuccess` carrying the
+> serialized **ExecutionResult**; its **status** says `failed`. `ToolFailure`
+> is reserved for the pure layer — a bad path, a schema violation. And don't
+> call the suite status the "outcome" — that word is already taken twice.
+>
+> **Dev:** But `apply` is pure. Who actually runs pytest?
+>
+> **Domain expert:** The **execution edge**, and only when the loop fulfills
+> the **ExecutionRequest** that pure `apply` returned. The request is just the
+> **file tree** snapshot — timeout and interpreter are edge policy, not agent
+> data. And replay never re-runs anything: the recorded result is data on the
+> trajectory, exactly like a recorded model reply.
+>
+> **Dev:** The recorded stderr says `<sandbox>/test_foo.py` — that's not the
+> real path. Bug?
+>
+> **Domain expert:** Deliberate — that's **canonicalized output**. The real
+> temp dir is random per run, so verbatim output could never be byte-identical.
+> We canonicalize so reproducibility is a property of the record, then truncate
+> at the cap.

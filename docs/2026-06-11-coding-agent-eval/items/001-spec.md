@@ -18,7 +18,11 @@ tool bridges to the edge via an **effect-request**: the pure `apply` returns a
 serializable `ExecutionRequest` (an immutable snapshot of the current tree) instead of
 a `ToolOutcome`; the imperative runner loop — the only place subprocess/filesystem I/O
 happens — fulfills the request through the pytest edge and records the fulfilled
-`ToolSuccess`/`ToolFailure` on the trajectory, so trajectories stay self-contained
+~~`ToolSuccess`/`ToolFailure` on the trajectory~~ — corrected by grill: a fulfilled
+request is **always** recorded as `ToolSuccess` carrying the serialized
+`ExecutionResult`, whatever the suite status; `ToolFailure` stays reserved for pure
+validation (Resolved decision 2, ADR-0008) — on the trajectory, so trajectories stay
+self-contained
 replay artifacts (ADR-0001) and the grading tiers downstream (item 002) read recorded
 data without re-executing, per the ADR-0005 rule generalized to in-loop effects.
 
@@ -30,7 +34,10 @@ Each criterion is independently verifiable by a named test or inspection.
    `CODE_WORLD_TOOLS` registry of exactly four `ToolDef`s — `read_file`, `write_file`,
    `list_files`, `run_tests` — each with a JSON schema using
    `additionalProperties: false`, and an `apply()` whose keyword signature matches
-   `tools/workspace.py`'s (`registry`, `name`, `arguments`, `state`).
+   `tools/workspace.py`'s (`registry`, `name`, `arguments`, `state`). *Sharpened by
+   grill (Resolved decision 1):* the keyword parameters match; the return type widens
+   explicitly to `tuple[State, ToolOutcome | ExecutionRequest]` — the union is the
+   documented contract the loop discriminates on by `isinstance`.
 2. **State shape and purity.** Code-world state is `{"files": Mapping[str, str]}` with
    POSIX-style relative paths. A property test (Hypothesis) shows `apply` never mutates
    the input state, and a determinism property shows same `(state, name, arguments)`
@@ -38,18 +45,36 @@ Each criterion is independently verifiable by a named test or inspection.
 3. **Editing tools behave.** Unit tests (no mocks): `read_file` returns file content,
    `ToolFailure` on a missing path; `write_file` returns a new state with the file
    created or fully overwritten; `list_files` returns the sorted tuple of all paths.
+   *Sharpened by grill (Resolved decision 12):* results follow the workspace mapping
+   convention — `read_file` → `{"path", "content"}`, `write_file` →
+   `{"path", "created": <bool>}`, `list_files` → `{"paths": [...]}`, `run_tests` →
+   the serialized `ExecutionResult` dict.
 4. **Path safety in the pure core.** Absolute paths, paths containing `..` segments,
    and empty paths are rejected as `ToolFailure` by the pure tools — unit tested for
-   each tool that takes a path.
+   each tool that takes a path. *Extended by grill (Resolved decisions 7-8):* the
+   canonical-form rule also rejects `.` segments, empty segments (`a//b`), trailing
+   `/`, backslashes, and NUL — one canonical spelling per path — and `write_file`
+   rejects file/directory prefix collisions in both directions (writing `a` when
+   `a/b` exists; writing `a/b` when `a` is a file), so every reachable state is
+   materializable by construction.
 5. **`run_tests` is pure.** `apply` on `run_tests` performs no I/O and returns the
    state **unchanged** plus an `ExecutionRequest` carrying an immutable snapshot of
    `files`. Unit tested without any filesystem or subprocess involvement.
 6. **Bridge records.** `src/agent_eval_lab/records/execution.py` defines frozen,
    serializable `ExecutionRequest` and `ExecutionResult`. `ExecutionResult` carries:
-   `outcome` literal (`"passed" | "failed" | "error" | "timeout" | "no_tests"`),
-   `exit_code`, counts (passed/failed/errors), a per-test tuple sorted by test id with
-   each test's status, and head-truncated `stdout`/`stderr` (fixed byte cap, explicit
-   truncation marker). Both round-trip through the records serialization layer.
+   ~~`outcome` literal (`"passed" | "failed" | "error" | "timeout" | "no_tests"`),~~
+   ~~`exit_code`, counts (passed/failed/errors), a per-test tuple sorted by test id with~~
+   ~~each test's status, and head-truncated `stdout`/`stderr` (fixed byte cap, explicit~~
+   ~~truncation marker).~~ — corrected by grill: field renamed `status` ("outcome"
+   already carries two CONTEXT.md senses); counts and per-test vocabulary gain
+   `skipped`; test id pinned to `classname::name`; output is canonicalized (ADR-0009)
+   and the cap pinned (Resolved decisions 3-4, 9-11) —
+   a `status` literal (`"passed" | "failed" | "error" | "timeout" | "no_tests"`),
+   `exit_code`, counts (`passed`/`failed`/`errors`/`skipped`), a per-test tuple sorted
+   by test id (`classname::name` from the JUnit XML; per-test status
+   `passed | failed | error | skipped`), and head-truncated **canonicalized**
+   `stdout`/`stderr` (8 KiB byte cap per stream, explicit truncation marker). Both
+   round-trip through the records serialization layer.
    Wall-clock duration is **excluded** from the record (it is the one nondeterministic
    observable).
 7. **Execution edge exists.** `src/agent_eval_lab/runners/pytest_edge.py` exposes
@@ -57,7 +82,10 @@ Each criterion is independently verifiable by a named test or inspection.
    fresh temp dir (sorted path order, parents created, UTF-8), invokes
    `sys.executable -m pytest -q --junitxml=<tmp> -p no:cacheprovider` with
    `cwd=<root>`, parses the JUnit XML with stdlib `xml.etree` (pure helper function,
-   unit-testable on captured XML), and removes the temp dir in a `finally`.
+   unit-testable on captured XML), canonicalizes the captured output via a pure helper
+   (temp-root occurrences → the fixed `<sandbox>` placeholder; pytest timing token
+   normalized — *added by grill, Resolved decision 4 / ADR-0009: criterion 11 is
+   unsatisfiable over verbatim output*), and removes the temp dir in a `finally`.
 8. **Hermetic environment.** The subprocess env is constructed from scratch (never
    inherited from `os.environ`): `PYTHONHASHSEED=0`,
    `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`, `PYTHONDONTWRITEBYTECODE=1`,
@@ -82,10 +110,16 @@ Each criterion is independently verifiable by a named test or inspection.
     `ToolResultTurn` with the fulfilled `ToolSuccess(result=<serialized
     ExecutionResult>)` — matched on the request type, never on the tool-name string.
     All existing workspace-world runner tests pass unchanged with the defaults.
+    *Extended by grill (Resolved decisions 2, 6):* the fulfilled turn is **always**
+    `ToolSuccess`, whatever the suite `status`; an `ExecutionRequest` reaching a loop
+    with no executor raises `RuntimeError` (harness misconfiguration, mirroring
+    `workspace.apply`'s registered-but-unimplemented guard) — never a `ToolFailure`
+    shown to the agent.
 13. **Decision recorded.** A new ADR documents the effect-request bridge (options
     considered: edge name-interception, ADR-0005-style precompute, real-FS world;
     consequences), following the ADR-0005 precedent that names `ExecutionSpec` as the
-    next edge-backed grader.
+    next edge-backed grader. *Satisfied by grill:* ADR-0008 (effect-request bridge);
+    ADR-0009 additionally records the output-canonicalization decision.
 14. **TDD evidence.** Every behavior above lands red-green (test commit precedes or
     accompanies implementation in the same commit series); pure-core tests use no
     mocks; subprocess behavior is tested only at the edge.
@@ -177,3 +211,107 @@ recorded here in lieu of user confirmation.
     pinned by `uv.lock`). Reproducibility is claimed *within* a pinned environment,
     not across machines; recording interpreter/pytest versions in run-level metadata
     is left to item 004's report.
+
+## Resolved decisions
+
+Grill session (grill-with-docs, autonomous, 2026-06-11) against CONTEXT.md,
+ADRs 0001-0007, and the current code (`tools/workspace.py`, `runners/loop.py`,
+`records/turns.py`, `records/serialize.py`, `records/grade.py`). No user in loop;
+every recommendation auto-accepted.
+
+1. **Q:** Criterion 1 says code-world `apply`'s signature "matches" workspace's —
+   but `run_tests` returns a non-`ToolOutcome`. What is the honest type?
+   **A:** `tuple[State, ToolOutcome | ExecutionRequest]`: keyword parameters match
+   exactly; the return type widens *explicitly* in the union, and the loop
+   discriminates by `isinstance` on the request type.
+   *Rationale:* type honesty over signature cosplay; the union is the documented
+   contract.
+
+2. **Q:** A fulfilled `run_tests` whose suite failed — `ToolSuccess` or
+   `ToolFailure`? (Goal said "`ToolSuccess`/`ToolFailure`"; criterion 12 said only
+   `ToolSuccess`.)
+   **A:** Always `ToolSuccess(result=<serialized ExecutionResult>)`, whatever the
+   suite `status` (including `timeout`/`error`). `ToolFailure` is reserved for the
+   pure validation layer.
+   *Rationale:* the tool did its job — it ran the tests and reported; conflating a
+   failing suite with tool breakage would confound item 004's failure taxonomy.
+   → ADR-0008 consequence; Goal line struck.
+
+3. **Q:** `ExecutionResult.outcome` would be a *third* sense of "outcome"
+   (`ToolOutcome`, *outcome verification* already exist). Rename?
+   **A:** Yes — the field is `status` (`passed | failed | error | timeout |
+   no_tests`); per-test entries also carry `status`. Also avoid "result" (taken by
+   `ToolSuccess.result` and `RunResult`).
+   *Rationale:* CONTEXT.md's prime directive is one meaning per word.
+   → CONTEXT.md term **status (execution)**; criterion 6 struck and corrected.
+
+4. **Q:** Criterion 11 demands byte-identical serialized `ExecutionResult`s — but
+   tracebacks embed the per-run random temp-dir root and pytest's `-q` summary
+   prints wall-clock seconds (`1 failed in 0.03s`). Unsatisfiable as written?
+   **A:** Yes — record **canonicalized output**: a pure helper replaces the temp
+   root with the `<sandbox>` placeholder and normalizes the pytest timing token
+   before truncation; byte-identity is claimed over the canonicalized record.
+   *Rationale:* the only repair that keeps tracebacks and assertion details (needed
+   by the agent and item 004) while making the MASTER-SPEC hard constraint hold.
+   → ADR-0009; criterion 7 extended.
+
+5. **Q:** Does `ExecutionRequest` carry `timeout_s` or the interpreter?
+   **A:** No — it carries only the immutable file-tree snapshot; timeout and
+   interpreter are edge/executor policy.
+   *Rationale:* keeps the request a pure function of state (the determinism
+   property stays clean) and keeps execution policy out of agent-reachable data.
+   → CONTEXT.md term **ExecutionRequest**.
+
+6. **Q:** The loop receives an `ExecutionRequest` but no executor was configured —
+   `ToolFailure` or crash?
+   **A:** `RuntimeError`: harness misconfiguration, mirroring `workspace.apply`'s
+   registered-but-unimplemented guard.
+   *Rationale:* a harness bug must crash loudly, not gaslight the agent with a fake
+   tool error that then gets graded. → criterion 12 extended.
+
+7. **Q:** Criterion 4 rejects absolute/`..`/empty paths — what about `.` segments,
+   `a//b`, trailing `/`, backslashes, NUL?
+   **A:** Reject them all: POSIX-relative, one canonical spelling per path.
+   *Rationale:* aliasing spellings make two states for one tree and break
+   determinism/state equality; backslash is a legal macOS filename char but a
+   separator on Windows — ban the ambiguity. → criterion 4 extended.
+
+8. **Q:** `write_file("a/b")` when `a` is a file (or `write_file("a")` when `a/b`
+   exists) materializes to an OSError mid-edge — who prevents it?
+   **A:** Pure `write_file` rejects file/directory prefix collisions in both
+   directions as `ToolFailure`.
+   *Rationale:* every reachable state stays materializable by construction (illegal
+   states unrepresentable); the materializer's outside-root refusal remains
+   defensive depth only. → criterion 4 extended.
+
+9. **Q:** JUnit XML reports skipped tests; the spec counted only
+   passed/failed/errors. Drop skips silently?
+   **A:** No — add `skipped` to the counts and the per-test status vocabulary
+   (`passed | failed | error | skipped`). Suite-level mapping unchanged (exit 0
+   with skips ⇒ `passed`).
+   *Rationale:* stdlib task programs may legitimately skip; silent omission
+   misrepresents the run. → criterion 6 corrected.
+
+10. **Q:** "Sorted by test id" — what exactly is the id?
+    **A:** `classname::name` from the JUnit XML testcase attributes — a
+    deterministic reconstruction of the pytest nodeid, used as the sort key.
+    *Rationale:* pins the sort order to data actually present in the XML.
+    → criterion 6 corrected.
+
+11. **Q:** "Fixed byte cap" on stdout/stderr — what number?
+    **A:** 8 KiB (8192 bytes) per stream, head-truncated, explicit truncation
+    marker; a named constant in `records/execution.py`.
+    *Rationale:* generous for `-q` micro-suite output, bounded for record size and
+    the agent's context budget. → criterion 6 corrected.
+
+12. **Q:** Tool result shapes — bare strings or mappings?
+    **A:** The workspace mapping convention: `read_file` → `{"path", "content"}`,
+    `write_file` → `{"path", "created": <bool>}`, `list_files` → `{"paths":
+    [...]}`, `run_tests` → the serialized `ExecutionResult` dict.
+    *Rationale:* every existing tool returns a mapping; uniformity keeps wire
+    rendering and grader evidence consistent. → criterion 3 sharpened.
+
+**Doc impact summary:** CONTEXT.md gains the "Code-world & execution" term cluster
+(code-world, file tree, effect-request, ExecutionRequest, ExecutionResult,
+status (execution), execution edge, sandbox, canonicalized output) plus dialogue
+exchanges; ADR-0008 (effect-request bridge), ADR-0009 (canonicalized output).
