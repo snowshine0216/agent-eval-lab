@@ -14,18 +14,29 @@ timing-dependent, hence nondeterministic): the record carries empty streams
 and exit code -9 (the SIGKILL convention).
 """
 
+import os
 import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 
 from agent_eval_lab.records.execution import (
+    ExecutionResult,
     SuiteStatus,
     TestCaseResult,
     TestStatus,
+    truncate_output,
 )
 
 SANDBOX_PLACEHOLDER = "<sandbox>"
+DEFAULT_TIMEOUT_S = 10.0
+_TIMEOUT_EXIT_CODE = -9
 _TIMING_TOKEN = re.compile(r"in \d+(?:\.\d+)?s\b")
 
 
@@ -84,3 +95,123 @@ def materialize_tree(files: Mapping[str, str], root: Path) -> None:
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(files[path], encoding="utf-8")
+
+
+def _sandbox_env(root: str) -> dict[str, str]:
+    """From-scratch env: never inherits os.environ, so secrets cannot leak."""
+    return {
+        "PYTHONHASHSEED": "0",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "LC_ALL": "C.UTF-8",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC",
+        "HOME": root,
+        "PYTHONPATH": root,
+        "PATH": "/usr/bin:/bin",
+    }
+
+
+def _count(cases: tuple[TestCaseResult, ...], status: str) -> int:
+    return sum(1 for case in cases if case.status == status)
+
+
+def _build_result(
+    *,
+    exit_code: int,
+    cases: tuple[TestCaseResult, ...],
+    stdout: str,
+    stderr: str,
+) -> ExecutionResult:
+    return ExecutionResult(
+        status=suite_status(exit_code),
+        exit_code=exit_code,
+        passed=_count(cases, "passed"),
+        failed=_count(cases, "failed"),
+        errors=_count(cases, "error"),
+        skipped=_count(cases, "skipped"),
+        tests=cases,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def _read_cases(xml_path: Path) -> tuple[TestCaseResult, ...]:
+    if not xml_path.exists():
+        return ()
+    return parse_junit_xml(xml_path.read_text(encoding="utf-8"))
+
+
+def _canonical(stream: bytes, root: Path) -> str:
+    text = stream.decode("utf-8", errors="replace")
+    return truncate_output(canonicalize_output(text, str(root)))
+
+
+def _timeout_result() -> ExecutionResult:
+    return ExecutionResult(
+        status="timeout",
+        exit_code=_TIMEOUT_EXIT_CODE,
+        passed=0,
+        failed=0,
+        errors=0,
+        skipped=0,
+        tests=(),
+        stdout="",
+        stderr="",
+    )
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    """SIGKILL the whole session (start_new_session=True), then reap."""
+    with suppress(ProcessLookupError):
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    process.communicate()
+
+
+def _execute(root: Path, timeout_s: float) -> ExecutionResult:
+    xml_path = root / ".junit.xml"
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        f"--junitxml={xml_path}",
+        "-p",
+        "no:cacheprovider",
+    ]
+    process = subprocess.Popen(
+        command,
+        cwd=root,
+        env=_sandbox_env(str(root)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(process)
+        return _timeout_result()
+    return _build_result(
+        exit_code=process.returncode,
+        cases=_read_cases(xml_path),
+        stdout=_canonical(stdout, root),
+        stderr=_canonical(stderr, root),
+    )
+
+
+def run_pytest(
+    files: Mapping[str, str], timeout_s: float = DEFAULT_TIMEOUT_S
+) -> ExecutionResult:
+    """Run pytest over a materialized file tree; deterministic record out.
+
+    The root is resolved at creation so exactly one path spelling exists
+    (macOS: /private/var/...), making canonicalization a single replacement.
+    """
+    root = Path(tempfile.mkdtemp(prefix="agent-eval-sandbox-")).resolve()
+    try:
+        materialize_tree(files, root)
+        return _execute(root, timeout_s)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

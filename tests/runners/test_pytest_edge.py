@@ -1,5 +1,6 @@
 """Execution edge: pure helpers + sandboxed pytest integration (ADR-0009)."""
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from agent_eval_lab.runners.pytest_edge import (
     canonicalize_output,
     materialize_tree,
     parse_junit_xml,
+    run_pytest,
     suite_status,
 )
 
@@ -86,3 +88,88 @@ def test_materialize_tree_writes_sorted_nested_utf8(tmp_path: Path) -> None:
 def test_materialize_tree_refuses_escape_outside_root(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="outside sandbox"):
         materialize_tree({"../escape.py": "x = 1\n"}, tmp_path)
+
+
+_PASSING_TREE = {
+    "calc.py": "def add(a, b):\n    return a + b\n",
+    "test_calc.py": (
+        "from calc import add\n"
+        "\n"
+        "\n"
+        "def test_add():\n"
+        "    assert add(1, 2) == 3\n"
+    ),
+}
+
+_FAILING_TREE = {
+    "calc.py": "def add(a, b):\n    return a - b\n",
+    "test_calc.py": (
+        "from calc import add\n"
+        "\n"
+        "\n"
+        "def test_add():\n"
+        "    assert add(1, 2) == 3\n"
+        "\n"
+        "\n"
+        "def test_zero():\n"
+        "    assert add(0, 0) == 0\n"
+    ),
+}
+
+
+def _sandbox_dirs() -> set:
+    return set(Path(tempfile.gettempdir()).glob("agent-eval-sandbox-*"))
+
+
+def test_run_pytest_passing_tree() -> None:
+    result = run_pytest(_PASSING_TREE, timeout_s=30.0)
+    assert result.status == "passed"
+    assert result.exit_code == 0
+    assert (result.passed, result.failed, result.errors, result.skipped) == (
+        1,
+        0,
+        0,
+        0,
+    )
+    assert result.tests == (
+        TestCaseResult(test_id="test_calc::test_add", status="passed"),
+    )
+    assert "1 passed in <duration>" in result.stdout
+
+
+def test_run_pytest_failing_tree_reports_per_test_statuses() -> None:
+    result = run_pytest(_FAILING_TREE, timeout_s=30.0)
+    assert result.status == "failed"
+    assert result.exit_code == 1
+    assert (result.passed, result.failed) == (1, 1)
+    assert result.tests == (
+        TestCaseResult(test_id="test_calc::test_add", status="failed"),
+        TestCaseResult(test_id="test_calc::test_zero", status="passed"),
+    )
+    assert "1 failed, 1 passed in <duration>" in result.stdout
+    assert "agent-eval-sandbox-" not in result.stdout
+
+
+def test_run_pytest_cleans_up_its_sandbox() -> None:
+    before = _sandbox_dirs()
+    run_pytest(_PASSING_TREE, timeout_s=30.0)
+    assert _sandbox_dirs() == before
+
+
+def test_sandbox_env_hides_parent_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EVAL_LAB_SENTINEL", "leak-me")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake-secret")
+    tree = {
+        "test_env.py": (
+            "import os\n"
+            "\n"
+            "\n"
+            "def test_clean_env():\n"
+            "    assert 'EVAL_LAB_SENTINEL' not in os.environ\n"
+            "    assert 'OPENROUTER_API_KEY' not in os.environ\n"
+        )
+    }
+    result = run_pytest(tree, timeout_s=30.0)
+    assert result.status == "passed"
