@@ -1,0 +1,12 @@
+{
+  "name": "execution: oracle collection/import error — the agent deleted nothing but the module never existed",
+  "registry": "code_world",
+  "verification": {"type": "execution", "held_out_tests": {"test_oracle_app.py": "from app import handler\n\n\ndef test_handler():\n    assert handler() == 1\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Create util.py."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "util.py", "content": "x = 1\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "util.py", "created": true}}},
+    {"type": "message", "role": "assistant", "content": "Created util.py."}
+  ], "final_state": {"files": {"util.py": "x = 1\n"}}},
+  "expected": {"passed": false, "failure_reason": null}
+}
