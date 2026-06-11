@@ -25,6 +25,8 @@ from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 from agent_eval_lab.reports.comparison import build_comparison_report
 from agent_eval_lab.reports.comparison import render_markdown as render_comparison
+from agent_eval_lab.reports.final import FinalConditionInput, build_final_report
+from agent_eval_lab.reports.final import render_markdown as render_final
 from agent_eval_lab.reports.validation import ConditionInput, build_validation_report
 from agent_eval_lab.reports.validation import render_markdown as render_validation
 from agent_eval_lab.runners.config import (
@@ -234,6 +236,91 @@ def _run_report_validation(args: argparse.Namespace) -> int:
         alpha=args.alpha,
     )
     _atomic_write(args.out, render_validation(report))
+    print(args.out)
+    return 0
+
+
+def _parse_runs_spec_with_condition(spec: str) -> tuple[str, str | None, Path]:
+    """'LABEL=condition_id=path' or 'LABEL=path' -> (label, condition_id, path).
+
+    report-final makes the middle segment LIVE (grill Q11), unlike
+    report-validation's _parse_runs_spec, which discards it. The same
+    left-then-right split keeps any interior '=' inside the condition_id.
+    """
+    label_rest = spec.split("=", 1)
+    if len(label_rest) < 2:
+        raise ValueError(f"bad --runs spec {spec!r}; want LABEL=condition_id=path")
+    label, rest = label_rest
+    cond_or_path, *tail = rest.rsplit("=", 1)
+    if tail:
+        return label, cond_or_path, Path(tail[0])
+    return label, None, Path(cond_or_path)
+
+
+def _derived_condition_id(results: Sequence[RunResult], path: Path) -> str:
+    """The condition_id every record in a runs file agrees on (grill Q11)."""
+    ids = sorted({run.condition_id for run in results})
+    if len(ids) > 1:
+        raise ValueError(f"heterogeneous condition_id in {path}: {ids}")
+    return ids[0]
+
+
+def _load_prices(path: Path) -> tuple[str | None, dict[str, TokenPrice]]:
+    """prices.json: {"snapshot_date", "prices": {condition_id: {input_per_mtok,
+    output_per_mtok}}} — the pinned shape (grill Q11)."""
+    data = json.loads(path.read_text())
+    prices = {
+        condition: TokenPrice(
+            input_per_mtok=entry["input_per_mtok"],
+            output_per_mtok=entry["output_per_mtok"],
+        )
+        for condition, entry in data.get("prices", {}).items()
+    }
+    return data.get("snapshot_date"), prices
+
+
+def _final_condition_input(spec: str) -> FinalConditionInput:
+    label, segment, path = _parse_runs_spec_with_condition(spec)
+    results = _load_run_results(path) if path.exists() else []
+    derived = _derived_condition_id(results, path) if results else None
+    if derived is not None and segment is not None and derived != segment:
+        raise ValueError(
+            f"--runs {label}: condition_id segment {segment!r} does not match "
+            f"the records' {derived!r} in {path}"
+        )
+    return FinalConditionInput(
+        label=label,
+        condition_id=derived or segment,
+        results=results,
+        hosted=_hosted_label(label),
+        blocked_reason=None if results else "no reachable records",
+    )
+
+
+def _run_report_final(args: argparse.Namespace) -> int:
+    tiers = json.loads(args.tiers.read_text())
+    caps = _capability_map(args.dataset)
+    snapshot_date, prices = _load_prices(args.prices)
+    try:
+        conditions = tuple(_final_condition_input(spec) for spec in args.runs)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    report = build_final_report(
+        conditions=conditions,
+        dataset_id=args.dataset.stem,
+        tiers=tiers,
+        capabilities=caps,
+        k=args.k,
+        expected_n_tasks=args.expected_n_tasks,
+        seed=args.seed,
+        n_resamples=args.n_resamples,
+        alpha=args.alpha,
+        prices=prices,
+        prices_snapshot_date=snapshot_date,
+        context_text=args.context_file.read_text(),
+    )
+    _atomic_write(args.out, render_final(report))
     print(args.out)
     return 0
 
@@ -500,6 +587,28 @@ def _build_parser() -> argparse.ArgumentParser:
     rv.add_argument("--n-resamples", type=int, default=2000)
     rv.add_argument("--alpha", type=float, default=0.05)
 
+    rf = subparsers.add_parser(
+        "report-final",
+        help="rebuild the final evaluation report from JSONL (pure, replay-only)",
+    )
+    rf.add_argument(
+        "--runs",
+        required=True,
+        nargs="+",
+        help="one per condition: LABEL=condition_id=path/to/runs-*.jsonl "
+        "(the condition_id segment is cross-checked against the records)",
+    )
+    rf.add_argument("--dataset", required=True, type=Path)
+    rf.add_argument("--tiers", required=True, type=Path)
+    rf.add_argument("--prices", required=True, type=Path)
+    rf.add_argument("--context-file", required=True, type=Path)
+    rf.add_argument("--k", type=int, default=3)
+    rf.add_argument("--expected-n-tasks", type=int, default=15)
+    rf.add_argument("--out", required=True, type=Path)
+    rf.add_argument("--seed", type=int, default=20260610)
+    rf.add_argument("--n-resamples", type=int, default=2000)
+    rf.add_argument("--alpha", type=float, default=0.05)
+
     cc = subparsers.add_parser(
         "compare-configs", help="rebuild the two-config comparison from JSONL (pure)"
     )
@@ -523,6 +632,8 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_calibrate(args, parser, http_client)
     if args.command == "report-validation":
         return _run_report_validation(args)
+    if args.command == "report-final":
+        return _run_report_final(args)
     if args.command == "compare-configs":
         return _run_compare_configs(args)
     return _run_baseline_command(args, parser, http_client)

@@ -964,3 +964,115 @@ def test_run_baseline_connect_error_exits_1_with_provider_and_hint(
     assert "http://localhost:11434/v1" in err
     assert "is the server running?" in err
     assert "Traceback" not in err
+
+
+# ── Item 004: report-final (criteria 15, 19, 20) ─────────────────────────────
+
+
+def _final_report_inputs(tmp_path: Path):
+    tiers = _write_tiers(tmp_path / "tiers.json", {"cr-001": "T1", "cr-002": "T3"})
+    prices = tmp_path / "prices.json"
+    prices.write_text(
+        json.dumps(
+            {
+                "snapshot_date": "2026-06-11",
+                "prices": {
+                    "deepseek:deepseek-v4-pro": {
+                        "input_per_mtok": 0.27,
+                        "output_per_mtok": 1.1,
+                    }
+                },
+            }
+        )
+        + "\n"
+    )
+    context = tmp_path / "v2-context.md"
+    context.write_text("v1/v2 workspace baselines: see committed reports.\n")
+    runs = [
+        *[_mk_run("deepseek:deepseek-v4-pro", "cr-001", i, True) for i in range(3)],
+        *[
+            _mk_run("deepseek:deepseek-v4-pro", "cr-002", i, False, "wrong_args")
+            for i in range(3)
+        ],
+    ]
+    jsonl = _write_runs_jsonl(tmp_path / "runs-deepseek-deepseek-v4-pro.jsonl", runs)
+    return tiers, prices, context, jsonl
+
+
+def _report_final_args(tmp_path, tiers, prices, context, jsonl, out) -> list[str]:
+    return [
+        "report-final",
+        "--runs",
+        f"C1=deepseek:deepseek-v4-pro={jsonl}",
+        f"C4=local:Qwen/Qwen3-8B={tmp_path / 'missing-local.jsonl'}",
+        "--dataset",
+        "examples/datasets/code_repair_v1.jsonl",
+        "--tiers",
+        str(tiers),
+        "--prices",
+        str(prices),
+        "--context-file",
+        str(context),
+        "--k",
+        "3",
+        "--expected-n-tasks",
+        "15",
+        "--n-resamples",
+        "200",
+        "--out",
+        str(out),
+    ]
+
+
+def test_report_final_renders_byte_identically_across_invocations(
+    tmp_path: Path,
+) -> None:
+    tiers, prices, context, jsonl = _final_report_inputs(tmp_path)
+    out_a, out_b = tmp_path / "final-a.md", tmp_path / "final-b.md"
+
+    assert main(_report_final_args(tmp_path, tiers, prices, context, jsonl, out_a)) == 0
+    assert main(_report_final_args(tmp_path, tiers, prices, context, jsonl, out_b)) == 0
+
+    a, b = out_a.read_bytes(), out_b.read_bytes()
+    assert a == b
+    md = a.decode()
+    assert "# Final evaluation report" in md
+    assert "fc-v1" in md
+    assert "| C4 | blocked |" in md  # zero-record condition: blocked, no numbers
+    assert "incomplete" in md  # 2 of 15 expected tasks present
+
+
+def test_report_final_rejects_heterogeneous_runs_file(tmp_path: Path, capsys) -> None:
+    tiers, prices, context, _ = _final_report_inputs(tmp_path)
+    mixed = _write_runs_jsonl(
+        tmp_path / "mixed.jsonl",
+        [
+            _mk_run("deepseek:deepseek-v4-pro", "cr-001", 0, True),
+            _mk_run("glm:Pro/zai-org/GLM-5.1", "cr-001", 1, True),
+        ],
+    )
+    out = tmp_path / "final.md"
+
+    exit_code = main(_report_final_args(tmp_path, tiers, prices, context, mixed, out))
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "heterogeneous" in err
+    assert "Traceback" not in err
+    assert not out.exists()
+
+
+def test_report_final_rejects_condition_segment_mismatch(
+    tmp_path: Path, capsys
+) -> None:
+    tiers, prices, context, jsonl = _final_report_inputs(tmp_path)
+    out = tmp_path / "final.md"
+    args = _report_final_args(tmp_path, tiers, prices, context, jsonl, out)
+    args[2] = f"C1=minimax:MiniMax-M3={jsonl}"  # segment contradicts the records
+
+    exit_code = main(args)
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "minimax:MiniMax-M3" in err and "deepseek:deepseek-v4-pro" in err
+    assert not out.exists()
