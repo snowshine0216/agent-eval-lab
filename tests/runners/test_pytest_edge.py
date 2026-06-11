@@ -97,6 +97,29 @@ def test_materialize_tree_raises_on_casefold_collision(tmp_path: Path) -> None:
         materialize_tree({"a/Foo.py": "x = 1\n", "a/foo.py": "x = 2\n"}, tmp_path)
 
 
+def test_materialize_tree_raises_on_nfc_nfd_collision(tmp_path: Path) -> None:
+    """Defense in depth: NFC and NFD spellings of the same path are unsafe on APFS."""
+    # NFC: U+00E9 precomposed LATIN SMALL LETTER E WITH ACUTE
+    nfc_path = "café.py"
+    # NFD: U+0065 + U+0301 combining LATIN SMALL LETTER E + COMBINING ACUTE ACCENT
+    nfd_path = "café.py"
+    with pytest.raises(RuntimeError, match="collision"):
+        materialize_tree({nfc_path: "x = 1\n", nfd_path: "x = 2\n"}, tmp_path)
+
+
+def test_materialize_tree_raises_on_dir_segment_case_collision(tmp_path: Path) -> None:
+    """Defense in depth: 'A/x.py' and 'a/y.py' collapse on APFS."""
+    with pytest.raises(RuntimeError, match="collision"):
+        materialize_tree({"A/x.py": "x = 1\n", "a/y.py": "y = 2\n"}, tmp_path)
+
+
+def test_materialize_tree_allows_same_dir_distinct_files(tmp_path: Path) -> None:
+    """a/x.py and a/y.py in the same identically-spelled dir is safe."""
+    materialize_tree({"a/x.py": "x = 1\n", "a/y.py": "y = 2\n"}, tmp_path)
+    assert (tmp_path / "a" / "x.py").read_text(encoding="utf-8") == "x = 1\n"
+    assert (tmp_path / "a" / "y.py").read_text(encoding="utf-8") == "y = 2\n"
+
+
 def test_materialize_tree_raises_on_junit_xml_key(tmp_path: Path) -> None:
     """Defense in depth: .junit.xml key must be refused at materialization."""
     with pytest.raises(RuntimeError, match=r"\.junit\.xml"):

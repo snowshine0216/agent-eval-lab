@@ -7,6 +7,7 @@ execution edge. This module performs no I/O. Path canonical-form and
 collision rules make every reachable state materializable by construction.
 """
 
+import unicodedata
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -91,30 +92,66 @@ def _ancestors(path: str) -> tuple[str, ...]:
     return tuple("/".join(segments[:i]) for i in range(1, len(segments)))
 
 
-def _casefold_collision(path: str, files: Mapping[str, str]) -> str | None:
-    """Reject writes whose path case-differs from a distinct existing path."""
-    folded = path.casefold()
+def _canonical(path: str) -> str:
+    """Canonical form: NFC-normalize then casefold. Pure."""
+    return unicodedata.normalize("NFC", path).casefold()
+
+
+def _prefix_collision(new_path: str, existing_path: str) -> bool:
+    """True when new_path and existing_path share a canonically identical prefix
+    at some depth but spell it differently — unsafe on normalization-insensitive
+    (APFS) or case-insensitive filesystems.
+
+    Two paths with the exact same spelling are not a collision (overwrite allowed).
+    Same-spelled directory, different filenames: not a collision.
+    """
+    if new_path == existing_path:
+        return False
+    new_segs = new_path.split("/")
+    exist_segs = existing_path.split("/")
+    shared_depth = min(len(new_segs), len(exist_segs))
+    for i in range(shared_depth):
+        # Build raw prefix up to this segment
+        new_prefix = "/".join(new_segs[: i + 1])
+        exist_prefix = "/".join(exist_segs[: i + 1])
+        if new_prefix == exist_prefix:
+            # Identical prefix so far — no collision at this level
+            continue
+        if _canonical(new_prefix) == _canonical(exist_prefix):
+            # Canonical prefixes match but raw spellings differ — collision
+            return True
+        # Canonical prefixes differ — these paths diverge safely
+        break
+    return False
+
+
+def _prefix_collision_error(path: str, files: Mapping[str, str]) -> str | None:
+    """Reject writes that introduce a canonical prefix collision with any existing path.
+
+    Subsumes the old casefold-only check: catches NFC/NFD pairs and directory-
+    segment case collisions in addition to full-path case differences.
+    Same-spelling overwrites remain allowed.
+    """
     clash = next(
-        (
-            existing
-            for existing in files
-            if existing != path and existing.casefold() == folded
-        ),
+        (existing for existing in files if _prefix_collision(path, existing)),
         None,
     )
     if clash is None:
         return None
-    return f"path collision: {path!r} differs from existing {clash!r} only by case"
+    return (
+        f"path collision: {path!r} and existing {clash!r} "
+        "differ only by normalization or case"
+    )
 
 
 def _collision_error(path: str, files: Mapping[str, str]) -> str | None:
-    """Reject file/directory prefix collisions and case-insensitive collisions."""
+    """Reject file/directory prefix collisions and normalization collisions."""
     if any(existing.startswith(path + "/") for existing in files):
         return f"path collision: {path!r} is a directory in the tree"
     clash = next((p for p in _ancestors(path) if p in files), None)
     if clash is not None:
         return f"path collision: {clash!r} is a file in the tree"
-    return _casefold_collision(path, files)
+    return _prefix_collision_error(path, files)
 
 
 def _read_file(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:

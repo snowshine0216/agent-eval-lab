@@ -281,6 +281,79 @@ def test_write_file_allows_paths_that_merely_contain_junit_xml() -> None:
 # --- end adversarial-review items ---
 
 
+# --- Finding 001: Unicode-normalization and directory-segment collisions ---
+
+
+def test_write_file_rejects_nfc_nfd_collision() -> None:
+    """NFC café.py and NFD café.py are the same file on APFS."""
+    state0: dict = {"files": {}}
+    # NFC: "café.py" — U+00E9 is a precomposed character
+    nfc_path = "café.py"
+    # NFD: "café.py" — U+0065 + U+0301 (combining acute accent)
+    nfd_path = "café.py"
+    state1, outcome1 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": nfc_path, "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome1, ToolSuccess)
+    state2, outcome2 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": nfd_path, "content": "x = 2\n"},
+        state=state1,
+    )
+    assert state2 == state1, "state must not change on rejection"
+    assert isinstance(outcome2, ToolFailure)
+    assert "collision" in outcome2.error.lower()
+
+
+def test_write_file_rejects_directory_segment_case_collision() -> None:
+    """A/x.py then a/y.py: 'A' and 'a' collapse on APFS — must be rejected."""
+    state0: dict = {"files": {}}
+    state1, outcome1 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "A/x.py", "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome1, ToolSuccess)
+    state2, outcome2 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/y.py", "content": "y = 2\n"},
+        state=state1,
+    )
+    assert state2 == state1, "state must not change on rejection"
+    assert isinstance(outcome2, ToolFailure)
+    assert "collision" in outcome2.error.lower()
+
+
+def test_write_file_allows_same_dir_distinct_files() -> None:
+    """a/x.py then a/y.py in the same identically-spelled dir must succeed."""
+    state0: dict = {"files": {}}
+    state1, outcome1 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/x.py", "content": "x = 1\n"},
+        state=state0,
+    )
+    assert isinstance(outcome1, ToolSuccess)
+    state2, outcome2 = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="write_file",
+        arguments={"path": "a/y.py", "content": "y = 2\n"},
+        state=state1,
+    )
+    assert isinstance(outcome2, ToolSuccess)
+    assert "a/x.py" in state2["files"]
+    assert "a/y.py" in state2["files"]
+
+
+# --- end Finding 001 ---
+
+
 def test_registered_but_unimplemented_tool_raises_runtime_error() -> None:
     ghost = ToolDef(
         name="ghost",

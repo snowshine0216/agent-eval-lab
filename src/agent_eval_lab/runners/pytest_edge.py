@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from contextlib import suppress
@@ -78,21 +79,56 @@ def suite_status(exit_code: int) -> SuiteStatus:
     return "error"
 
 
+def _canonical_path(path: str) -> str:
+    """NFC-normalize then casefold — canonical form for collision detection. Pure."""
+    return unicodedata.normalize("NFC", path).casefold()
+
+
+def _has_prefix_collision(path_a: str, path_b: str) -> bool:
+    """True when path_a and path_b share a canonical prefix that is spelled
+    differently in the raw tree — unsafe on APFS (normalization-insensitive,
+    case-insensitive) and analogous filesystems.
+
+    Identical paths are not collisions (same-spelling overwrite is safe).
+    Same-spelled directory with distinct filenames is not a collision.
+    """
+    if path_a == path_b:
+        return False
+    segs_a = path_a.split("/")
+    segs_b = path_b.split("/")
+    shared = min(len(segs_a), len(segs_b))
+    for i in range(shared):
+        prefix_a = "/".join(segs_a[: i + 1])
+        prefix_b = "/".join(segs_b[: i + 1])
+        if prefix_a == prefix_b:
+            continue
+        if _canonical_path(prefix_a) == _canonical_path(prefix_b):
+            return True
+        break
+    return False
+
+
 def _check_tree_invariants(files: Mapping[str, str]) -> None:
-    """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize."""
+    """Defense-in-depth: raise RuntimeError on trees that are unsafe to materialize.
+
+    Checks:
+    - '.junit.xml' reserved key
+    - Any pair of paths whose canonical prefix mapping is non-injective
+      (covers full-path case differences, NFC/NFD pairs, and directory-segment
+      case/normalization collisions).
+    """
     if ".junit.xml" in files:
         raise RuntimeError(
             "refusing to materialize: '.junit.xml' is reserved by the harness"
         )
-    seen: dict[str, str] = {}
-    for path in files:
-        folded = path.casefold()
-        if folded in seen:
-            raise RuntimeError(
-                f"refusing to materialize: case collision between "
-                f"{seen[folded]!r} and {path!r}"
-            )
-        seen[folded] = path
+    paths = list(files)
+    for i, path_a in enumerate(paths):
+        for path_b in paths[i + 1 :]:
+            if _has_prefix_collision(path_a, path_b):
+                raise RuntimeError(
+                    "refusing to materialize: case/normalization collision between "
+                    f"{path_a!r} and {path_b!r}"
+                )
 
 
 def materialize_tree(files: Mapping[str, str], root: Path) -> None:
