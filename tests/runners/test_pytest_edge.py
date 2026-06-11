@@ -233,6 +233,31 @@ def test_run_pytest_timeout_is_structured_and_reaped() -> None:
     assert _sandbox_dirs() == before
 
 
+def test_run_pytest_corrupt_junit_xml_returns_error_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Corrupt JUnit XML must produce an error record, not crash the eval run."""
+    original_read_text = Path.read_text
+
+    def _corrupt_read_text(self: Path, *args, **kwargs) -> str:  # type: ignore[override]
+        text = original_read_text(self, *args, **kwargs)
+        if self.name == ".junit.xml":
+            return "not valid xml <<<"
+        return text
+
+    monkeypatch.setattr(Path, "read_text", _corrupt_read_text)
+
+    result = run_pytest(_PASSING_TREE, timeout_s=30.0)
+
+    assert result.status == "error"
+    assert result.tests == ()
+    assert result.passed == 0
+    assert result.failed == 0
+    assert result.errors == 0
+    assert result.skipped == 0
+    assert "junit-xml-parse-error:" in result.stderr
+
+
 def test_run_pytest_is_byte_identical_across_runs() -> None:
     first = run_pytest(_FAILING_TREE, timeout_s=30.0)
     second = run_pytest(_FAILING_TREE, timeout_s=30.0)

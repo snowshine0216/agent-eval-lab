@@ -139,6 +139,22 @@ def _read_cases(xml_path: Path) -> tuple[TestCaseResult, ...]:
     return parse_junit_xml(xml_path.read_text(encoding="utf-8"))
 
 
+def _xml_parse_error_result(exit_code: int, exc: ET.ParseError) -> ExecutionResult:
+    """Return a structured error record when the JUnit XML is unreadable."""
+    message = truncate_output(f"junit-xml-parse-error: {exc}")
+    return ExecutionResult(
+        status="error",
+        exit_code=exit_code,
+        passed=0,
+        failed=0,
+        errors=0,
+        skipped=0,
+        tests=(),
+        stdout="",
+        stderr=message,
+    )
+
+
 def _canonical(stream: bytes, root: Path) -> str:
     text = stream.decode("utf-8", errors="replace")
     return truncate_output(canonicalize_output(text, str(root)))
@@ -159,10 +175,16 @@ def _timeout_result() -> ExecutionResult:
 
 
 def _kill_process_group(process: subprocess.Popen) -> None:
-    """SIGKILL the whole session (start_new_session=True), then reap."""
-    with suppress(ProcessLookupError):
+    """SIGKILL the whole session (start_new_session=True), then reap.
+
+    PermissionError: os.killpg/getpgid can raise EPERM on rare UID-transition.
+    TimeoutExpired: a grandchild in its own session can inherit the pipes and
+    survive the group SIGKILL, making communicate() block; cap the wait at 2s.
+    """
+    with suppress(ProcessLookupError, PermissionError):
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-    process.communicate()
+    with suppress(subprocess.TimeoutExpired):
+        process.communicate(timeout=2.0)
 
 
 def _execute(root: Path, timeout_s: float) -> ExecutionResult:
@@ -189,9 +211,13 @@ def _execute(root: Path, timeout_s: float) -> ExecutionResult:
     except subprocess.TimeoutExpired:
         _kill_process_group(process)
         return _timeout_result()
+    try:
+        cases = _read_cases(xml_path)
+    except ET.ParseError as exc:
+        return _xml_parse_error_result(process.returncode, exc)
     return _build_result(
         exit_code=process.returncode,
-        cases=_read_cases(xml_path),
+        cases=cases,
         stdout=_canonical(stdout, root),
         stderr=_canonical(stderr, root),
     )
