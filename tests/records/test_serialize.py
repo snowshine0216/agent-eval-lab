@@ -169,3 +169,62 @@ def test_judge_error_round_trips() -> None:
 
     e = JudgeError(kind="http", error="500", prompt_hash="h", judge_model="m")
     assert verdict_from_dict(verdict_to_dict(e)) == e
+
+
+def test_execution_verdict_round_trips_under_its_own_tag() -> None:
+    import json
+
+    from agent_eval_lab.graders.execution import ExecutionVerdict
+    from agent_eval_lab.records.execution import ExecutionResult, TestCaseResult
+    from agent_eval_lab.records.serialize import verdict_from_dict, verdict_to_dict
+
+    v = ExecutionVerdict(
+        result=ExecutionResult(
+            status="failed",
+            exit_code=1,
+            passed=1,
+            failed=1,
+            errors=0,
+            skipped=0,
+            tests=(
+                TestCaseResult(test_id="test_calc::test_add", status="failed"),
+                TestCaseResult(test_id="test_calc::test_zero", status="passed"),
+            ),
+            stdout="1 failed, 1 passed in <duration>",
+            stderr="",
+        ),
+        execution_hash="deadbeef",
+        displaced_paths=("tests/test_app.py",),
+    )
+    data = verdict_to_dict(v)
+    assert data["type"] == "execution_verdict"
+    assert json.loads(json.dumps(data)) == data
+    assert verdict_from_dict(data) == v
+
+
+def test_execution_error_round_trips_under_its_own_tag() -> None:
+    import json
+
+    from agent_eval_lab.records.serialize import verdict_from_dict, verdict_to_dict
+    from agent_eval_lab.runners.oracle_edge import ExecutionError
+
+    e = ExecutionError(
+        kind="tree_collision",
+        detail="agent 'Tests/a' vs oracle 'tests/a'",
+        execution_hash="deadbeef",
+    )
+    data = verdict_to_dict(e)
+    assert data["type"] == "execution_error"
+    assert json.loads(json.dumps(data)) == data
+    assert verdict_from_dict(data) == e
+
+
+def test_judge_legacy_verdict_tag_is_frozen() -> None:
+    from agent_eval_lab.graders.judge import JudgeVerdict
+    from agent_eval_lab.records.serialize import verdict_to_dict
+
+    v = JudgeVerdict(
+        score=4, rationale="r", raw="SCORE: 4", judge_model="m", prompt_hash="h"
+    )
+    # Renaming the legacy tag would break round-trips of existing artifacts.
+    assert verdict_to_dict(v)["type"] == "verdict"
