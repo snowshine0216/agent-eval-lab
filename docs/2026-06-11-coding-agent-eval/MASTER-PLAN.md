@@ -4,7 +4,7 @@ Mode: **backlog** — full per-item pipeline (spec → grill → plan → branch
 Project type: **non-web** — Python CLI/library harness; post-ship verifier is `/verify` (never `/qa`).
 PR shape: **A** (per-item PRs; no `--rollup` in the user's invocation).
 Sonnet override: none (N=4 < 5; spec/grill/plan author on Fable per the model contract).
-Item order: 001, 002, 003, 004 (pending dependency-scan confirmation — see below)
+Item order: 001, 002, 003, 004 (locked 2026-06-11 — dependency-scan dispatch confirmed a strict chain: 001 introduces the code-world + execution edge; 002 consumes it for the grader; 003 needs world + verification; 004 needs the dataset for live runs)
 
 ## Branch strategy
 
