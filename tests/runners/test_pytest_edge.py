@@ -1,10 +1,13 @@
 """Execution edge: pure helpers + sandboxed pytest integration (ADR-0009)."""
 
+from pathlib import Path
+
 import pytest
 
 from agent_eval_lab.records.execution import TestCaseResult
 from agent_eval_lab.runners.pytest_edge import (
     canonicalize_output,
+    materialize_tree,
     parse_junit_xml,
     suite_status,
 )
@@ -66,3 +69,20 @@ def test_suite_status_classifies_pytest_exit_codes(
     exit_code: int, status: str
 ) -> None:
     assert suite_status(exit_code) == status
+
+
+def test_materialize_tree_writes_sorted_nested_utf8(tmp_path: Path) -> None:
+    materialize_tree(
+        {"pkg/mod.py": "x = 'é'\n", "test_mod.py": "import pkg.mod\n"},
+        tmp_path,
+    )
+    written = tmp_path / "pkg" / "mod.py"
+    assert written.read_text(encoding="utf-8") == "x = 'é'\n"
+    assert (tmp_path / "test_mod.py").read_text(encoding="utf-8") == (
+        "import pkg.mod\n"
+    )
+
+
+def test_materialize_tree_refuses_escape_outside_root(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="outside sandbox"):
+        materialize_tree({"../escape.py": "x = 1\n"}, tmp_path)
