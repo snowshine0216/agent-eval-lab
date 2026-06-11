@@ -19,7 +19,18 @@ Evidence (004): grill items/004-grill.md (PASS) · drift items/004-drift.md (PAS
 
 Evidence (004, fix round 1 — harness defect from validity review): the client sent no max_tokens, so the MLX server's 512-token default truncated Qwen3-8B inside its reasoning channel on 30/45 local runs (27 with completion_tokens == 512 exactly), misclassified by fc-v1 as agent_failure/malformed_reply. Fix: explicit `--max-tokens` (default 4096) threaded client→loop→multi_run→CLI and recorded per trajectory + fc-v2 (`token_budget_exhausted`, parse_failure None-guard) — a819ab4 · rerun artifacts C4 45/45 passed (pass@1 0.133→1.000) + C3 minimax retry completed 45/45 (replaces 6-row partial) — 3116c74 · report regenerated under fc-v2 with defect narrative, fc design note (cr-007/cr-014), budget-asymmetry limitation, saturation takeaway; byte-identical re-regeneration (sha256 05139448…) — 3236b3a · CHANGELOG — 0cca10b · gates: 664 tests green (+17), ruff check/format clean.
 
-Run-level: doc-sync ⏳ · final-verify ⏳ · close-out ⏳
+Run-level: doc-sync ✅ (run-doc-sync.md PASS, 3 inline fixes bb025c0) · final-verify ✅ (run-final-verify.md PASS — byte-identical regeneration, 64 conformance/committed-runs tests, MLX live probe) · close-out ✅ 2026-06-12
+
+## Final status
+
+- Items merged: 4/4 — #10 (eb8915b), #11 (56a82b9), #12 (4e908f3), #13 (7fdd04e). Skipped: 0. Blocked: 0.
+- Workflow-completeness audit: PASS (4×{grill, drift, ship, verify, review, pr-review}, qa=0 per non-web XOR, all verdict markers green).
+- Phase 3: 664 tests green, ruff clean; doc-sync PASS; final-verify PASS.
+- Exit gate: final evaluation report at final-evaluation-report.md (byte-deterministic, regeneration command embedded) — presented at close-out.
+- Feature branch: autodev/coding-agent-eval-feature
+- Feature-branch PR: https://github.com/snowshine0216/agent-eval-lab/pull/14
+- Merged into protected branch: no (PR left open for user review)
+- Follow-ups: harder dataset tiers (saturation across all 4 conditions); fc-v3 candidates (row-16 catch-all side, composite-evidence note); policy.py dotted-path residual.
 
 Notes:
 - QA column is ⏭️ for all items — project type is non-web; `/verify` is the post-ship verifier (XOR rule).

@@ -133,20 +133,61 @@ cluster-bootstrap-by-task intervals with paired comparisons and a frozen
 decision rule; Cohen's κ (binary + quadratic-weighted) for annotator
 agreement.
 
-## Weeks 5-6: Coding Agent Evaluation
+## Weeks 5-6: Coding Agent Evaluation — ✅ delivered
 
-Deliver:
+**Status: implemented on `autodev/coding-agent-eval-feature` (2026-06-12, sub-PRs
+#10–#13; roll-up PR open for review).** Harness gates green (664 tests; ruff
+clean). Full run artifacts, committed live runs, and the final evaluation
+report in `docs/2026-06-11-coding-agent-eval/`.
 
-- 10-20 small code-repair tasks;
-- execution-based graders (tests as the oracle);
-- isolated, reproducible task environments;
-- explicit classification of task, agent, and harness failures.
+Delivered:
 
-Engineering focus:
+- ✅ code-world: file-tree state + 4 agent tools over the pure `apply()`
+  pattern; effect-request bridge for mid-trajectory execution (ADR-0008);
+  hermetic pytest sandbox edge with canonicalized, byte-deterministic output
+  (ADR-0009) and an injective canonical-prefix path invariant validated
+  empirically against APFS Unicode/case collisions;
+- ✅ execution-based grading: `ExecutionSpec` with held-out oracle tests,
+  oracle-wins overlay (ADR-0010), execution-hash-keyed verdict map (ADR-0011);
+  reward-hacking hardening with each attack demonstrated red→green
+  (`--noconftest`, reserved startup hooks, harness-owned pytest config);
+- ✅ `code_repair_v1`: 15 reviewed code-repair tasks (tiers 2/4/6/3, 6
+  capabilities × 6 bug classes), oracle/visible disjointness + breadth proven
+  mechanically (ADR-0012), 32-test anti-rote conformance suite in CI;
+- ✅ fc-v2 task/agent/harness failure classification (derived, total,
+  versioned — ADR-0013) + `report-final` command rendering the final
+  evaluation report byte-deterministically from committed runs.
 
-- test-driven development;
-- boundary and integration testing;
-- reproducibility.
+Live results (`code_repair_v1`, k=3 → 45 runs/condition; report in
+`docs/2026-06-11-coding-agent-eval/final-evaluation-report.md`):
+
+| condition | pass@1 | pass^3 | cost (USD) |
+| --- | --- | --- | --- |
+| `deepseek:deepseek-v4-pro` | 1.000 | 1.000 | 0.14 |
+| `glm:Pro/zai-org/GLM-5.1` | 1.000 | 1.000 | 0.27 |
+| `minimax:MiniMax-M3` | 1.000 | 1.000 | 0.12 |
+| `local:Qwen3-8B` (MLX) | 1.000 | 1.000 | — |
+
+The headline finding is methodological: the failure-classification system
+caught a **real harness defect**. The first local capture scored 0.133 with 30
+"agent failures" — diagnosis showed the client sent no `max_tokens`, so the
+MLX server's 512-token default truncated the thinking model inside its
+reasoning channel (27/30 runs at exactly 512 completion tokens). With the
+budget made an explicit eval parameter (4096, recorded per trajectory),
+Qwen3-8B genuinely solves all 15 tasks. Misattribution of harness defects as
+agent failures is precisely what the task/agent/harness split exists to catch.
+
+Takeaway: under the corrected harness every reachable condition saturates
+`code_repair_v1` — visible-failing-test repair of small Python modules is
+in-distribution even for a local 8B model in 2026. The Weeks 3-4 lesson
+repeats one level up: the hardness levers for Weeks 9-10 / 13-14 are deeper
+repair chains, multi-file edits, oblique specs without visible tests, and
+larger n. `openrouter:gpt-5.5` remains excluded (network policy).
+
+Engineering focus (applied): TDD with measured red states and sha-gated plans;
+boundary/integration tests at the subprocess edge; reproducibility as a tested
+contract (byte-identical reports, canonicalized sandbox output, seeded
+bootstrap).
 
 ## Weeks 7-8: Controlled Experiments
 
