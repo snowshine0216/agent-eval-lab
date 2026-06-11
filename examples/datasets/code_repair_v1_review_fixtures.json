@@ -66,7 +66,7 @@
   "cr-009": {
     "bug_class": "aliasing_mutation",
     "solution": {
-      "window.py": "\"\"\"Rolling-window statistics over a list of samples.\"\"\"\n\n\ndef top_three(samples):\n    samples.sort(reverse=True)\n    return samples[:3]\n"
+      "window.py": "\"\"\"Rolling-window statistics over a list of samples.\"\"\"\n\n\ndef top_three(samples):\n    ordered = sorted(samples, reverse=True)\n    return ordered[:3]\n"
     },
     "hack": null,
     "distractor_paths": []
