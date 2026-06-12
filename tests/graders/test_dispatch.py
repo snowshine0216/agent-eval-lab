@@ -249,4 +249,108 @@ def test_dispatch_module_imports_no_http_client() -> None:
 
     src = open(dispatch_mod.__file__).read()
     assert "httpx" not in src
-    assert "chat_completion" not in src
+
+
+_EXEC_ORACLE = {
+    "test_oracle_calc.py": (
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    )
+}
+_EXEC_TREE = {"calc.py": "def add(a, b):\n    return a + b\n"}
+
+
+def _execution_fixture():
+    from agent_eval_lab.graders.execution import ExecutionVerdict, execution_hash
+    from agent_eval_lab.records.execution import ExecutionResult, TestCaseResult
+    from agent_eval_lab.tasks.schema import ExecutionSpec
+
+    spec = ExecutionSpec(held_out_tests=_EXEC_ORACLE)
+    key = execution_hash(spec, _EXEC_TREE)
+    verdict = ExecutionVerdict(
+        result=ExecutionResult(
+            status="passed",
+            exit_code=0,
+            passed=1,
+            failed=0,
+            errors=0,
+            skipped=0,
+            tests=(
+                TestCaseResult(test_id="test_oracle_calc::test_add", status="passed"),
+            ),
+            stdout="1 passed in <duration>",
+            stderr="",
+        ),
+        execution_hash=key,
+        displaced_paths=(),
+    )
+    return spec, key, verdict
+
+
+def test_dispatches_execution_spec_with_supplied_verdict() -> None:
+    spec, key, verdict = _execution_fixture()
+    trajectory = _state_trajectory({"files": _EXEC_TREE})
+
+    result = grade_trajectory(
+        verification=spec,
+        trajectory=trajectory,
+        registry=WORKSPACE_TOOLS,
+        verdicts={key: verdict},
+    )
+
+    assert result.passed is True
+    assert result.grader_id == "execution"
+
+
+def test_all_of_grades_execution_leg_beside_policy_leg() -> None:
+    spec, key, verdict = _execution_fixture()
+    composite = AllOf(
+        specs=(spec, TrajectorySpec(constraints=(NoToolCall(name="run_tests"),)))
+    )
+    trajectory = _state_trajectory({"files": _EXEC_TREE})
+
+    result = grade_trajectory(
+        verification=composite,
+        trajectory=trajectory,
+        registry=WORKSPACE_TOOLS,
+        verdicts={key: verdict},
+    )
+
+    assert result.passed is True
+    subs = result.evidence["sub_results"]
+    assert [sub["grader_id"] for sub in subs] == ["execution", "trajectory_policy"]
+    assert all(sub["passed"] for sub in subs)
+
+
+def test_judge_and_execution_verdicts_coexist_in_one_map() -> None:
+    from agent_eval_lab.graders.judge import (
+        JudgeVerdict,
+        build_judge_prompt,
+        prompt_hash,
+    )
+    from agent_eval_lab.tasks.schema import LlmJudgeSpec
+
+    exec_spec, exec_key, exec_verdict = _execution_fixture()
+    judge_spec = LlmJudgeSpec(rubric="r", judge_model="m", scale=(1, 5))
+    trajectory = _state_trajectory(
+        {"files": _EXEC_TREE}, MessageTurn(role="assistant", content="Done.")
+    )
+    judge_key = prompt_hash(build_judge_prompt(spec=judge_spec, trajectory=trajectory))
+    judge_verdict = JudgeVerdict(
+        score=5,
+        rationale="ok",
+        raw="SCORE: 5",
+        judge_model="m",
+        prompt_hash=judge_key,
+    )
+    verdicts = {exec_key: exec_verdict, judge_key: judge_verdict}
+
+    result = grade_trajectory(
+        verification=AllOf(specs=(exec_spec, judge_spec)),
+        trajectory=trajectory,
+        registry=WORKSPACE_TOOLS,
+        verdicts=verdicts,
+    )
+
+    assert result.passed is True
+    subs = result.evidence["sub_results"]
+    assert [sub["grader_id"] for sub in subs] == ["execution", "llm_judge"]

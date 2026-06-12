@@ -1,0 +1,14 @@
+{
+  "name": "execution: canonical-prefix collision between agent Tests/ and oracle tests/ is a structured non-pass",
+  "registry": "code_world",
+  "verification": {"type": "execution", "held_out_tests": {"tests/test_app.py": "from app import value\n\n\ndef test_value():\n    assert value() == 1\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Make app.value return 1 and add a test."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "app.py", "content": "def value():\n    return 1\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "app.py", "created": false}}},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c2", "name": "write_file", "arguments": {"path": "Tests/test_app.py", "content": "def test_value_placeholder():\n    assert True\n"}}]},
+    {"type": "tool_result", "call_id": "c2", "outcome": {"type": "success", "result": {"path": "Tests/test_app.py", "created": true}}},
+    {"type": "message", "role": "assistant", "content": "Done; tests live in Tests/."}
+  ], "final_state": {"files": {"app.py": "def value():\n    return 1\n", "Tests/test_app.py": "def test_value_placeholder():\n    assert True\n"}}},
+  "expected": {"passed": false, "failure_reason": null}
+}

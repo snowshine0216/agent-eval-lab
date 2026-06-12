@@ -1,0 +1,15 @@
+{
+  "name": "all_of: execution leg beside a trajectory policy leg — both graded, both pass",
+  "registry": "code_world",
+  "verification": {"type": "all_of", "specs": [
+    {"type": "execution", "held_out_tests": {"test_oracle_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"}},
+    {"type": "trajectory", "constraints": [{"type": "no_tool_call", "name": "run_tests"}]}
+  ]},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "Fix calc.add without running the visible tests."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "calc.py", "created": false}}},
+    {"type": "message", "role": "assistant", "content": "Fixed add without running tests."}
+  ], "final_state": {"files": {"calc.py": "def add(a, b):\n    return a + b\n"}}},
+  "expected": {"passed": true, "failure_reason": null}
+}

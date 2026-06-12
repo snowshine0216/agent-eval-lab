@@ -1,0 +1,12 @@
+{
+  "name": "execution: oracle file pytest collects nothing from — an oracle defect surfaced honestly",
+  "registry": "code_world",
+  "verification": {"type": "execution", "held_out_tests": {"test_oracle_empty.py": "HELPER = 1\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "calc.add subtracts; fix it."},
+    {"type": "tool_call", "content": null, "tool_calls": [{"call_id": "c1", "name": "write_file", "arguments": {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"}}]},
+    {"type": "tool_result", "call_id": "c1", "outcome": {"type": "success", "result": {"path": "calc.py", "created": false}}},
+    {"type": "message", "role": "assistant", "content": "Fixed."}
+  ], "final_state": {"files": {"calc.py": "def add(a, b):\n    return a + b\n"}}},
+  "expected": {"passed": false, "failure_reason": null}
+}

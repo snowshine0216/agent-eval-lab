@@ -12,7 +12,7 @@ into reliability and cost numbers. Functional core, imperative shell.
 **VerificationSpec**:
 The tagged union describing how a task is graded. Each variant
 (`OutputMatchSpec`, `ToolCallMatchSpec`, `FinalStateSpec`, `TrajectorySpec`,
-`AllOf`, and later `ExecutionSpec`/`LlmJudgeSpec`) carries only the fields that
+`AllOf`, `LlmJudgeSpec`, and `ExecutionSpec`) carries only the fields that
 variant needs, so illegal states are unrepresentable. It is inert serializable
 data — behavior lives in the pure graders, never on the record.
 _Avoid_: "grader config", "scorer spec", "rubric" (the rubric is a judge
@@ -61,6 +61,8 @@ failed (`malformed_call`, `schema_violation`, `wrong_tool`, …,
 simply does not match (a `StateEquals`/`StateContains`/`OutputMatchSpec` miss)
 carries `failure_reason=None` — it is a missed expectation, not a forbidden
 action.
+The task/agent/harness axis is *not* here — that is **RunClassification**, a
+derived report-time interpretation, never a grade field.
 _Avoid_: adding a category for plain assertion misses; `None` is the category
 for "the answer was wrong, no policy was violated".
 
@@ -111,11 +113,14 @@ distinguishes against. The conformance test enforces "distractor never expected"
 _Avoid_: "filler tool", "decoy" (a distractor must be gradeable, not noise).
 
 **Difficulty knob**:
-A named lever from a closed vocabulary (`multi_step_depth`, `derived_argument`,
-`distractor_count`, `argument_complexity`, `layered_constraint`) that a task
-records in `metadata.difficulty_knob` to declare *the one thing* that makes it
-hard. Long-horizon is a *property* (chain depth via `multi_step_depth` +
-`max_steps`), not a knob of its own.
+A named lever from a closed *per-world dialect* that a task records in
+`metadata.difficulty_knob` to declare *the one thing* that makes it hard.
+Workspace dialect: `multi_step_depth`, `derived_argument`, `distractor_count`,
+`argument_complexity`, `layered_constraint`. Code dialect (code_repair_v1):
+`fault_distance`, `multi_hunk`, `oracle_breadth`, `spec_obliqueness`,
+`constraint_budget`, `distractor_file`. A knob name is never reused across
+dialects with a mutated meaning. Long-horizon is a *property* (chain depth via
+`multi_step_depth` + `max_steps`), not a knob of its own.
 _Avoid_: "hardness", "difficulty level" (the *tier* is the level; the knob is the
 mechanism).
 
@@ -145,18 +150,23 @@ _Avoid_: "hand_authored", "hand-authored", "manual" (synonyms fracture the count
 
 **version (dataset)**:
 The `metadata.version` string naming the *dataset/world generation* a task belongs
-to (`"1"` for v1, `"2"` for v2). Co-varies with `world_template_id`
-(`workspace-v1`/`workspace-v2`). It is the world-revision counter, NOT a per-row
-append-only revision number.
+to (`"1"` for v1, `"2"` for v2). Co-varies with the dataset's `world_template_id`
+family (`workspace-v1`/`workspace-v2`, `code-v1-*`). The counter is scoped to its
+dataset lineage — `workspace_tool_use` and `code_repair` count independently, so
+`code_repair_v1` is not "older" than `workspace_tool_use_v2`. It is the
+world-revision counter, NOT a per-row append-only revision number.
 _Avoid_: "schema version", "row version" (it versions the world+task-set, not the
 record schema).
 
 **world_template_id**:
 The `metadata.world_template_id` naming the parametrized world a task is built on
-(`workspace-v1`, `workspace-v2`). It is the §7 *isolation boundary* for the
-Weeks 9-10 train/dev/held-out splits — a template (and its seed family) belongs to
-exactly one partition. Carried on every task from day one so splits never need
-retrofitting.
+(`workspace-v1`, `workspace-v2`, `code-v1-<program-slug>`). It is the §7
+*isolation boundary* for the Weeks 9-10 train/dev/held-out splits — a template
+(and its seed family) belongs to exactly one partition. Granularity is a
+per-dataset declaration: workspace datasets share one template per generation;
+code_repair_v1 declares one template per task (one program family each) so split
+partitioning never has to treat the dataset as a single block. Carried on every
+task from day one so splits never need retrofitting.
 _Avoid_: "world id", "scenario id" (it names the *template*, not an instance).
 
 **max_steps (task hint)**:
@@ -196,6 +206,57 @@ view keyed by task id; the field, not the ledger, is the source of truth for rev
 coverage.
 _Avoid_: "rubric" alone (the *rubric* is the author's task-validity checklist —
 distinct from the item-003 judge rubric, a known naming hazard).
+
+**sidecar (dataset)**:
+A dataset-adjacent JSON keyed by task id (`*_tiers.json`,
+`*_review_fixtures.json`) carrying data the harness never loads — tiers for the
+report tooling; bug classes and solution/hack/distractor fixtures for conformance
+and review. Sidecars freeze with their dataset version (the append-only convention
+covers them), and a fixtures sidecar joins the Weeks 9-10 never-train manifest
+because it carries solutions.
+_Avoid_: "metadata file" (`TaskMetadata` is the in-row contract; sidecars are
+deliberately outside it), "fixture dataset" (sidecars are not task sets).
+
+**visible tests**:
+The test files present in the agent-visible file tree — basename matching
+`test_*.py`; `*_test.py` basenames are banned so the naming convention equals
+pytest collection. Collected mid-trajectory by `run_tests` and again at the oracle
+run via the combined tree; they prove nothing about the **oracle tests**, whose
+paths are disjoint by policy (ADR-0012). A *prose-only* task has none — its
+initial-tree suite status is `no_tests`.
+_Avoid_: "public tests", "agent tests" (the agent may also *write* tests; visible
+names tree membership, not authorship).
+
+**distractor file**:
+code-world's analog of the **distractor tool**: a correct file in the initial tree
+that plausibly looks at fault. The reference solution leaves it byte-identical and
+an oracle regression test references it, so modifying the red herring is a
+*gradeable* wrong path, never noise.
+_Avoid_: "decoy file", "filler file" (a distractor must be gradeable).
+
+**bug class**:
+The closed per-dataset vocabulary naming the planted defect's species
+(code_repair_v1: `off_by_one`, `logic_inversion`, `exception_handling`,
+`type_coercion`, `boundary_condition`, `aliasing_mutation`), recorded in the
+review-fixtures sidecar and the ledger — never on `TaskMetadata`. Orthogonal to
+capability (evidence source), knob (hardness mechanism), and tier (band).
+_Avoid_: "bug type"; "defect category" (collides with `FailureCategory`).
+
+**hack fixture**:
+The minimal patch that satisfies a task's **visible tests** by special-casing
+their inputs while leaving the program unrepaired. Conformance/review input only
+(it rides the review-fixtures sidecar): it must pass the visible suite and fail
+the oracle, proving oracle breadth mechanically exactly where the taxonomy claims
+overfit resistance (ADR-0012).
+_Avoid_: "cheat solution" (it is an authored fixture, not an agent behavior).
+
+**reference solution**:
+The per-task solution files in the review-fixtures sidecar whose overlay onto the
+initial tree passes both the visible suite and the oracle inside the sandbox
+budget — the mechanical solvability witness. Never rendered into any prompt;
+agents are never compared to it line-by-line.
+_Avoid_: "golden patch", "answer key" (it witnesses solvability, not the unique
+fix).
 
 ### Model-based grading & calibration
 
@@ -270,6 +331,181 @@ human fills the packet.
 _Avoid_: "calibration" unqualified (the real calibration is human-human first);
 treating LLM-LLM κ as a reliability verdict.
 
+### Code-world & execution
+
+**code-world**:
+The second world (after workspace-world): its state is a **file tree** and its
+tools are `read_file`, `write_file`, `list_files`, `run_tests`. Same pure
+`apply` contract as workspace-world; only `run_tests` reaches the **execution
+edge**, via an **effect-request**.
+_Avoid_: "code workspace" (collides with workspace-world), "repo world",
+"sandbox world" (the sandbox is the edge's temp dir, not the world).
+
+**file tree**:
+Code-world's state shape: a flat immutable mapping of POSIX-relative path →
+text content. Every reachable tree is materializable by construction — path
+canonical-form and file/directory-collision rules are enforced by the pure
+tools, so no valid state can fail to land on disk.
+_Avoid_: "filesystem" (that's the materialized temp dir at the edge), "repo",
+"workspace" (taken).
+
+**effect-request**:
+The bridge for a tool whose result requires I/O: pure `apply` returns a
+serializable request describing *what* to execute (in the outcome position,
+instead of a `ToolOutcome`); the runner loop — matching on the request *type*,
+never the tool name — fulfills it at the edge and records the fulfilled result
+on the trajectory as ordinary data. The mid-trajectory generalization of
+ADR-0005's precompute rule (ADR-0008). Replay never re-fulfills: a recorded
+result is data, like a recorded model reply.
+_Avoid_: "thunk", "deferred effect", "callback" (mechanics, not the contract);
+"tool interception" (the rejected name-based alternative).
+
+**ExecutionRequest**:
+The code-world effect-request: a frozen, serializable snapshot of the file tree
+to run tests over. It carries *only* the tree — timeout and interpreter are
+edge policy — so the request stays a pure function of state and the agent
+controls neither.
+_Avoid_: "test request", "exec command".
+
+**ExecutionResult**:
+The structured, deterministic record of one sandboxed pytest run: suite
+**status (execution)**, exit code, counts (passed/failed/errors/skipped),
+per-test statuses sorted by test id, and head-truncated **canonicalized
+output**. Wall-clock duration is deliberately absent — it is the one
+nondeterministic observable.
+_Avoid_: "run result" (that is `RunResult`, the task×condition×grade record),
+"test result" (a per-test entry, not the suite record).
+
+**status (execution)**:
+The closed suite-level literal on an `ExecutionResult`:
+`passed | failed | error | timeout | no_tests` (per-test entries use
+`passed | failed | error | skipped`).
+_Avoid_: "outcome" (already two senses: `ToolOutcome` and *outcome
+verification*).
+
+**execution edge**:
+The single place subprocess/filesystem I/O happens for code-world: materialize
+the file tree into a fresh temp dir, run pinned-interpreter pytest in a
+scrubbed from-scratch environment under a hard timeout, parse the JUnit XML,
+canonicalize the output, clean up in a `finally`. Distinct from the **oracle
+edge**, the grading-side precompute boundary that calls it.
+_Avoid_: "sandbox runner", "test harness" (overloaded).
+
+**sandbox**:
+The throwaway execution environment the edge builds per run: fresh temp dir +
+from-scratch env (no inherited secrets or proxy vars) + process-group kill on
+timeout. Isolation is temp-dir-and-convention level, not kernel level — a
+documented limitation; no containers.
+_Avoid_: "container", "jail" (over-claim kernel isolation).
+
+**canonicalized output**:
+The recorded form of a sandbox run's stdout/stderr: the random temp-dir root
+replaced by the fixed `<sandbox>` placeholder and the pytest timing token
+normalized, then head-truncated at a fixed byte cap with an explicit marker.
+Reproducibility (byte-identical `ExecutionResult`) is claimed over this form,
+never over verbatim output (ADR-0009).
+_Avoid_: "raw output" (verbatim is precisely what is never recorded);
+"scrubbed output" (the *env* is scrubbed; the *record* is canonicalized).
+
+**oracle tests**:
+The held-out test files an `ExecutionSpec` carries (`held_out_tests`:
+POSIX-relative path → content): a file-tree fragment the agent never sees,
+overlaid onto the trajectory's final tree and run at the **oracle edge** as
+the Tier-2 verdict source. Distinct from the **visible tests** the agent runs
+mid-trajectory via `run_tests`, which prove nothing about the oracle; in
+code-repair datasets oracle paths are disjoint from every initial-tree path,
+with breadth proven mechanically rather than by superset (ADR-0012).
+_Avoid_: "hidden tests" (vague), "test suite" unqualified; reusing mid-run
+`run_tests` results as the oracle (they cover only what the agent saw).
+
+**overlay (oracle-wins)**:
+The pure combination of **oracle tests** onto a final **file tree** before the
+grading run: on an exact-path collision the oracle file wins and the agent's
+path is recorded as a **displaced path**; a canonical-prefix collision
+(identical NFC+casefold form, different spelling) is a structured
+`tree_collision` error — a graded record, never a crash (ADR-0010).
+_Avoid_: "merge" (no content merging happens), "agent-wins" (a reward-hack
+vector).
+
+**displaced path**:
+An agent-written path the oracle replaced during the **overlay**. Displacement
+is evidence on the `ExecutionVerdict`, never an automatic fail — the oracle's
+verdict stays the verdict.
+_Avoid_: "shadowed" (suggests the file is merely hidden), "overwritten"
+(suggests mutation; the overlay is pure).
+
+**execution hash**:
+The sha256 over the canonical-JSON rendering of an `ExecutionSpec`'s oracle
+tests and raw timeout plus the final file tree — a pure function of
+`(spec, final_tree)` computable on both sides of the boundary and well-defined
+even when the overlay would collide. It keys the `ExecutionVerdict` in the
+shared verdict map: the execution analogue of the judge's **prompt hash**
+(ADR-0011).
+_Avoid_: "tree hash" (it is not a hash of the combined tree), "cache key" (no
+cache ships; auditability and dedup-by-construction are the point).
+
+**ExecutionVerdict**:
+The serializable record the **oracle edge** precomputes per reachable
+`ExecutionSpec` — the oracle run's `ExecutionResult` plus its **execution
+hash** and **displaced paths** — threaded into the pure `grade_execution`,
+which only reads it. A failed precompute yields a serializable
+`ExecutionError` (`tree_collision` | `harness`) at the same key instead —
+never an exception in the map, mirroring `JudgeVerdict`/`JudgeError`.
+_Avoid_: "execution result" (that is `ExecutionResult`, the suite record it
+wraps); "verdict" alone (which one?).
+
+**oracle edge**:
+The grading-side precompute boundary (`runners/oracle_edge.py`): collect the
+reachable `ExecutionSpec`s, **overlay** each onto the final tree (pure), run
+the **execution edge**'s sandboxed pytest, and emit a verdict map keyed by
+**execution hash** — post-trajectory, because the final tree is only knowable
+then. The execution analogue of the judge edge.
+_Avoid_: "execution edge" (taken — that is `pytest_edge`'s sandbox boundary),
+"grading edge" unqualified.
+
+### Failure classification & final report
+
+**RunClassification (failure classification)**:
+The derived, versioned (`fc-v2`) interpretation layer mapping every graded
+`RunResult` to exactly one of `passed | task_failure | agent_failure |
+harness_failure` plus one closed subcategory, computed at report time from the
+mechanical discriminators already on the record (suite **status (execution)**,
+execution-error kind, stop reason, parse failure, `failure_reason`,
+`max_tokens`). Derived, never stored: it is an interpretation *over* grades,
+not a grade — `GradeResult` and `FailureCategory` are untouched, and a
+classifier-version bump is a pure re-render of committed runs, never a re-run.
+Current version is `fc-v2`, which adds the `token_budget_exhausted` subcategory
+(parse_failure runs where `completion_tokens >= trajectory.max_tokens` indicate
+the reasoning channel was truncated, not a malformed reply) and a None-guard
+for `stop_reason == "parse_failure"` with `parse_failure is None` (harness
+wiring defect → `harness_failure/sandbox_fault`). Artifacts captured before
+`fc-v2` (`trajectory.max_tokens is None`) classify with the pre-budget-check
+path unchanged.
+_Avoid_: "failure taxonomy" (that is `FailureCategory`, the grade-level
+vocabulary); "error class"; storing the classification on `RunResult`.
+
+**world binding**:
+The frozen `(registry, apply_fn, executor)` triple a pure resolver derives from
+a task's `available_tools` by tool-name membership — the dataset row is the
+single source of world truth (workspace-world vs code-world). Tool-name spaces
+are disjoint across worlds by tested invariant; an unknown name, a cross-world
+mix, or an empty tool list refuses to resolve (fail loud, never a silent
+default).
+_Avoid_: "world config", "world flag" (the rejected CLI-flag alternative);
+"environment" (overloaded).
+
+**task-defect candidate**:
+A task id that every non-blocked condition with records for it unanimously
+fails (all recorded runs), flagged by the final report for *human review* —
+never auto-classified as `task_failure`. Conformance already proves
+solvability, oracle breadth, and symptom reality, so unanimity defaults to
+"hard, not defective" pending adjudication. The only *mechanical*
+post-conformance task-defect signal is an empty oracle at grading time
+(suite status `no_tests`).
+_Avoid_: "broken task" (presumes the adjudication); "task failure" unqualified
+(that is the classifier category, which the queue deliberately does not
+assign).
+
 ## Example dialogue
 
 > **Dev:** The task says "close ticket T-1 and don't email anyone". Is that one
@@ -340,3 +576,47 @@ treating LLM-LLM κ as a reliability verdict.
 > an autonomous run, so we ship a **provisional calibration** — `deepseek` vs
 > `glm` as annotators — loudly labeled NOT the human reliability the protocol
 > requires, just proof the pipeline runs.
+>
+> **Dev:** In code-world the agent calls `run_tests` and three tests fail.
+> That's a `ToolFailure`, right?
+>
+> **Domain expert:** No — the tool did its job: it ran the tests and reported.
+> A fulfilled **effect-request** always records a `ToolSuccess` carrying the
+> serialized **ExecutionResult**; its **status** says `failed`. `ToolFailure`
+> is reserved for the pure layer — a bad path, a schema violation. And don't
+> call the suite status the "outcome" — that word is already taken twice.
+>
+> **Dev:** But `apply` is pure. Who actually runs pytest?
+>
+> **Domain expert:** The **execution edge**, and only when the loop fulfills
+> the **ExecutionRequest** that pure `apply` returned. The request is just the
+> **file tree** snapshot — timeout and interpreter are edge policy, not agent
+> data. And replay never re-runs anything: the recorded result is data on the
+> trajectory, exactly like a recorded model reply.
+>
+> **Dev:** The recorded stderr says `<sandbox>/test_foo.py` — that's not the
+> real path. Bug?
+>
+> **Domain expert:** Deliberate — that's **canonicalized output**. The real
+> temp dir is random per run, so verbatim output could never be byte-identical.
+> We canonicalize so reproducibility is a property of the record, then truncate
+> at the cap.
+>
+> **Dev:** Grading time: the agent wrote its own `tests/test_app.py`, and the
+> task's **oracle tests** carry the same path. Who wins?
+>
+> **Domain expert:** The oracle — the **overlay** is oracle-wins, and
+> `tests/test_app.py` is recorded as a **displaced path** in evidence. Anything
+> else lets the agent pre-write a trivial suite at the oracle's path and grade
+> itself. Displacement isn't a fail; the oracle's verdict stays the verdict.
+> But if the agent wrote `Tests/test_app.py` — same canonical path, different
+> spelling — that's a `tree_collision`: the **oracle edge** records a
+> structured `ExecutionError`, the grader emits a non-pass, nothing crashes.
+>
+> **Dev:** And that verdict is keyed how — task id?
+>
+> **Domain expert:** By **execution hash** — sha256 of the oracle tests, the
+> spec's raw timeout, and the final tree. Pure on both sides of the boundary,
+> like the judge's **prompt hash**, and well-defined even when the overlay
+> would collide. Same map, too: `ExecutionVerdict`s and `JudgeVerdict`s coexist
+> in the one `verdicts` mapping, discriminated by type.

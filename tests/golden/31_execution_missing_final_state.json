@@ -1,0 +1,10 @@
+{
+  "name": "execution: missing final_state is a structured not_run non-pass",
+  "registry": "code_world",
+  "verification": {"type": "execution", "held_out_tests": {"test_oracle_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"}},
+  "trajectory": {"turns": [
+    {"type": "message", "role": "user", "content": "calc.add subtracts; fix it."},
+    {"type": "message", "role": "assistant", "content": "I could not access the files."}
+  ], "final_state": null},
+  "expected": {"passed": false, "failure_reason": null}
+}

@@ -133,20 +133,69 @@ cluster-bootstrap-by-task intervals with paired comparisons and a frozen
 decision rule; Cohen's κ (binary + quadratic-weighted) for annotator
 agreement.
 
-## Weeks 5-6: Coding Agent Evaluation
+## Weeks 5-6: Coding Agent Evaluation — ✅ delivered
 
-Deliver:
+**Status: implemented on `autodev/coding-agent-eval-feature` (2026-06-12, sub-PRs
+#10–#13; roll-up PR open for review).** Harness gates green (664 tests; ruff
+clean). Full run artifacts, committed live runs, and the final evaluation
+report in `docs/2026-06-11-coding-agent-eval/`.
 
-- 10-20 small code-repair tasks;
-- execution-based graders (tests as the oracle);
-- isolated, reproducible task environments;
-- explicit classification of task, agent, and harness failures.
+Delivered:
 
-Engineering focus:
+- ✅ code-world: file-tree state + 4 agent tools over the pure `apply()`
+  pattern; effect-request bridge for mid-trajectory execution (ADR-0008);
+  hermetic pytest sandbox edge with canonicalized, byte-deterministic output
+  (ADR-0009) and an injective canonical-prefix path invariant validated
+  empirically against APFS Unicode/case collisions;
+- ✅ execution-based grading: `ExecutionSpec` with held-out oracle tests,
+  oracle-wins overlay (ADR-0010), execution-hash-keyed verdict map (ADR-0011);
+  reward-hacking hardening with each attack demonstrated red→green
+  (`--noconftest`, reserved startup hooks, harness-owned pytest config);
+- ✅ `code_repair_v1`: 15 reviewed code-repair tasks (tiers 2/4/6/3, 6
+  capabilities × 6 bug classes), oracle/visible disjointness + breadth proven
+  mechanically (ADR-0012), 32-test anti-rote conformance suite in CI;
+- ✅ fc-v2 task/agent/harness failure classification (derived, total,
+  versioned — ADR-0013) + `report-final` command rendering the final
+  evaluation report byte-deterministically from committed runs.
 
-- test-driven development;
-- boundary and integration testing;
-- reproducibility.
+Live results (`code_repair_v1`, k=3 → 45 runs/condition; report in
+`docs/2026-06-11-coding-agent-eval/final-evaluation-report.md`):
+
+| condition | pass@1 | pass^3 | cost (USD) |
+| --- | --- | --- | --- |
+| `deepseek:deepseek-v4-pro` | 1.000 | 1.000 | 0.14 |
+| `glm:Pro/zai-org/GLM-5.1` | 1.000 | 1.000 | 0.27 |
+| `minimax:MiniMax-M3` | 1.000 | 1.000 | 0.12 |
+| `local:Qwen3-8B` (MLX) | 1.000 | 1.000 | — |
+
+The headline finding is methodological: the failure-classification system
+caught a **real harness defect**. The first local capture scored 0.133 with 30
+"agent failures" — diagnosis showed the client sent no `max_tokens`, so the
+MLX server's 512-token default truncated the thinking model inside its
+reasoning channel (27/30 runs at exactly 512 completion tokens). With the
+budget made an explicit eval parameter (4096, recorded per trajectory),
+Qwen3-8B genuinely solves all 15 tasks. Misattribution of harness defects as
+agent failures is precisely what the task/agent/harness split exists to catch.
+
+Takeaway — scope the claim carefully: the saturation is a statement about
+**this dataset's shape, not about coding ability**. `code_repair_v1` measures
+the friendliest coding configuration there is: single-concern modules of a few
+dozen lines, a visible failing test that already localizes the bug, the entire
+tree readable in 1-2 `read_file` calls, no reproduction step, no ambiguity,
+and generous step/token budgets. That configuration is in-distribution even
+for a local 8B in 2026. What the set does **not** measure — and where models
+demonstrably diverge — is repo-scale bug localization, prose-only reports
+with no failing test (the agent must write the reproduction first),
+multi-file/multi-hunk coherent edits, long-horizon iterative debugging with
+recovery, and performance under tight budgets. Those axes are the
+`code_repair_v2` design space (Weeks 9-10), and budget itself is now an
+explicit, recorded eval parameter the harness can sweep. `openrouter:gpt-5.5`
+remains excluded (network policy).
+
+Engineering focus (applied): TDD with measured red states and sha-gated plans;
+boundary/integration tests at the subprocess edge; reproducibility as a tested
+contract (byte-identical reports, canonicalized sandbox output, seeded
+bootstrap).
 
 ## Weeks 7-8: Controlled Experiments
 
@@ -154,6 +203,14 @@ Run two pre-specified experiments:
 
 > E1: Does a more precise tool description improve tool-selection accuracy?
 > E2: Which model is most reliable (`pass^3`) at argument extraction, at what cost?
+
+Candidate third experiment (added after Weeks 5-6; uses only existing
+machinery and the now-explicit budget parameters):
+
+> E3: Which difficulty axis actually breaks code-repair — information
+> (visible test vs prose-only report), scope (single-file vs multi-file), or
+> budget (`max_steps` / `max_tokens` frontier curves)? Pre-specified knob
+> ablation on a small hardened task set; pass^3 per (axis × condition).
 
 Deliver:
 
@@ -187,9 +244,16 @@ Deliver:
 
 - a deterministic scripted-user protocol for multi-turn tasks;
 - failure mining from traces into new hard tasks;
+- `code_repair_v2`: a hardened code-repair set built on the Weeks 5-6 axes —
+  prose-only bug reports (no visible failing test; the agent writes the
+  reproduction first), multi-file/multi-hunk fixes, larger trees where
+  localization is the work, deeper repair chains, and tight declared budgets —
+  with the same oracle-breadth and anti-rote conformance bar as v1;
 - leakage-safe splits (isolation by `world_template_id` and seed family) and a
   never-train manifest;
-- a report distinguishing agent limitations from evaluation-system defects.
+- a report distinguishing agent limitations from evaluation-system defects
+  (the Weeks 5-6 truncation episode is the worked example of the
+  harness-failure arm).
 
 ## Weeks 11-12: Portfolio Release #1 (Evaluation)
 

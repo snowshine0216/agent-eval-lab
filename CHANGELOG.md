@@ -7,6 +7,53 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — Weeks 5–6 coding agent evaluation
+
+- Explicit completion budget as an eval parameter (item 004 fix round): the
+  OpenAI-compatible client now requires `max_tokens` and the CLI exposes
+  `--max-tokens` (default 4096) threaded through `run-baseline` →
+  `run_task_k` → `run_single` → `chat_completion`, recorded on every
+  trajectory (`max_tokens`, round-tripped by the serializer; absent on
+  pre-fix artifacts). Closes the harness defect where provider defaults
+  applied silently — the local MLX server's 512-token default truncated
+  Qwen3-8B (a thinking model) inside its reasoning channel on 30/45 runs,
+  misread as agent failures. Rerun under the explicit budget: local
+  condition pass@1 0.133 → 1.000.
+- Failure classifier fc-v2 (ADR-0013): new `token_budget_exhausted`
+  subcategory (agent_failure) for parse_failure runs with
+  `completion_tokens >= trajectory.max_tokens` (closed vocabulary now 16);
+  None-guard classifying `stop_reason=parse_failure` without a recorded
+  `parse_failure` as `harness_failure/sandbox_fault` (fc-v1 raised on this
+  path); old artifacts without `max_tokens` classify exactly as before.
+- Code-world (item 001): in-memory file-tree state with four agent tools
+  (`read_file`, `write_file`, `list_files`, `run_tests`) following the pure
+  `apply()` pattern; `run_tests` returns an `ExecutionRequest` effect-request
+  fulfilled by the runner loop at the edge (ADR-0008).
+- Hermetic pytest execution edge: materializes a file tree into a fresh temp
+  dir, runs pinned-interpreter pytest in a from-scratch scrubbed environment
+  under a hard timeout (process-group SIGKILL), parses JUnit XML into typed
+  per-test records, and canonicalizes output so serialized results are
+  byte-identical across runs (ADR-0009). Corrupt JUnit XML and reserved
+  `.junit.xml` / casefold-colliding paths are rejected deterministically
+  rather than silently mismatching the in-memory world.
+- `code_repair_v1` dataset (item 003): 15 hand-authored, reviewed code-repair
+  tasks (`cr-001`–`cr-015`; tiers 2/4/6/3, 60% T3/T4; 6 capabilities, 6 bug
+  classes, 6 difficulty knobs) over the code-world with held-out oracle tests;
+  visible/oracle disjointness and oracle breadth proven mechanically
+  (ADR-0012), hardcode-style hack fixtures per weak-oracle task, review ledger
+  under `cr-rubric-v1`, sha-frozen sidecars, and a 32-test anti-rote
+  conformance suite running the production oracle edge in CI (no-op agent
+  grades 0/15 by construction).
+- Execution-based grading (item 002): `ExecutionSpec` verification variant
+  carrying held-out oracle tests; oracle-wins overlay over the agent's final
+  tree (ADR-0010); pure `graders/execution.py` consuming a verdict map keyed
+  by `execution_hash` (ADR-0011), precomputed at `runners/oracle_edge.py`;
+  dispatch + JSONL parse/serialize round-trip; 9 golden conformance cases run
+  real sandboxed pytest. Reward-hacking hardening: `--noconftest`, reserved
+  root-level `sitecustomize.py`/`usercustomize.py` startup hooks, oracle
+  secrecy tests; the residual in-process import boundary is documented in
+  ADR-0010.
+
 ### Added — Weeks 3–4 dataset and grader quality
 
 - Live v2 validation: four conditions at k=3 (deepseek-v4-pro 1.000/1.000,

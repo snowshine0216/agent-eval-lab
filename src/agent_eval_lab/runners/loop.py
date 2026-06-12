@@ -1,18 +1,56 @@
-"""EDGE: the model<->tool loop. Holds state, threads it through pure `apply`."""
+"""EDGE: the model<->tool loop. Holds state, threads it through pure `apply`.
+
+Effect-requests (ADR-0008): when a world's apply returns an ExecutionRequest
+in the outcome position, the loop fulfills it through the executor callable —
+matched on the request type, never the tool-name string — and records the
+fulfilled ToolSuccess (serialized ExecutionResult) on the trajectory. A
+fulfilled request is always ToolSuccess, whatever the suite status;
+ToolFailure stays reserved for pure validation.
+"""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import httpx
 
-from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
-from agent_eval_lab.records.turns import MessageTurn, ToolResultTurn, Turn
+from agent_eval_lab.records.execution import (
+    ExecutionRequest,
+    ExecutionResult,
+    execution_result_to_dict,
+)
+from agent_eval_lab.records.trajectory import (
+    NO_CHOICES_ERROR,
+    ParseFailure,
+    Trajectory,
+    Usage,
+)
+from agent_eval_lab.records.turns import (
+    MessageTurn,
+    ToolOutcome,
+    ToolResultTurn,
+    ToolSuccess,
+    Turn,
+)
 from agent_eval_lab.runners.client import chat_completion
 from agent_eval_lab.runners.config import ProviderConfig
 from agent_eval_lab.runners.parse import parse_assistant_payload
 from agent_eval_lab.runners.wire import tooldef_to_openai, turn_to_message
 from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.workspace import ToolDef, apply
+
+ApplyFn = Callable[..., tuple[Mapping[str, Any], ToolOutcome | ExecutionRequest]]
+Executor = Callable[[ExecutionRequest], ExecutionResult]
+
+
+def _fulfill(request: ExecutionRequest, executor: Executor | None) -> ToolSuccess:
+    """Fulfill an effect-request at the edge; always ToolSuccess (ADR-0008)."""
+    if executor is None:
+        raise RuntimeError(
+            "harness misconfiguration: apply returned an ExecutionRequest but "
+            "no executor is configured"
+        )
+    return ToolSuccess(result=execution_result_to_dict(executor(request)))
 
 
 def run_single(
@@ -24,6 +62,9 @@ def run_single(
     run_index: int,
     max_steps: int,
     temperature: float,
+    max_tokens: int,
+    apply_fn: ApplyFn = apply,
+    executor: Executor | None = None,
 ) -> Trajectory:
     state = dict(task.initial_state or {})
     turns: list[Turn] = list(task.input.messages)
@@ -45,6 +86,7 @@ def run_single(
             messages=tuple(turn_to_message(turn) for turn in turns),
             tools=tools,
             temperature=temperature,
+            max_tokens=max_tokens,
             http_client=http_client,
         )
         usage = response.payload.get("usage", {})
@@ -55,7 +97,7 @@ def run_single(
         if not choices:
             parse_failure = ParseFailure(
                 raw=json.dumps(dict(response.payload)),
-                error="no choices in provider response",
+                error=NO_CHOICES_ERROR,
             )
             stop_reason = "parse_failure"
             break
@@ -69,8 +111,16 @@ def run_single(
             stop_reason = "completed"
             break
         for call in parsed.tool_calls:
-            state, outcome = apply(
-                registry=registry, name=call.name, arguments=call.arguments, state=state
+            state, applied = apply_fn(
+                registry=registry,
+                name=call.name,
+                arguments=call.arguments,
+                state=state,
+            )
+            outcome = (
+                _fulfill(applied, executor)
+                if isinstance(applied, ExecutionRequest)
+                else applied
             )
             turns.append(ToolResultTurn(call_id=call.call_id, outcome=outcome))
 
@@ -85,4 +135,5 @@ def run_single(
         stop_reason=stop_reason,
         parse_failure=parse_failure,
         final_state=state,
+        max_tokens=max_tokens,
     )

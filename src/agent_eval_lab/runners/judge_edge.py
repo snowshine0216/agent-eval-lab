@@ -48,6 +48,7 @@ def run_judge(
             messages=messages,
             tools=(),
             temperature=0.0,
+            max_tokens=2048,  # judge responses are short (score + rationale)
             http_client=http_client,
         )
     except httpx.HTTPStatusError as exc:

@@ -260,7 +260,7 @@ def test_parse_accepts_lowercase_score_line() -> None:
 
 
 def test_parse_rejects_bold_markdown_score_line() -> None:
-    """'**SCORE: 4**' is NOT accepted: the asterisks are non-whitespace chars on the
+    r"""'**SCORE: 4**' is NOT accepted: the asterisks are non-whitespace chars on the
     line, so the strict ^\s*SCORE:\s*(\d+)\s*$ pattern does not match — no_score."""
     out = parse_judge_response("The summary.\n**SCORE: 4**", scale=(1, 5))
     assert isinstance(out, JudgeParseFailure)

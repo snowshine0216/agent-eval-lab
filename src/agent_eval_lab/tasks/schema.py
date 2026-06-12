@@ -93,8 +93,22 @@ class LlmJudgeSpec:
     scale: tuple[int, int] = (1, 5)
 
 
-# Weeks 3-4 deterministic tier + the Tier-3 model-based grader (item 003).
-# ExecutionSpec (Weeks 5-6) extends this union later without breaking serialization.
+@dataclass(frozen=True, kw_only=True)
+class ExecutionSpec:
+    """Tier-2 oracle tests: held-out files the agent never sees (ADR-0010).
+
+    `held_out_tests` maps POSIX-relative path -> text content; `timeout_s`
+    is the per-task sandbox budget (None => the edge's DEFAULT_TIMEOUT_S).
+    No expected_status knob exists: pass means suite status == "passed".
+    """
+
+    type: Literal["execution"] = "execution"
+    held_out_tests: Mapping[str, str]
+    timeout_s: float | None = None
+
+
+# The complete tagged union: deterministic tiers (Weeks 1-4), the Tier-3
+# model-based judge (item 003), and the Tier-2 execution oracle (Weeks 5-6).
 VerificationSpec = (
     OutputMatchSpec
     | ToolCallMatchSpec
@@ -102,6 +116,7 @@ VerificationSpec = (
     | TrajectorySpec
     | AllOf
     | LlmJudgeSpec
+    | ExecutionSpec
 )
 
 

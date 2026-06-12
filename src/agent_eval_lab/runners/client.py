@@ -35,18 +35,25 @@ def chat_completion(
     messages: Sequence[Mapping[str, Any]],
     tools: Sequence[Mapping[str, Any]],
     temperature: float,
+    max_tokens: int,
     http_client: httpx.Client,
     max_attempts: int = 3,
     sleep: Callable[[float], None] = time.sleep,
 ) -> ProviderResponse:
     """POST /chat/completions. latency_s covers only the successful attempt;
     retry backoff is deliberately excluded (provider latency, not harness policy).
+
+    max_tokens is an explicit eval parameter — the completion budget must always
+    be stated in the request so provider defaults never apply silently.  Omitting
+    it caused 27/45 local runs to be truncated at the MLX server's 512-token
+    default (item 004 harness defect).
     """
     headers = _headers(config)
     body: dict[str, Any] = {
         "model": config.model_id,
         "messages": list(messages),
         "temperature": temperature,
+        "max_tokens": max_tokens,
     }
     if tools:
         body["tools"] = list(tools)
