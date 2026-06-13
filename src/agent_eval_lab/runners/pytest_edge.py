@@ -55,9 +55,9 @@ from agent_eval_lab.records.execution import (
     ExecutionResult,
     SuiteStatus,
     TestCaseResult,
-    TestStatus,
     truncate_output,
 )
+from agent_eval_lab.runners.junit import parse_junit_xml
 
 SANDBOX_PLACEHOLDER = "<sandbox>"
 DEFAULT_TIMEOUT_S = 10.0
@@ -69,27 +69,6 @@ def canonicalize_output(text: str, root: str) -> str:
     """Replace the sandbox root and pytest timing token (ADR-0009). Pure."""
     return _TIMING_TOKEN.sub("in <duration>", text.replace(root, SANDBOX_PLACEHOLDER))
 
-
-def _case_status(case: ET.Element) -> TestStatus:
-    if case.find("failure") is not None:
-        return "failed"
-    if case.find("error") is not None:
-        return "error"
-    if case.find("skipped") is not None:
-        return "skipped"
-    return "passed"
-
-
-def parse_junit_xml(xml_text: str) -> tuple[TestCaseResult, ...]:
-    """Extract per-test entries sorted by `classname::name`. Pure."""
-    cases = (
-        TestCaseResult(
-            test_id=f"{case.get('classname', '')}::{case.get('name', '')}",
-            status=_case_status(case),
-        )
-        for case in ET.fromstring(xml_text).iter("testcase")
-    )
-    return tuple(sorted(cases, key=lambda case: case.test_id))
 
 
 def suite_status(exit_code: int) -> SuiteStatus:

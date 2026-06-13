@@ -14,6 +14,8 @@ from typing import Any
 
 import httpx
 
+from agent_eval_lab.records.bash import BashRequest, BashResult, bash_result_to_dict
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.execution import (
     ExecutionRequest,
     ExecutionResult,
@@ -39,18 +41,25 @@ from agent_eval_lab.runners.wire import tooldef_to_openai, turn_to_message
 from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.workspace import ToolDef, apply
 
-ApplyFn = Callable[..., tuple[Mapping[str, Any], ToolOutcome | ExecutionRequest]]
-Executor = Callable[[ExecutionRequest], ExecutionResult]
+Effect = ExecutionRequest | BashRequest
+ApplyFn = Callable[..., tuple[Mapping[str, Any], "ToolOutcome | Effect"]]
+Executor = Callable[["Effect"], "ExecutionResult | BashResult"]
 
 
-def _fulfill(request: ExecutionRequest, executor: Executor | None) -> ToolSuccess:
+def _serialize_effect_result(result: "ExecutionResult | BashResult") -> dict:
+    if isinstance(result, BashResult):
+        return bash_result_to_dict(result)
+    return execution_result_to_dict(result)
+
+
+def _fulfill(request: "Effect", executor: Executor | None) -> ToolSuccess:
     """Fulfill an effect-request at the edge; always ToolSuccess (ADR-0008)."""
     if executor is None:
         raise RuntimeError(
-            "harness misconfiguration: apply returned an ExecutionRequest but "
+            "harness misconfiguration: apply returned an effect-request but "
             "no executor is configured"
         )
-    return ToolSuccess(result=execution_result_to_dict(executor(request)))
+    return ToolSuccess(result=_serialize_effect_result(executor(request)))
 
 
 def run_single(
@@ -60,11 +69,13 @@ def run_single(
     config: ProviderConfig,
     http_client: httpx.Client,
     run_index: int,
-    max_steps: int,
     temperature: float,
     max_tokens: int,
     apply_fn: ApplyFn = apply,
     executor: Executor | None = None,
+    run_uid: str | None = None,
+    safety_cap: int = 200,
+    health_probe_fn: "Callable[[], EnvHealth] | None" = None,
 ) -> Trajectory:
     state = dict(task.initial_state or {})
     turns: list[Turn] = list(task.input.messages)
@@ -77,10 +88,16 @@ def run_single(
     prompt_tokens = 0
     completion_tokens = 0
     latency_s = 0.0
+    rounds = 0
+    tool_call_counts: dict[str, int] = {}
     parse_failure: ParseFailure | None = None
-    stop_reason = "max_steps"
+    stop_reason = "completed_natural"
+    safety_cap_bound = False
 
-    for _ in range(max_steps):
+    # Health probe (pre)
+    pre_health = health_probe_fn() if health_probe_fn is not None else None
+
+    while True:
         response = chat_completion(
             config=config,
             messages=tuple(turn_to_message(turn) for turn in turns),
@@ -89,6 +106,7 @@ def run_single(
             max_tokens=max_tokens,
             http_client=http_client,
         )
+        rounds += 1
         usage = response.payload.get("usage", {})
         prompt_tokens += usage.get("prompt_tokens", 0)
         completion_tokens += usage.get("completion_tokens", 0)
@@ -108,9 +126,10 @@ def run_single(
             break
         turns.append(parsed)
         if isinstance(parsed, MessageTurn):
-            stop_reason = "completed"
+            stop_reason = "completed_natural"
             break
         for call in parsed.tool_calls:
+            tool_call_counts[call.name] = tool_call_counts.get(call.name, 0) + 1
             state, applied = apply_fn(
                 registry=registry,
                 name=call.name,
@@ -119,10 +138,31 @@ def run_single(
             )
             outcome = (
                 _fulfill(applied, executor)
-                if isinstance(applied, ExecutionRequest)
+                if isinstance(applied, (ExecutionRequest, BashRequest))
                 else applied
             )
             turns.append(ToolResultTurn(call_id=call.call_id, outcome=outcome))
+        if sum(tool_call_counts.values()) >= safety_cap:
+            stop_reason = "safety_cap"
+            safety_cap_bound = True
+            break
+
+    # Health probe (post)
+    post_health = health_probe_fn() if health_probe_fn is not None else None
+    if pre_health is not None and post_health is not None:
+        env_health = EnvHealth(
+            pre_healthy=pre_health.pre_healthy,
+            pre_status=pre_health.pre_status,
+            post_healthy=post_health.post_healthy,
+            post_status=post_health.post_status,
+        )
+        if not post_health.post_healthy and stop_reason in (
+            "completed_natural",
+            "safety_cap",
+        ):
+            stop_reason = "env_unhealthy"
+    else:
+        env_health = None
 
     return Trajectory(
         turns=tuple(turns),
@@ -136,4 +176,10 @@ def run_single(
         parse_failure=parse_failure,
         final_state=state,
         max_tokens=max_tokens,
+        rounds=rounds,
+        wall_time_s=latency_s,
+        tool_call_counts=tool_call_counts,
+        safety_cap_bound=safety_cap_bound,
+        env_health=env_health,
+        run_uid=run_uid,
     )

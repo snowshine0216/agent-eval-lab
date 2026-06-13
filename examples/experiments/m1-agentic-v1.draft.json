@@ -1,0 +1,329 @@
+{
+  "conditions": [
+    {
+      "condition_id": "deepseek:deepseek-v4-pro",
+      "label": "deepseek",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    },
+    {
+      "condition_id": "glm:Pro/zai-org/GLM-5.1",
+      "label": "glm",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    },
+    {
+      "condition_id": "minimax:MiniMax-M3",
+      "label": "minimax",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    },
+    {
+      "condition_id": "local:qwen3-8b",
+      "label": "local-qwen3-8b",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    },
+    {
+      "condition_id": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "label": "qwen3.5-397b (PROVISIONAL)",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    },
+    {
+      "condition_id": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "label": "qwen3.6-35b (PROVISIONAL)",
+      "skill_variant": "none",
+      "system_prompt_hash": null
+    }
+  ],
+  "dataset_snapshot_hash": "TBD-at-freeze",
+  "experiment_id": "M1-agentic-v1",
+  "families": [
+    {
+      "alpha": 0.05,
+      "correction": "holm",
+      "description": "Pairwise model comparisons on the D-domain primary pass^k.",
+      "id": "m1-pairwise-D-primary"
+    }
+  ],
+  "k": 5,
+  "macro_weights": [
+    {
+      "domain": "F",
+      "weight": 1.0
+    },
+    {
+      "domain": "D",
+      "weight": 1.0
+    },
+    {
+      "domain": "B",
+      "weight": 1.0
+    }
+  ],
+  "max_invalid_rate": 0.4,
+  "metrics": [
+    {
+      "aggregation": "pass_pow_k",
+      "censoring_policy": "failure",
+      "ci_method": "binomial_exact",
+      "domain": "F",
+      "name": "pass_pow_k",
+      "primary": true,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "pass_pow_k",
+      "censoring_policy": "failure",
+      "ci_method": "cluster_bootstrap",
+      "domain": "D",
+      "name": "pass_pow_k",
+      "primary": true,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "pass_pow_k",
+      "censoring_policy": "failure",
+      "ci_method": "cluster_bootstrap",
+      "domain": "B",
+      "name": "pass_pow_k",
+      "primary": true,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "F",
+      "name": "rounds",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "F",
+      "name": "tokens",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "F",
+      "name": "cost_usd",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "F",
+      "name": "wall_time_s",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "D",
+      "name": "rounds",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "D",
+      "name": "tokens",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "D",
+      "name": "cost_usd",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "D",
+      "name": "wall_time_s",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "B",
+      "name": "rounds",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "B",
+      "name": "tokens",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "B",
+      "name": "cost_usd",
+      "primary": false,
+      "validity_mask": true
+    },
+    {
+      "aggregation": "median",
+      "censoring_policy": "right_censored",
+      "ci_method": "none",
+      "domain": "B",
+      "name": "wall_time_s",
+      "primary": false,
+      "validity_mask": true
+    }
+  ],
+  "planned_comparisons": [
+    {
+      "condition_a": "deepseek:deepseek-v4-pro",
+      "condition_b": "glm:Pro/zai-org/GLM-5.1",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "deepseek_vs_glm"
+    },
+    {
+      "condition_a": "deepseek:deepseek-v4-pro",
+      "condition_b": "minimax:MiniMax-M3",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "deepseek_vs_minimax"
+    },
+    {
+      "condition_a": "deepseek:deepseek-v4-pro",
+      "condition_b": "local:qwen3-8b",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "deepseek_vs_local-qwen3-8b"
+    },
+    {
+      "condition_a": "deepseek:deepseek-v4-pro",
+      "condition_b": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "deepseek_vs_qwen3.5-397b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "deepseek:deepseek-v4-pro",
+      "condition_b": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "deepseek_vs_qwen3.6-35b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "glm:Pro/zai-org/GLM-5.1",
+      "condition_b": "minimax:MiniMax-M3",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "glm_vs_minimax"
+    },
+    {
+      "condition_a": "glm:Pro/zai-org/GLM-5.1",
+      "condition_b": "local:qwen3-8b",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "glm_vs_local-qwen3-8b"
+    },
+    {
+      "condition_a": "glm:Pro/zai-org/GLM-5.1",
+      "condition_b": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "glm_vs_qwen3.5-397b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "glm:Pro/zai-org/GLM-5.1",
+      "condition_b": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "glm_vs_qwen3.6-35b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "minimax:MiniMax-M3",
+      "condition_b": "local:qwen3-8b",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "minimax_vs_local-qwen3-8b"
+    },
+    {
+      "condition_a": "minimax:MiniMax-M3",
+      "condition_b": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "minimax_vs_qwen3.5-397b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "minimax:MiniMax-M3",
+      "condition_b": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "minimax_vs_qwen3.6-35b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "local:qwen3-8b",
+      "condition_b": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "local-qwen3-8b_vs_qwen3.5-397b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "local:qwen3-8b",
+      "condition_b": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "local-qwen3-8b_vs_qwen3.6-35b (PROVISIONAL)"
+    },
+    {
+      "condition_a": "siliconflow:Qwen/Qwen3.5-397B-A17B",
+      "condition_b": "siliconflow:Qwen/Qwen3.6-35B-A3B",
+      "domain": "D",
+      "family_id": "m1-pairwise-D-primary",
+      "metric_name": "pass_pow_k",
+      "name": "qwen3.5-397b (PROVISIONAL)_vs_qwen3.6-35b (PROVISIONAL)"
+    }
+  ],
+  "pricing_snapshot_hash": "TBD-at-freeze",
+  "repeats": 1,
+  "safety_cap": 200,
+  "spec_hash": ""
+}

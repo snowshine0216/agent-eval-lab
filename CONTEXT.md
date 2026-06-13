@@ -620,3 +620,149 @@ assign).
 > like the judge's **prompt hash**, and well-defined even when the overlay
 > would collide. Same map, too: `ExecutionVerdict`s and `JudgeVerdict`s coexist
 > in the one `verdicts` mapping, discriminated by type.
+
+---
+
+### Experiments & reliability metrics
+
+**run_uid**:
+The per-run unique identifier stamped on every `Trajectory` and `ExperimentRunRef`:
+`f"{condition_id}__{run_index:04d}"` (e.g. `deepseek:deepseek-v4-pro__0003`).
+Deterministic and human-readable; used as the B-set save-name discriminator
+(`<model>-<condition>-<run_uid>`) and as the join key from `ExperimentRunRef` back
+to the `RunResult` artifact. Distinct from `condition_id` (identifies the model, not
+a specific trial) and `run_index` (an integer within a condition; `run_uid` encodes
+both).
+_Avoid_: "run id" (ambiguous with `run_index`), UUID (the slug is deterministic and
+reproducible from existing fields).
+
+**pass_pow_k**:
+The task-level reliability estimate: the fraction of k *valid* independent trials on
+which the model passes a given task, computed via cluster bootstrap *by task* (where
+cluster count supports it — ≥10 tasks for B-domain). `pass_pow_k` is **only**
+computed over exactly k valid trials per task-condition (D34); a condition that cannot
+reach k valid trials before hitting the void threshold is INCOMPLETE and excluded.
+The F-domain (3 tasks) uses a point estimate with a binomial/exact CI — cluster
+bootstrap is inapplicable.
+_Avoid_: "pass@k" (that is the at-least-one-pass-in-k metric, a different estimand);
+"reliability" alone (the cluster bootstrap is the CI method, not the estimand itself).
+
+**validity mask**:
+The mechanism that excludes env-unhealthy runs from `pass_pow_k` without charging
+them to the model. Each run carries `env_health` (pre/post health-probe results);
+runs where either probe failed are marked *invalid* and excluded. Invalid runs trigger
+a replacement trial immediately (D34) — the harness keeps running trials until exactly
+k valid are obtained. A pre-registered **max invalid-rate** (40%) per condition bounds
+abuse: above it the condition is **VOID** (excluded entirely), so an agent cannot earn
+"invalid" in place of "failed" by wedging the environment.
+_Avoid_: "filtering" (implies post-hoc; replacement trials are live), "exclusion
+criterion" (the mask is structural, not selective post-processing).
+
+**censoring** / **right-censored observation**:
+The dual role of `stop_reason="safety_cap"` (D35): for **success metrics**
+(`pass_pow_k`, task success rate) a safety-cap run is a *task failure* — the model
+did not complete within the operational budget. For **completion-time / efficiency
+distributions** it is a *right-censored observation*: actual duration ≥ cap, true
+value unknown. Both roles are explicit in every `MetricDef`
+(`censoring_policy: "failure" | "right_censored"`). Censored runs are never silently
+dropped or silently counted as successes.
+_Avoid_: "truncation" (the prior framing, retracted; it implied the run was cut off
+by the harness, obscuring the success/efficiency distinction).
+
+**attempt_index**:
+The zero-based count of raw run attempts for a given (task, condition, repeat_index)
+triple, including invalid runs. `attempt_index=0` is the first attempt; if it is
+invalid, `attempt_index=1` is the replacement trial. `repeat_index` counts over
+completed valid trials (0…k−1); `attempt_index` counts over all raw attempts. Both
+are recorded on `ExperimentRunRef` so the replacement-trial history is fully
+reconstructible.
+_Avoid_: "retry index" (retries imply the prior attempt was a *failure*; replacement
+trials are for *invalid* env-unhealthy runs, not model failures).
+
+**environment_failure**:
+The fc-v3 top-level `RunClassification` category (peer to `passed`, `task_failure`,
+`agent_failure`, `harness_failure`) assigned when `env_health.pre_healthy is False`,
+`env_health.post_healthy is False`, or `stop_reason == "env_unhealthy"`. An
+`environment_failure` run is invalid — no `GradeResult` verdict is produced and the
+run is excluded from `pass_pow_k` via the validity mask. Subcategory vocabulary:
+`pre_probe_failed | post_probe_failed | runner_flagged`. Priority in the classifier:
+after parse/harness failure checks, before execution grading.
+_Avoid_: classifying env failures as `harness_failure` (they are first-class); treating
+env failures as model failures (they are never charged to the model).
+
+**ExperimentSpec**:
+The frozen pre-registration record that defines an experiment before any run begins.
+Immutability is enforced by `eval-lab freeze-spec`: a `spec_hash` (SHA256 of the spec
+excluding the hash field itself) is written alongside the spec and verified at every
+run start — any edit after freezing causes a hard failure. Contains: `experiment_id`,
+`k`, `repeats`, `safety_cap`, `max_invalid_rate`, `conditions`, `metrics`,
+`macro_weights`, `multiplicity_correction`, `multiplicity_family`,
+`planned_comparisons`, `dataset_snapshot_hash`, `pricing_snapshot_hash`.
+_Avoid_: "experiment config" (the spec is a *pre-registration*, not runtime config);
+treating it as mutable after freeze.
+
+**MetricDef**:
+A single named measurement declared in `ExperimentSpec`. Fields: `name`, `domain`,
+`primary: bool` (exactly one primary per domain, per D38), `aggregation`
+(`pass_pow_k | mean | median | point_estimate`), `ci_method`
+(`cluster_bootstrap | binomial_exact | none`), `validity_mask: bool`,
+`censoring_policy: Literal["failure", "right_censored"]`. The validity-mask and
+censoring-policy fields make the treatment of invalid and safety-capped runs explicit
+in every aggregate.
+_Avoid_: "metric config"; defining `MetricDef` without `primary` (D38 requires the
+primary metric per domain to be declared at pre-registration).
+
+**ExperimentRunRef**:
+A content-verified reference to a single run's `RunResult` artifact:
+`run_uid`, `artifact_sha256`, `domain`, `repeat_index`, `attempt_index`. It is the
+canonical experiment-persistence unit — the experiment manifest stores a sequence of
+`ExperimentRunRef`s, not embedded `RunResult`s. The SHA256 is verified at hydration
+time; a missing, duplicate, or hash-mismatched run is a hard failure.
+_Avoid_: "foreign key" (it is a *content-verified* reference); embedding `RunResult`
+in the manifest (duplication violates single-ownership).
+
+**ExperimentRunRecord**:
+The in-memory hydrated wrapper: `ref: ExperimentRunRef` + `run: RunResult`. Constructed
+at the I/O edge by hydrating the manifest; exists only in memory for pure analysis.
+`RunResult` remains the canonical owner of `task_id`, `condition_id`, `run_uid`,
+`Trajectory`, `GradeResult`, `passed`, stop reason, usage, cost, rounds, and tool
+counts. `ExperimentRunRecord` adds only the experiment-context fields that cannot be
+derived from `RunResult` alone: `experiment_id`, `spec_hash`, `domain`,
+`repeat_index`, `attempt_index`.
+_Avoid_: flattening `RunResult` fields into `ExperimentRunRecord` (duplicated values
+can drift from the canonical run).
+
+**ExperimentResult**:
+The aggregate metrics output produced by the pure metrics layer over a
+`Sequence[ExperimentRunRecord]`. One record per (experiment, condition, domain,
+metric): `experiment_id`, `spec_hash`, `condition_id`, `domain`, `metric_name`,
+`estimate`, `ci_lower`, `ci_upper`, `ci_method`, `valid_run_count`,
+`invalid_run_count`, `void: bool`. Domain scores plus a pre-registered macro-weighted
+composite; never a raw pool across domains (D23).
+_Avoid_: "per-run result" (that is `RunResult` or `ExperimentRunRecord`); pooling
+F + D + B by raw count (that produces a docs-QA ranking, not a capability assessment).
+
+**MultiplicityFamily**:
+A machine-readable Holm-correction family declared in `ExperimentSpec`:
+`id: str`, `description: str`, `correction: Literal["holm"]`, `alpha: float`.
+Every `PlannedComparison` carries a `family_id` that joins to exactly one
+`MultiplicityFamily`; Holm correction is applied within each family independently.
+`ExperimentSpec` holds `families: tuple[MultiplicityFamily, ...]` — the prose
+`multiplicity_family` string is replaced by this structured tuple so membership is
+machine-checkable, not narrative.
+_Avoid_: storing the multiplicity family as a free-text description (it cannot be
+used to partition comparisons for correction); conflating families across M1 and M2
+(each experiment's comparisons belong to their own family set).
+
+**PlannedComparison**:
+A single pre-registered two-sided comparison in `ExperimentSpec`:
+`name: str`, `family_id: str`, `domain: Domain`, `condition_a: str`,
+`condition_b: str`, `metric_name: str`. All comparisons are two-sided — no
+`direction` field. The reported effect is defined as
+`effect = metric(condition_b) - metric(condition_a)` consistently across all
+comparisons. For M2, `condition_a = noskill` and `condition_b = skill`, so
+a positive effect is an improvement and a negative effect is a detectable
+regression — both are surfaced.
+_Avoid_: one-sided tests in this harness (they conceal statistically significant
+regressions; only add directional tests when a defensible preregistered one-sided
+estimand exists); defining effect direction inconsistently across comparisons.

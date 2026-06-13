@@ -46,6 +46,8 @@ Requirements:
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
+- Node.js 18+ and npm — required for browser-based eval (Weeks 7–10)
+- [`playwright-cli`](https://github.com/microsoft/playwright-cli) — browser automation for D-set and B-set tasks
 
 ```bash
 uv sync --dev
@@ -53,6 +55,26 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+### Browser-based eval prerequisites (Weeks 7–10)
+
+Install `playwright-cli` once before running any D-set or B-set eval:
+
+```bash
+npm install -g @playwright/cli@latest
+playwright-cli install --skills   # loads browser interaction skills into agent context
+```
+
+Run the environment preflight check before starting an eval session — it verifies
+`playwright-cli` is installed and the MSTR environment is reachable:
+
+```bash
+uv run python -m agent_eval_lab.cli check-env
+```
+
+A passing preflight prints the `playwright-cli` version, confirms the MSTR
+auth-login probe returned 2XX/3XX, and exits 0. Any failure exits non-zero with a
+diagnostic message — do not start an eval session until `check-env` passes.
 
 Run the tool-use baseline against any configured provider:
 

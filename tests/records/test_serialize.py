@@ -1,3 +1,4 @@
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.serialize import (
     grade_result_to_dict,
@@ -248,3 +249,83 @@ def test_judge_legacy_verdict_tag_is_frozen() -> None:
     )
     # Renaming the legacy tag would break round-trips of existing artifacts.
     assert verdict_to_dict(v)["type"] == "verdict"
+
+
+def test_trajectory_round_trips_all_new_fields() -> None:
+    health = EnvHealth(
+        pre_healthy=True, post_healthy=False, pre_status=200, post_status=503
+    )
+    trajectory = Trajectory(
+        turns=TURNS,
+        usage=Usage(prompt_tokens=12, completion_tokens=7, latency_s=0.25),
+        run_index=2,
+        stop_reason="env_unhealthy",
+        rounds=4,
+        wall_time_s=9.5,
+        tool_call_counts={"bash": 3, "search_docs": 1},
+        safety_cap_bound=False,
+        env_health=health,
+        run_uid="deepseek:deepseek-v4-pro__0002",
+        max_tokens=4096,
+    )
+    restored = trajectory_from_dict(trajectory_to_dict(trajectory))
+    assert restored == trajectory
+    assert restored.schema_version == "2"
+
+
+def test_safety_cap_trajectory_round_trips() -> None:
+    trajectory = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="safety_cap",
+        rounds=200,
+        tool_call_counts={"bash": 200},
+        safety_cap_bound=True,
+    )
+    restored = trajectory_from_dict(trajectory_to_dict(trajectory))
+    assert restored.stop_reason == "safety_cap"
+    assert restored.safety_cap_bound is True
+
+
+def test_v1_dict_without_schema_version_loads_as_v1_with_defaults() -> None:
+    # Exactly the on-disk shape of docs/2026-06-11-coding-agent-eval/runs/*.jsonl.
+    v1 = {
+        "turns": [{"type": "message", "role": "user", "content": "hi"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "latency_s": 0.5},
+        "run_index": 0,
+        "stop_reason": "completed",
+        "parse_failure": None,
+        "final_state": None,
+    }
+    t = trajectory_from_dict(v1)
+    assert t.schema_version == "1"
+    assert t.rounds == 0
+    assert t.tool_call_counts == {}
+    assert t.env_health is None
+    assert t.run_uid is None
+    assert t.safety_cap_bound is False
+
+
+def test_v2_dict_round_trip_is_idempotent_on_disk_keys() -> None:
+    health = EnvHealth(
+        pre_healthy=False, post_healthy=False, pre_status=None, post_status=503
+    )
+    trajectory = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="env_unhealthy",
+        env_health=health,
+        run_uid="local:qwen3-8b__0000",
+    )
+    d = trajectory_to_dict(trajectory)
+    assert d["schema_version"] == "2"
+    assert d["env_health"] == {
+        "pre_healthy": False,
+        "post_healthy": False,
+        "pre_status": None,
+        "post_status": 503,
+    }
+    assert d["run_uid"] == "local:qwen3-8b__0000"
+    assert d["tool_call_counts"] == {}

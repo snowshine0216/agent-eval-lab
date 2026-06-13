@@ -133,14 +133,13 @@ def test_loop_fulfills_execution_request_as_tool_success() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=code_world_apply,
         executor=executor,
     )
 
-    assert trajectory.stop_reason == "completed"
+    assert trajectory.stop_reason == "completed_natural"
     result_turn = trajectory.turns[2]
     assert isinstance(result_turn, ToolResultTurn)
     expected = ToolSuccess(result=execution_result_to_dict(STUB_RESULT))
@@ -160,7 +159,6 @@ def test_failing_suite_is_still_tool_success() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=code_world_apply,
@@ -189,7 +187,6 @@ def test_fulfillment_matches_request_type_not_tool_name() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=request_for_any_tool,
@@ -210,7 +207,6 @@ def test_execution_request_without_executor_raises_runtime_error() -> None:
             config=CONFIG,
             http_client=client,
             run_index=0,
-            max_steps=4,
             temperature=0.0,
             max_tokens=4096,
             apply_fn=code_world_apply,
@@ -231,7 +227,6 @@ def test_pure_validation_still_fails_as_tool_failure() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=code_world_apply,
@@ -256,7 +251,6 @@ def test_executor_exception_propagates_out_of_run_single() -> None:
             config=CONFIG,
             http_client=client,
             run_index=0,
-            max_steps=4,
             temperature=0.0,
             max_tokens=4096,
             apply_fn=code_world_apply,
@@ -276,7 +270,6 @@ def test_loop_with_real_edge_records_failed_suite() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=code_world_apply,
@@ -310,7 +303,6 @@ def test_execute_request_fulfills_run_tests_through_the_loop() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
         apply_fn=code_world_apply,
@@ -322,3 +314,22 @@ def test_execute_request_fulfills_run_tests_through_the_loop() -> None:
     assert outcome.result["status"] == "failed"
     assert outcome.result["exit_code"] == 1
     assert "<sandbox>" in outcome.result["stdout"] or outcome.result["stdout"]
+
+
+# ── Task 4 (item 005 DEC-2): BashRequest routing through _fulfill ──────────
+
+
+def test_fulfill_routes_a_bash_request():
+    from agent_eval_lab.records.bash import BashRequest, BashResult, bash_result_to_dict
+    from agent_eval_lab.runners.loop import _fulfill
+
+    def executor(req):
+        assert isinstance(req, BashRequest)
+        return BashResult(stdout="hi", stderr="", exit_code=0, timed_out=False)
+
+    out = _fulfill(BashRequest(command="playwright-cli -s=S open http://x"), executor)
+    # A fulfilled effect-request is always ToolSuccess (ADR-0008); the result is
+    # the serialized BashResult dict.
+    assert out.result == bash_result_to_dict(
+        BashResult(stdout="hi", stderr="", exit_code=0, timed_out=False)
+    )

@@ -1,0 +1,77 @@
+Here are differentiated tasks based specifically grounded in this Introduction page and its linked sections. They move from simple lookup to multi‑step reasoning and synthesis.
+
+Level 1 – Basic Lookup & Orientation
+
+1. Identify what Strategy Customer Managed Cloud (CMC) is and summarize its purpose in one sentence using only information from this page.
+
+2. From the Support Matrix, find the recommended Kubernetes version and explain in one short sentence why that value is important for someone planning a deployment.
+
+3. Using the Architecture section, answer: “Which infrastructure domain is operated and managed by Strategy, and which is operated and managed by the customer?”
+
+Level 2 – Structured Information Retrieval
+
+4. From the Kubernetes Cluster Layout Overview, list the three namespaces and, for each, state its primary role (e.g., control plane vs application workloads), using at most one sentence per namespace.
+
+5. In the Hybrid Responsibility Model table, determine which responsibilities are on Strategy and which are on the customer. Reformulate the table as two bullet points: “Strategy is responsible for…” and “Customer is responsible for…”, using only the information given.
+
+6. Using Step 2 — Configure Infrastructure Prerequisites, separate the components into two groups:
+
+ ▫ components that are mandatory,
+
+ ▫ components marked Optional.
+Explain why the optional components might still be critical for some deployments.
+
+Level 3 – Cross‑Section Reasoning Tasks
+
+7. Using the Architecture section and the Kubernetes Cluster Layout Overview, map each of these to its likely namespace and responsibility boundary:
+
+ ▫ Management Console
+
+ ▫ Redis Cluster
+
+ ▫ Strategy AI
+
+ ▫ Intelligence Server
+For each item, state: infrastructure domain (Strategy Managed / Customer Managed) and namespace (Management Layer / Managed Prerequisites / Environment), and justify your answer in 1–2 sentences.
+
+8. Based on Deployment Flow (Steps 1 → 6), explain how artifacts move from the Strategy Managed Infrastructure to actual Application Workloads. Your answer should explicitly reference:
+
+ ▫ Strategy Service Portal
+
+ ▫ Artifact Registry
+
+ ▫ MSTRCLI
+
+ ▫ Management Layer
+
+ ▫ Environment Namespace
+
+9. From the Support Matrix, identify all components related to observability or traffic control (e.g., monitoring, logging, service mesh, network policy, load balancing). Then explain how these together would help operate CMC in production.
+
+Level 4 – Scenario & Design Tasks
+
+10. Imagine a customer who wants Strategy to manage as much as possible while still keeping infrastructure in their own cloud. Using the Hybrid Responsibility Model, Managed Prerequisites Namespace, and Support Matrix, describe:
+
+ ▫ Which services they should rely on Strategy to manage (be specific: Redis, Search, etc.).
+
+ ▫ Which pieces they are still fully responsible for designing, deploying, and operating themselves.
+
+11. You have a Kubernetes cluster that is currently on version 1.32, Redis 6, and no service mesh. Using only information from this page, describe what you would check or upgrade before installing CMC, and in what rough order, referencing the Support Matrix and Step 2 — Configure Infrastructure Prerequisites.
+
+12. Design a minimal high‑level runbook (not step‑by‑step commands, just logical phases) for going from “no CMC installed” to “AI‑enabled Strategy dashboards available to users.” Your runbook must:
+
+ ▫ Follow the Steps 1–6 in order,
+
+ ▫ Explicitly mention which parts are CLI‑driven vs Web UI‑driven,
+
+ ▫ Note where customer networking/storage decisions are required.
+
+Level 5 – Evaluation & Critical Understanding
+
+13. Using the Hybrid Responsibility Model and Architecture descriptions, argue whether CMC is closer to a SaaS, PaaS, or self‑hosted product. Justify your answer using only phrases and responsibilities explicitly present on this page (e.g., who manages upgrades, who owns infrastructure).
+
+14. Propose how you would verify that an installation meets the recommended versions from the Support Matrix and has all prerequisites from Step 2 correctly configured, using only what is suggested or implied in this Introduction page (e.g., use of MSTRCLI, Management Console, or external tooling where clearly implied).
+
+15. Suppose an environment is experiencing slow dashboard performance. Using only components mentioned on this page, list at least three places or services you would investigate (e.g., Intelligence Server, Redis, Search, Platform Analytics, Load Balancer, Database), and briefly explain for each why it might contribute to performance issues.
+
+These should let you probe everything from simple retrieval (“what is CMC?”) to deeper comprehension, cross‑page navigation, and architecture reasoning based strictly on this documentation entry point.

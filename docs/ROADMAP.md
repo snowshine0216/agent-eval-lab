@@ -188,7 +188,8 @@ demonstrably diverge — is repo-scale bug localization, prose-only reports
 with no failing test (the agent must write the reproduction first),
 multi-file/multi-hunk coherent edits, long-horizon iterative debugging with
 recovery, and performance under tight budgets. Those axes are the
-`code_repair_v2` design space (Weeks 9-10), and budget itself is now an
+`code_repair_v2` design space (folded into the Weeks 7-10 agentic-eval phase as the
+feature-implementation capability), and budget itself is now an
 explicit, recorded eval parameter the harness can sweep. `openrouter:gpt-5.5`
 remains excluded (network policy).
 
@@ -197,29 +198,64 @@ boundary/integration tests at the subprocess edge; reproducibility as a tested
 contract (byte-identical reports, canonicalized sandbox output, seeded
 bootstrap).
 
-## Weeks 7-8: Controlled Experiments
+## Weeks 7-10: Use-Case-Geared Agentic Eval (`agentic_v1`)
 
-Run two pre-specified experiments:
+Re-sequenced (2026-06-12). The original Weeks 7-8 (controlled experiments) and
+Weeks 9-10 (multi-turn + `code_repair_v2` + leakage splits) fold into one phase,
+which was then **re-aimed at the owner's real workflow** — *understand provided
+context → plan → implement a feature and/or manipulate a browser → summarize →
+execute.* Full design and decision log:
+[superpowers/specs/2026-06-12-use-case-agentic-eval-design.md](superpowers/specs/2026-06-12-use-case-agentic-eval-design.md)
+(supersedes the earlier hard-substrate spec, whose differentiation thesis it keeps).
 
-> E1: Does a more precise tool description improve tool-selection accuracy?
-> E2: Which model is most reliable (`pass^3`) at argument extraction, at what cost?
+Primary deliverable: **model characterization** — *which model performs best on my
+cases, and at what rounds / tokens / cost.* Reliability + efficiency, not single-run
+accuracy. Axis ablation (the old E3) is **deferred** until characterization shows
+which axis breaks models.
 
-Candidate third experiment (added after Weeks 5-6; uses only existing
-machinery and the now-explicit budget parameters):
+Key reframes from the brainstorm:
 
-> E3: Which difficulty axis actually breaks code-repair — information
-> (visible test vs prose-only report), scope (single-file vs multi-file), or
-> budget (`max_steps` / `max_tokens` frontier curves)? Pre-specified knob
-> ablation on a small hardened task set; pass^3 per (axis × condition).
+- **Drop the information axis** — "more/better context → better performance" is
+  settled; re-confirming it wastes eval budget.
+- **Budget is measured, not imposed** — no truncation; record rounds, tokens, cost,
+  wall-time, run to natural completion behind a generous safety cap only (the Weeks
+  5-6 truncation lesson applied).
+- **Raise the bar** — long-horizon, planning-heavy, multi-step, *diverse* tasks;
+  single-bug repairs are out. Code work survives as feature-implementation
+  (multi-file, long-horizon), one capability among several.
+- **Add browser use** on the owner's **real local service via Playwright headless**;
+  determinism comes from a version-pinned service (the MSTR docs site, 24.12), so
+  `pass^k` stays valid on that surface; dynamic/live pages are a separate, non-headline
+  mode.
+- **Grade with a verifiable backbone + judged residue** — headline = verifiable
+  end-state (tests pass / target browser state / ground-truth facts); a *calibrated*
+  judge scores subjective quality (summary fidelity, design) alongside, never the
+  pass/fail.
 
-Deliver:
+`agentic_v1` capabilities (diverse by construction): **feature** (real engineering
+tickets in the owner's real local repo `web-dossier` — e.g. wdio suite hardening),
+**browser** (drive the owner's local service headless via Playwright — find info /
+change state), **research** (read context, summarize, answer), **composite** (chains
+them — the real workflow shape). Grading stays deterministic via per-task sub-checks
+even where the full wdio suite depends on a live (non-deterministic) backend.
 
-- hypothesis and metric definitions (`ExperimentSpec`);
-- development and held-out splits;
-- repeated trials with cluster-bootstrap confidence intervals;
-- multiple-testing control (Holm / Bonferroni);
-- trace-based failure analysis;
-- an Inspect AI harness conformance check.
+Build first (tracer milestone):
+
+- a **repo task adapter** (run/grade `web-dossier` wdio tasks at the edge) + a
+  **deterministic sub-check harness** — the first cases F1/F2/F3 each grade without
+  the live Intelligence Server (F3 is a pure function over a recorded request set);
+- a **Playwright headless** browser tool surface + extraction/target-state grading;
+- a long-horizon multi-tool runner with **no truncation** + rounds/tokens/cost/
+  wall-time recording;
+- the composite-task schema + verifiable-backbone grading + judged-residue scaffold;
+- a **diverse tracer set** — F1/F2/F3 + the owner's first browser asks (info-finding
+  on the docs site) + ≥1 research/composite;
+- the **M1 characterization report** — model leaderboard + success-vs-cost / -rounds /
+  -tokens Pareto charts, cluster-bootstrap CIs, fc-v2 failure taxonomy.
+
+Deferred (with the owner): the full hard-case set (owner-supplied), judge calibration,
+live-web mode, E3 axis ablation; the multi-turn scripted-user protocol and
+leakage-safe splits remain scheduled but subordinate.
 
 Statistics focus:
 
@@ -227,33 +263,6 @@ Statistics focus:
 - bootstrap confidence intervals;
 - regression fundamentals;
 - multiple-testing risk.
-
-## Weeks 9-10: Multi-Turn Failure Modes and Leakage-Safe Splits
-
-Add tasks for:
-
-- incorrect tool selection;
-- incorrect argument extraction;
-- premature termination;
-- repeated or looping actions;
-- forgotten earlier instructions;
-- failure recovery;
-- grader exploitation.
-
-Deliver:
-
-- a deterministic scripted-user protocol for multi-turn tasks;
-- failure mining from traces into new hard tasks;
-- `code_repair_v2`: a hardened code-repair set built on the Weeks 5-6 axes —
-  prose-only bug reports (no visible failing test; the agent writes the
-  reproduction first), multi-file/multi-hunk fixes, larger trees where
-  localization is the work, deeper repair chains, and tight declared budgets —
-  with the same oracle-breadth and anti-rote conformance bar as v1;
-- leakage-safe splits (isolation by `world_template_id` and seed family) and a
-  never-train manifest;
-- a report distinguishing agent limitations from evaluation-system defects
-  (the Weeks 5-6 truncation episode is the worked example of the
-  harness-failure arm).
 
 ## Weeks 11-12: Portfolio Release #1 (Evaluation)
 

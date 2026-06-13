@@ -1,13 +1,20 @@
-"""Hypothesis totality: fc-v1 never raises, always a closed category (crit. 6)."""
+"""Hypothesis totality: fc-v3 never raises, always a closed category (crit. 6)."""
 
 from hypothesis import given
 from hypothesis import strategies as st
 
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
 from agent_eval_lab.reports.classify import RunClassification, classify_run
 
-_CATEGORIES = {"passed", "task_failure", "agent_failure", "harness_failure"}
+_CATEGORIES = {
+    "passed",
+    "task_failure",
+    "agent_failure",
+    "harness_failure",
+    "environment_failure",
+}
 
 # Keys and atoms are biased toward the discriminators the table reads, so the
 # search space is dense in realistic-but-adversarial evidence shapes — and a
@@ -94,6 +101,14 @@ _parse_failures = st.none() | st.builds(
     error=st.text(max_size=40) | st.just("no choices in provider response"),
 )
 
+_env_healths = st.none() | st.builds(
+    EnvHealth,
+    pre_healthy=st.booleans(),
+    post_healthy=st.booleans(),
+    pre_status=st.none() | st.integers(min_value=100, max_value=599),
+    post_status=st.none() | st.integers(min_value=100, max_value=599),
+)
+
 _trajectories = st.builds(
     Trajectory,
     turns=st.just(()),
@@ -104,10 +119,20 @@ _trajectories = st.builds(
         latency_s=st.just(0.0),
     ),
     run_index=st.just(0),
-    stop_reason=st.sampled_from(["completed", "max_steps", "parse_failure"]),
+    stop_reason=st.sampled_from(
+        [
+            "completed",
+            "max_steps",
+            "parse_failure",
+            "completed_natural",
+            "safety_cap",
+            "env_unhealthy",
+        ]
+    ),
     parse_failure=_parse_failures,
     final_state=st.none() | st.just({"files": {}}),
     max_tokens=st.none() | st.integers(min_value=1, max_value=8192),
+    env_health=_env_healths,
 )
 
 _runs = st.builds(
@@ -126,7 +151,7 @@ def test_classify_run_is_total_and_closed(run: RunResult) -> None:
     assert isinstance(classification, RunClassification)
     assert classification.category in _CATEGORIES
     assert (classification.category == "passed") == (classification.subcategory is None)
-    assert classification.classifier_version == "fc-v2"
+    assert classification.classifier_version == "fc-v3"
     assert "\n" not in classification.detail
 
 

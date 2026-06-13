@@ -1,0 +1,13 @@
+{
+  "snapshot_date": "2026-06-13",
+  "prices": {
+    "deepseek:deepseek-v4-pro": {
+      "input_per_mtok": 1.74,
+      "output_per_mtok": 3.48
+    },
+    "glm:Pro/zai-org/GLM-5.1": {
+      "input_per_mtok": 0.98,
+      "output_per_mtok": 3.08
+    }
+  }
+}

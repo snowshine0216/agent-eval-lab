@@ -1,12 +1,12 @@
-"""Pure, total fc-v2 failure classification (ADR-0013): derived, never stored.
+"""Pure, total fc-v3 failure classification (ADR-0013): derived, never stored.
 
 Maps every graded RunResult to exactly one of passed | task_failure |
-agent_failure | harness_failure plus one closed subcategory, reading only the
-mechanical discriminators already on the record: the trajectory's
-parse_failure, stop_reason, and max_tokens, the grade's failure_reason, and
-the first execution leg's evidence — the plain dicts the JSONL round-trip
-yields, never reconstructed dataclasses (grill Q9). The priority-ordered,
-first-match-wins table is frozen with its version.
+agent_failure | harness_failure | environment_failure plus one closed
+subcategory, reading only the mechanical discriminators already on the record:
+the trajectory's parse_failure, stop_reason, env_health, and max_tokens, the
+grade's failure_reason, and the first execution leg's evidence — the plain
+dicts the JSONL round-trip yields, never reconstructed dataclasses (grill Q9).
+The priority-ordered, first-match-wins table is frozen with its version.
 
 fc-v2 changes from fc-v1
 -------------------------
@@ -22,6 +22,16 @@ fc-v2 changes from fc-v1
   is a harness wiring defect; fc-v1 raised AttributeError on this path. fc-v2
   classifies it as ``harness_failure/sandbox_fault`` so the function remains
   total (never raises) as advertised.
+
+fc-v3 changes from fc-v2
+-------------------------
+- ``environment_failure`` is a new first-class category (peer to harness/agent/
+  task failures), checked AFTER parse/harness checks and BEFORE execution
+  grading. Driven by ``env_health`` / ``stop_reason == "env_unhealthy"`` record
+  fields. Subcategories: ``pre_probe_failed`` | ``post_probe_failed`` |
+  ``runner_flagged``. Env-free (F-set) runs and all legacy v1 artifacts are
+  unaffected (``stop_reason != "env_unhealthy"`` → ``_classify_environment``
+  returns None → fc-v2 chain runs unchanged). Pure/total/versioned (ADR-0013).
 """
 
 from collections.abc import Mapping, Sequence
@@ -31,13 +41,19 @@ from typing import Any, Literal
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR
 
-CLASSIFIER_VERSION = "fc-v2"
+CLASSIFIER_VERSION = "fc-v3"
 
-Category = Literal["passed", "task_failure", "agent_failure", "harness_failure"]
+Category = Literal[
+    "passed",
+    "task_failure",
+    "agent_failure",
+    "harness_failure",
+    "environment_failure",  # fc-v3: env-validity failure (D21), peer to the rest
+]
 
-# Closed at 16 values (fc-v2 adds token_budget_exhausted); versioned with the
-# classifier.  Downstream Weeks 9-10 mining joins on
-# (classifier_version, category, subcategory) (ADR-0013).
+# Closed at 19 values (fc-v3 adds pre_probe_failed, post_probe_failed,
+# runner_flagged); versioned with the classifier.  Downstream Weeks 9-10
+# mining joins on (classifier_version, category, subcategory) (ADR-0013).
 Subcategory = Literal[
     "provider_response",
     "malformed_reply",
@@ -55,6 +71,10 @@ Subcategory = Literal[
     "oracle_red",
     "oracle_error",
     "other_miss",
+    # fc-v3 environment_failure subcategories (D21/D28 §6)
+    "pre_probe_failed",
+    "post_probe_failed",
+    "runner_flagged",
 ]
 
 
@@ -111,7 +131,7 @@ def first_execution_evidence(
 
 
 def classify_run(run: RunResult) -> RunClassification:
-    """fc-v2: priority-ordered, first-match-wins, total — never raises."""
+    """fc-v3: priority-ordered, first-match-wins, total — never raises."""
     if run.grade.passed:  # row 1 wins first, even over a recorded parse_failure
         return _classification("passed", None, "grade.passed")
     parse_failure = run.trajectory.parse_failure
@@ -126,11 +146,47 @@ def classify_run(run: RunResult) -> RunClassification:
         )
     if parse_failure is not None:  # rows 2-3 (+ fc-v2 token_budget_exhausted)
         return _classify_parse_failure(parse_failure.error, run)
+    env = _classify_environment(run)  # fc-v3: after parse/harness, before execution
+    if env is not None:
+        return env
     exec_ev = first_execution_evidence(run.grade.evidence, run.grade.grader_id)
     early = _classify_execution_evidence(exec_ev)  # rows 4-9
     if early is not None:
         return early
     return _classify_grade_and_budget(run, exec_ev)  # rows 10-16
+
+
+def _classify_environment(run: RunResult) -> RunClassification | None:
+    """fc-v3 environment_failure (D21): driven by env_health / stop_reason.
+
+    Pure/total: returns None when the run carries no env-failure signal, so the
+    fc-v2 chain runs unchanged for env-free (F-set) runs and all legacy artifacts
+    (which have stop_reason != 'env_unhealthy' and env_health is None)."""
+    if run.trajectory.stop_reason != "env_unhealthy":
+        return None
+    # NOTE: the runner only stops as env_unhealthy when the POST-probe is unhealthy
+    # (loop.py). So a run reaching here always had post_healthy=False; the
+    # pre_probe_failed branch below therefore fires only when BOTH probes were
+    # unhealthy (pre AND post). A pre-only failure that later recovers completes
+    # naturally and never reaches this classifier.
+    health = run.trajectory.env_health
+    if health is None:
+        return _classification(
+            "environment_failure",
+            "runner_flagged",
+            "stop_reason=env_unhealthy with no EnvHealth record",
+        )
+    if not health.pre_healthy:
+        return _classification(
+            "environment_failure",
+            "pre_probe_failed",
+            f"pre-probe unhealthy (pre_status={health.pre_status})",
+        )
+    return _classification(
+        "environment_failure",
+        "post_probe_failed",
+        f"post-probe unhealthy (post_status={health.post_status})",
+    )
 
 
 def _classify_parse_failure(error: str, run: RunResult) -> RunClassification:

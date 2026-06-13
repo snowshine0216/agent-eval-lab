@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
 from agent_eval_lab.records.turns import (
@@ -78,9 +79,28 @@ def turn_from_dict(data: Mapping[str, Any]) -> Turn:
     raise ValueError(f"unknown turn type: {kind!r}")
 
 
+def env_health_to_dict(health: EnvHealth) -> dict[str, Any]:
+    return {
+        "pre_healthy": health.pre_healthy,
+        "post_healthy": health.post_healthy,
+        "pre_status": health.pre_status,
+        "post_status": health.post_status,
+    }
+
+
+def env_health_from_dict(data: Mapping[str, Any]) -> EnvHealth:
+    return EnvHealth(
+        pre_healthy=data["pre_healthy"],
+        post_healthy=data["post_healthy"],
+        pre_status=data.get("pre_status"),
+        post_status=data.get("post_status"),
+    )
+
+
 def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
     parse_failure = trajectory.parse_failure
     d: dict[str, Any] = {
+        "schema_version": trajectory.schema_version,
         "turns": [turn_to_dict(t) for t in trajectory.turns],
         "usage": {
             "prompt_tokens": trajectory.usage.prompt_tokens,
@@ -99,6 +119,16 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
             if trajectory.final_state is None
             else _deep_to_plain(trajectory.final_state)
         ),
+        "rounds": trajectory.rounds,
+        "wall_time_s": trajectory.wall_time_s,
+        "tool_call_counts": dict(trajectory.tool_call_counts),
+        "safety_cap_bound": trajectory.safety_cap_bound,
+        "env_health": (
+            None
+            if trajectory.env_health is None
+            else env_health_to_dict(trajectory.env_health)
+        ),
+        "run_uid": trajectory.run_uid,
     }
     if trajectory.max_tokens is not None:
         d["max_tokens"] = trajectory.max_tokens
@@ -106,24 +136,48 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
 
 
 def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
-    usage = data.get("usage", {})
-    parse_failure = data.get("parse_failure")
+    usage_data = data.get("usage", {})
+    usage = Usage(
+        prompt_tokens=usage_data.get("prompt_tokens", 0),
+        completion_tokens=usage_data.get("completion_tokens", 0),
+        latency_s=usage_data.get("latency_s", 0.0),
+    )
+    turns = tuple(turn_from_dict(t) for t in data["turns"])
+    pf = data.get("parse_failure")
+    parse_failure = (
+        None if pf is None else ParseFailure(raw=pf["raw"], error=pf["error"])
+    )
+    # v1-compat routing seam: an artifact with no schema_version predates the
+    # records+runner revision — hydrate it via Trajectory.v1_compat so every
+    # new field gets a safe default and the run is tagged schema_version="1".
+    if "schema_version" not in data:
+        return Trajectory.v1_compat(
+            {
+                "turns": turns,
+                "usage": usage,
+                "run_index": data.get("run_index", 0),
+                "stop_reason": data.get("stop_reason", "completed"),
+                "parse_failure": parse_failure,
+                "final_state": data.get("final_state"),
+                "max_tokens": data.get("max_tokens"),
+            }
+        )
+    env_health = data.get("env_health")
     return Trajectory(
-        turns=tuple(turn_from_dict(t) for t in data["turns"]),
-        usage=Usage(
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
-            latency_s=usage.get("latency_s", 0.0),
-        ),
+        turns=turns,
+        usage=usage,
         run_index=data.get("run_index", 0),
         stop_reason=data.get("stop_reason", "completed"),
-        parse_failure=(
-            None
-            if parse_failure is None
-            else ParseFailure(raw=parse_failure["raw"], error=parse_failure["error"])
-        ),
+        schema_version=data["schema_version"],
+        parse_failure=parse_failure,
         final_state=data.get("final_state"),
-        max_tokens=data.get("max_tokens"),  # None for pre-fc-v2 artifacts
+        max_tokens=data.get("max_tokens"),
+        rounds=data.get("rounds", 0),
+        wall_time_s=data.get("wall_time_s", 0.0),
+        tool_call_counts=data.get("tool_call_counts", {}),
+        safety_cap_bound=data.get("safety_cap_bound", False),
+        env_health=(None if env_health is None else env_health_from_dict(env_health)),
+        run_uid=data.get("run_uid"),
     )
 
 
