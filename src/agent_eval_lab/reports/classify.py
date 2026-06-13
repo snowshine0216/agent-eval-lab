@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from agent_eval_lab.records.grade import RunResult
-from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR
+from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR, PROVIDER_ERROR
 
 CLASSIFIER_VERSION = "fc-v3"
 
@@ -193,6 +193,16 @@ def _classify_parse_failure(error: str, run: RunResult) -> RunClassification:
     if error == NO_CHOICES_ERROR:  # row 2: the provider delivered no completion
         return _classification(
             "harness_failure", "provider_response", f"parse_failure: {error}"
+        )
+    if error == PROVIDER_ERROR:  # fc-v3: /chat/completions raised (status/transport)
+        # Same honest bucket as NO_CHOICES_ERROR — the provider delivered no usable
+        # completion. The status + body snippet live in ParseFailure.raw; surface
+        # them so a context-length 400 vs a 5xx is legible in the taxonomy detail.
+        pf = run.trajectory.parse_failure
+        return _classification(
+            "harness_failure",
+            "provider_response",
+            f"provider request failed: {pf.raw if pf is not None else ''}",
         )
     # fc-v2 row 3a: completion budget exhausted in the reasoning channel.
     # completion_tokens >= max_tokens means the provider stopped the stream at

@@ -748,41 +748,59 @@ def _run_dset_command(
             post_status=r.status_code,
         )
 
-    try:
-        outcomes = run_dset(
-            evaluator_store=store,
-            tasks=tasks,
-            config=config,
-            http_client=client,
-            k_valid=cfg.runner.k_valid,
-            max_invalid_rate=cfg.runner.max_invalid_rate,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-            health_probe_fn=health_probe_fn,
-            reference_sha256=reference_sha256,
-        )
-    finally:
-        if http_client is None:
-            client.close()
-
     args.out.mkdir(parents=True, exist_ok=True)
     slug = _slug(condition_id(config))
     path = args.out / f"runs-dset-{slug}.jsonl"
-    voided = 0
-    with path.open("w") as fh:
-        for outcome in outcomes:
-            _append_runs(fh, outcome.valid_runs)
-            if outcome.void:
-                voided += 1
-                tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
-                print(
-                    f"[void] task {tid}: max invalid-rate tripped with only "
-                    f"{len(outcome.valid_runs)} valid trial(s) — condition "
-                    f"INCOMPLETE for this task (D34); excluded from pass^k.",
-                    file=sys.stderr,
-                )
-    if voided:
-        print(f"[void] {voided}/{len(outcomes)} D-set task(s) VOID", file=sys.stderr)
+    void_ids: list[str] = []
+    aborted = False
+    # run_dset yields per task; write each task's runs immediately (flushed) so a
+    # later bad request can't lose the tasks already completed. The void sidecar is
+    # written in both the clean and the aborted path so report-m1 always finds it.
+    try:
+        with path.open("w") as fh:
+            for outcome in run_dset(
+                evaluator_store=store,
+                tasks=tasks,
+                config=config,
+                http_client=client,
+                k_valid=cfg.runner.k_valid,
+                max_invalid_rate=cfg.runner.max_invalid_rate,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                health_probe_fn=health_probe_fn,
+                reference_sha256=reference_sha256,
+            ):
+                _append_runs(fh, outcome.valid_runs)
+                if outcome.void:
+                    tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                    void_ids.append(tid)
+                    print(
+                        f"[void] task {tid}: max invalid-rate tripped with only "
+                        f"{len(outcome.valid_runs)} valid trial(s) — condition "
+                        f"INCOMPLETE for this task (D34); excluded from pass^k.",
+                        file=sys.stderr,
+                    )
+    except httpx.TransportError as exc:
+        # Criterion 5: a connection failure is a one-line exit-1 diagnostic —
+        # never a traceback mid-corpus. The streamed JSONL keeps any partial
+        # progress for `incomplete` reporting.
+        hint = " — is the server running?" if config.id == "local" else ""
+        print(
+            f"error: cannot reach provider {config.id!r} at {config.base_url} "
+            f"({type(exc).__name__}: {exc}){hint}",
+            file=sys.stderr,
+        )
+        aborted = True
+    finally:
+        if http_client is None:
+            client.close()
+    path.with_suffix(".void.json").write_text(
+        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
+    )
+    if void_ids:
+        print(f"[void] {len(void_ids)} D-set task(s) VOID", file=sys.stderr)
+    if aborted:
+        return 1
     print(path)
     return 0
 

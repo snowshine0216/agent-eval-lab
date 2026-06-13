@@ -23,6 +23,7 @@ from agent_eval_lab.records.execution import (
 )
 from agent_eval_lab.records.trajectory import (
     NO_CHOICES_ERROR,
+    PROVIDER_ERROR,
     ParseFailure,
     Trajectory,
     Usage,
@@ -36,6 +37,7 @@ from agent_eval_lab.records.turns import (
 )
 from agent_eval_lab.runners.client import chat_completion
 from agent_eval_lab.runners.config import ProviderConfig
+from agent_eval_lab.runners.history import trim_tool_result_history
 from agent_eval_lab.runners.parse import parse_assistant_payload
 from agent_eval_lab.runners.wire import tooldef_to_openai, turn_to_message
 from agent_eval_lab.tasks.schema import Task
@@ -60,6 +62,20 @@ def _fulfill(request: "Effect", executor: Executor | None) -> ToolSuccess:
             "no executor is configured"
         )
     return ToolSuccess(result=_serialize_effect_result(executor(request)))
+
+
+_PROVIDER_ERROR_BODY_CAP = 500
+
+
+def _provider_error_raw(exc: httpx.HTTPStatusError) -> str:
+    """A secret-free, length-capped description of a rejected /chat/completions call.
+
+    The response BODY is included (the provider's own error text — context-length
+    exceeded, rate limit, etc.); the API key lives in the REQUEST headers, never the
+    response, so nothing sensitive is captured.
+    """
+    body = exc.response.text[:_PROVIDER_ERROR_BODY_CAP]
+    return f"HTTP {exc.response.status_code}: {body}"
 
 
 def run_single(
@@ -98,14 +114,31 @@ def run_single(
     pre_health = health_probe_fn() if health_probe_fn is not None else None
 
     while True:
-        response = chat_completion(
-            config=config,
-            messages=tuple(turn_to_message(turn) for turn in turns),
-            tools=tools,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            http_client=http_client,
-        )
+        try:
+            response = chat_completion(
+                config=config,
+                messages=tuple(
+                    turn_to_message(turn) for turn in trim_tool_result_history(turns)
+                ),
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                http_client=http_client,
+            )
+        except httpx.HTTPStatusError as exc:
+            # The provider was reached but rejected THIS request after the client's
+            # retry policy (e.g. the non-retryable SiliconFlow 400 from context length
+            # that aborted a GLM-5.1 D-run). Record it as a failed run instead of
+            # crashing the whole multi-task run; classify maps PROVIDER_ERROR ->
+            # harness_failure/provider_response. A TransportError (provider
+            # unreachable) is deliberately NOT caught here — it propagates to the
+            # CLI's clean exit-1 "is the server running?" path, and incremental
+            # writes preserve any tasks already completed.
+            parse_failure = ParseFailure(
+                raw=_provider_error_raw(exc), error=PROVIDER_ERROR
+            )
+            stop_reason = "parse_failure"
+            break
         rounds += 1
         usage = response.payload.get("usage", {})
         prompt_tokens += usage.get("prompt_tokens", 0)

@@ -15,6 +15,16 @@ from agent_eval_lab.records.turns import Turn
 # cannot drift (item 004 grill Q3).
 NO_CHOICES_ERROR = "no choices in provider response"
 
+# The loop's provider-request-failed literal: a /chat/completions call raised an
+# httpx.HTTPError (a non-retryable HTTP status such as the SiliconFlow 400 that
+# aborted a GLM-5.1 D-run, or a transport error that exhausted retries). The loop
+# records it as a ParseFailure with this exact error (the status + a body snippet
+# go in ParseFailure.raw — never an auth header) instead of crashing the run.
+# Shared with reports/classify.py, whose fc-v3 chain maps it to
+# harness_failure/provider_response, so the two sides cannot drift (mirrors
+# NO_CHOICES_ERROR).
+PROVIDER_ERROR = "provider request failed"
+
 
 @dataclass(frozen=True, kw_only=True)
 class ParseFailure:

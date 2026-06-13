@@ -46,6 +46,16 @@ PROVIDERS: Mapping[str, ProviderConfig] = {
         api_key_env="SILICONFLOW_API_KEY",
         model_id="Pro/zai-org/GLM-5.1",
     ),
+    "siliconflow": ProviderConfig(
+        # The within-family Qwen ladder (§8/§18.11) on SiliconFlow's OpenAI-compatible
+        # API, sharing the GLM SiliconFlow key. The default model is the larger rung;
+        # the 35B rung is reached via `--model Qwen/Qwen3.6-35B-A3B`. Both ids verified
+        # present on SiliconFlow /v1/models (2026-06-13).
+        id="siliconflow",
+        base_url="https://api.siliconflow.cn/v1",
+        api_key_env="SILICONFLOW_API_KEY",
+        model_id="Qwen/Qwen3.5-397B-A17B",
+    ),
     "minimax": ProviderConfig(
         id="minimax",
         base_url="https://api.minimaxi.com/v1",
@@ -63,6 +73,9 @@ PROVIDERS: Mapping[str, ProviderConfig] = {
         id="local",
         base_url="http://localhost:11434/v1",
         api_key_env="",
-        model_id="qwen3-8b",
+        # ollama serves the model under its full HF id; /v1/models returns exactly
+        # "Qwen/Qwen3-8B" (verified 2026-06-13). The chat endpoint 404s on a name
+        # mismatch, which is why the prior "qwen3-8b" id never served inference.
+        model_id="Qwen/Qwen3-8B",
     ),
 }

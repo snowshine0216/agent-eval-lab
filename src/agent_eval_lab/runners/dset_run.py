@@ -8,7 +8,7 @@ rounds/tokens/cost via the unchanged Trajectory fields (item 001).
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -56,8 +56,11 @@ def run_dset(
     max_tokens: int,
     health_probe_fn: "Callable | None" = None,
     reference_sha256: str | None = None,
-) -> tuple[ReplacementOutcome, ...]:
-    """Run every D-set task k_valid times; return one ReplacementOutcome per task.
+) -> Iterator[ReplacementOutcome]:
+    """Run every D-set task k_valid times; YIELD one ReplacementOutcome per task as
+    it completes, so the caller can persist incrementally — one bad task can no
+    longer abort and lose a whole model's run (the GLM-5.1 pilot lost its data
+    because runs were written only at the end).
 
     A fresh bash executor (isolated session + workdir) is built per task and
     closed after; the snapshot-hash validity_fn (when reference_sha256 is given)
@@ -69,7 +72,6 @@ def run_dset(
         if reference_sha256 is not None
         else None
     )
-    outcomes: list[ReplacementOutcome] = []
     for task in tasks:
         workdir = (
             evaluator_store / "dset-work" / f"{_condition_id_slug(cond)}__{task.id}"
@@ -93,5 +95,4 @@ def run_dset(
             )
         finally:
             close()
-        outcomes.append(outcome)
-    return tuple(outcomes)
+        yield outcome

@@ -98,15 +98,15 @@ def test_run_baseline_writes_report_and_traces(tmp_path: Path, capsys) -> None:
     )
 
     assert exit_code == 0
-    report = (out_dir / "baseline-local-qwen3-8b.md").read_text()
+    report = (out_dir / "baseline-local-Qwen-Qwen3-8B.md").read_text()
     assert "pass@1 (trial accuracy): 1.000" in report
     assert "pass^2 (task reliability): 1.000" in report
-    runs = (out_dir / "runs-local-qwen3-8b.jsonl").read_text().strip().splitlines()
+    runs = (out_dir / "runs-local-Qwen-Qwen3-8B.jsonl").read_text().strip().splitlines()
     assert len(runs) == 4  # 2 tasks x k=2
     first = json.loads(runs[0])
     assert first["task_id"] == "ws-001"
     assert first["grade"]["passed"] is True
-    assert str(out_dir / "baseline-local-qwen3-8b.md") in capsys.readouterr().out
+    assert str(out_dir / "baseline-local-Qwen-Qwen3-8B.md") in capsys.readouterr().out
 
 
 def test_artifacts_are_distinct_per_model_under_one_provider(tmp_path: Path) -> None:
@@ -145,7 +145,10 @@ def _fail_second_task_handler(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
     user = next(m for m in body["messages"] if m["role"] == "user")
     if "email verification" in user["content"]:
-        return httpx.Response(400, json={"error": "bad request"})
+        # A transport error (provider unreachable) is the genuine mid-corpus abort:
+        # per-request HTTP errors are now recorded inside run_single, so the abort
+        # path that must preserve already-written runs is a connection failure.
+        raise httpx.ConnectError("provider unreachable", request=request)
     return _handler(request)
 
 
@@ -154,23 +157,24 @@ def test_completed_runs_persist_when_later_task_fails(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     client = httpx.Client(transport=httpx.MockTransport(_fail_second_task_handler))
 
-    with pytest.raises(httpx.HTTPStatusError):
-        main(
-            [
-                "run-baseline",
-                "--dataset",
-                str(dataset),
-                "--provider",
-                "local",
-                "--k",
-                "2",
-                "--out",
-                str(out_dir),
-            ],
-            http_client=client,
-        )
+    exit_code = main(
+        [
+            "run-baseline",
+            "--dataset",
+            str(dataset),
+            "--provider",
+            "local",
+            "--k",
+            "2",
+            "--out",
+            str(out_dir),
+        ],
+        http_client=client,
+    )
+    # ConnectError (transport abort) mid-corpus -> caught as TransportError -> exit 1.
+    assert exit_code == 1
 
-    runs = (out_dir / "runs-local-qwen3-8b.jsonl").read_text().strip().splitlines()
+    runs = (out_dir / "runs-local-Qwen-Qwen3-8B.jsonl").read_text().strip().splitlines()
     assert len(runs) == 2  # first task's k=2 runs survived the mid-dataset failure
     assert all(json.loads(line)["task_id"] == "ws-001" for line in runs)
 
@@ -444,8 +448,8 @@ def test_system_prompt_file_tags_artifact_and_applies_override(tmp_path: Path) -
 
     # Tag = fixture stem -> __planning-v1 suffix on BOTH artifacts.
     names = sorted(p.name for p in out_dir.iterdir())
-    assert "runs-local-qwen3-8b__planning-v1.jsonl" in names
-    assert "baseline-local-qwen3-8b__planning-v1.md" in names
+    assert "runs-local-Qwen-Qwen3-8B__planning-v1.jsonl" in names
+    assert "baseline-local-Qwen-Qwen3-8B__planning-v1.md" in names
 
 
 def test_no_system_prompt_file_keeps_v1_artifact_name(tmp_path: Path) -> None:
@@ -470,7 +474,10 @@ def test_no_system_prompt_file_keeps_v1_artifact_name(tmp_path: Path) -> None:
 
     names = sorted(p.name for p in out_dir.iterdir())
     # Byte-identical to v1: no __tag suffix.
-    assert names == ["baseline-local-qwen3-8b.md", "runs-local-qwen3-8b.jsonl"]
+    assert names == [
+        "baseline-local-Qwen-Qwen3-8B.md",
+        "runs-local-Qwen-Qwen3-8B.jsonl",
+    ]
 
 
 def _write_runs_jsonl(path: Path, runs) -> Path:
@@ -922,7 +929,7 @@ def test_run_baseline_resolves_code_world_and_grades_through_oracle(
     )
 
     assert exit_code == 0
-    [run] = _load_run_results(out_dir / "runs-local-qwen3-8b.jsonl")
+    [run] = _load_run_results(out_dir / "runs-local-Qwen-Qwen3-8B.jsonl")
     [tool_result] = [t for t in run.trajectory.turns if isinstance(t, ToolResultTurn)]
     assert isinstance(tool_result.outcome, ToolSuccess)
     assert tool_result.outcome.result["status"] == "failed"  # unrepaired tree
@@ -1150,6 +1157,221 @@ def test_max_tokens_default_is_4096(tmp_path: Path) -> None:
 
 
 # ── Task 11 (item 005): run-dset subcommand parser ────────────────────────────
+
+
+def test_run_dset_writes_incrementally_and_records_void_sidecar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """item 008: run-dset persists each task as it completes and writes a
+    <runs>.void.json sidecar so report-m1 consumes its output directly (voids
+    included)."""
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import cmc_dset
+    from agent_eval_lab.experiments.evaluator_config import (
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners import dset_run
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "cmc-docs-factkeys.json").write_text(json.dumps({"snapshot_sha256": "s"}))
+
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        runner=RunnerConfig(safety_cap=200, k_valid=2, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(readback="playwright-cli"),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(cmc_dset, "build_cmc_tasks", lambda **_k: ())
+
+    def _run(tid: str) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="local:Qwen/Qwen3-8B",
+            run_index=0,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+                run_index=0,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(
+                grader_id="fact_key",
+                passed=True,
+                score=1.0,
+                evidence={},
+                failure_reason=None,
+            ),
+        )
+
+    def fake_run_dset(**_kwargs):
+        a = _run("cmc-q01")
+        yield ReplacementOutcome(
+            valid_runs=(a,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=a),),
+            void=False,
+        )
+        # task 2 voided before k valid trials (D34 INCOMPLETE) — zero valid rows.
+        yield ReplacementOutcome(
+            valid_runs=(),
+            attempts=(TrialAttempt(attempt_index=0, valid=False, run=_run("cmc-q02")),),
+            void=True,
+        )
+
+    monkeypatch.setattr(dset_run, "run_dset", fake_run_dset)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-dset",
+            "--provider",
+            "local",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    runs_path = out / "runs-dset-local-Qwen-Qwen3-8B.jsonl"
+    rows = [
+        json.loads(line) for line in runs_path.read_text().splitlines() if line.strip()
+    ]
+    assert [r["task_id"] for r in rows] == ["cmc-q01"]  # only the valid task's run
+    sidecar = json.loads(runs_path.with_suffix(".void.json").read_text())
+    assert sidecar["void_task_ids"] == ["cmc-q02"]  # the voided task is recorded
+
+
+def test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: _run_dset_command must catch httpx.TransportError mid-corpus.
+
+    When the provider becomes unreachable after the first task has completed,
+    the CLI must:
+    - return exit-code 1 (not propagate an uncaught exception / traceback)
+    - preserve the partial .jsonl with the first task's runs
+    - write the .void.json sidecar despite the abort
+    - print a 'cannot reach provider' diagnostic to stderr
+    """
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import cmc_dset
+    from agent_eval_lab.experiments.evaluator_config import (
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners import dset_run
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "cmc-docs-factkeys.json").write_text(json.dumps({"snapshot_sha256": "s"}))
+
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        runner=RunnerConfig(safety_cap=200, k_valid=2, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(readback="playwright-cli"),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(cmc_dset, "build_cmc_tasks", lambda **_k: ())
+
+    def _run(tid: str) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="local:Qwen/Qwen3-8B",
+            run_index=0,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+                run_index=0,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(
+                grader_id="fact_key",
+                passed=True,
+                score=1.0,
+                evidence={},
+                failure_reason=None,
+            ),
+        )
+
+    sentinel_request = httpx.Request("POST", "http://local")
+
+    def fake_run_dset(**_kwargs):
+        # First task completes successfully.
+        a = _run("cmc-q01")
+        yield ReplacementOutcome(
+            valid_runs=(a,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=a),),
+            void=False,
+        )
+        # Second task: provider goes unreachable mid-corpus.
+        raise httpx.ConnectError("provider unreachable", request=sentinel_request)
+
+    monkeypatch.setattr(dset_run, "run_dset", fake_run_dset)
+
+    out = tmp_path / "out"
+    import io
+
+    stderr_capture = io.StringIO()
+    import sys
+
+    monkeypatch.setattr(sys, "stderr", stderr_capture)
+
+    exit_code = main(
+        [
+            "run-dset",
+            "--provider",
+            "local",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+
+    # Must return 1 (clean exit), not propagate an uncaught exception.
+    assert exit_code == 1
+
+    # Partial .jsonl must survive with the first task's runs.
+    runs_path = out / "runs-dset-local-Qwen-Qwen3-8B.jsonl"
+    assert runs_path.exists(), "partial runs file must be written even on abort"
+    rows = [
+        json.loads(line) for line in runs_path.read_text().splitlines() if line.strip()
+    ]
+    assert [r["task_id"] for r in rows] == ["cmc-q01"]
+
+    # .void.json sidecar must be written despite the abort.
+    void_path = runs_path.with_suffix(".void.json")
+    assert void_path.exists(), ".void.json sidecar must be written on abort"
+
+    # stderr must carry the 'cannot reach provider' diagnostic.
+    diag = stderr_capture.getvalue()
+    assert "cannot reach provider" in diag
 
 
 def test_run_dset_subcommand_parses():

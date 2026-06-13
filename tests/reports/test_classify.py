@@ -464,3 +464,15 @@ def test_subcategory_vocabulary_is_closed_at_19_after_fc_v3() -> None:
     assert len(get_args(Subcategory)) == 19
     for sub in ("pre_probe_failed", "post_probe_failed", "runner_flagged"):
         assert sub in get_args(Subcategory)
+
+
+def test_provider_error_maps_to_harness_provider_response() -> None:
+    """item 008: a PROVIDER_ERROR parse_failure (a /chat/completions call that
+    raised — e.g. a context-length 400) classifies as harness/provider_response,
+    the same honest bucket as NO_CHOICES_ERROR (no usable completion delivered)."""
+    from agent_eval_lab.records.trajectory import PROVIDER_ERROR
+
+    run = _run(stop_reason="parse_failure", parse_error=PROVIDER_ERROR)
+    c = classify_run(run)
+    assert c.category == "harness_failure"
+    assert c.subcategory == "provider_response"
