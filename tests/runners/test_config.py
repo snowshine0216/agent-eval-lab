@@ -13,6 +13,7 @@ def test_registry_covers_the_design_provider_lineup() -> None:
         "minimax",
         "openrouter",
         "local",
+        "siliconflow",
     }
 
 
@@ -47,8 +48,22 @@ def test_local_provider_needs_no_key() -> None:
     assert PROVIDERS["local"].api_key_env == ""
 
 
+def test_local_model_id_matches_ollama_served_name() -> None:
+    # ollama /v1/models serves the full HF id; a mismatch 404s the chat endpoint
+    # (the prior "qwen3-8b" never served inference).
+    assert PROVIDERS["local"].model_id == "Qwen/Qwen3-8B"
+
+
+def test_siliconflow_qwen_ladder_provider_is_wired() -> None:
+    sf = PROVIDERS["siliconflow"]
+    assert sf.base_url == "https://api.siliconflow.cn/v1"
+    assert sf.api_key_env == "SILICONFLOW_API_KEY"  # shares the GLM SiliconFlow key
+    assert sf.model_id == "Qwen/Qwen3.5-397B-A17B"  # larger ladder rung is the default
+    assert sf.proxy_env is None  # domestic — never proxied
+
+
 def test_condition_id_pairs_provider_and_model() -> None:
-    assert condition_id(PROVIDERS["local"]) == "local:qwen3-8b"
+    assert condition_id(PROVIDERS["local"]) == "local:Qwen/Qwen3-8B"
 
 
 def test_extra_headers_default_is_not_shared() -> None:

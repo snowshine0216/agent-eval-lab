@@ -748,41 +748,45 @@ def _run_dset_command(
             post_status=r.status_code,
         )
 
-    try:
-        outcomes = run_dset(
-            evaluator_store=store,
-            tasks=tasks,
-            config=config,
-            http_client=client,
-            k_valid=cfg.runner.k_valid,
-            max_invalid_rate=cfg.runner.max_invalid_rate,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-            health_probe_fn=health_probe_fn,
-            reference_sha256=reference_sha256,
-        )
-    finally:
-        if http_client is None:
-            client.close()
-
     args.out.mkdir(parents=True, exist_ok=True)
     slug = _slug(condition_id(config))
     path = args.out / f"runs-dset-{slug}.jsonl"
-    voided = 0
-    with path.open("w") as fh:
-        for outcome in outcomes:
-            _append_runs(fh, outcome.valid_runs)
-            if outcome.void:
-                voided += 1
-                tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
-                print(
-                    f"[void] task {tid}: max invalid-rate tripped with only "
-                    f"{len(outcome.valid_runs)} valid trial(s) — condition "
-                    f"INCOMPLETE for this task (D34); excluded from pass^k.",
-                    file=sys.stderr,
-                )
-    if voided:
-        print(f"[void] {voided}/{len(outcomes)} D-set task(s) VOID", file=sys.stderr)
+    void_ids: list[str] = []
+    # run_dset yields per task; write each task's runs immediately (flushed) so a
+    # later bad request can't lose the tasks already completed. The void sidecar is
+    # written on clean completion so report-m1 consumes run-dset output directly.
+    try:
+        with path.open("w") as fh:
+            for outcome in run_dset(
+                evaluator_store=store,
+                tasks=tasks,
+                config=config,
+                http_client=client,
+                k_valid=cfg.runner.k_valid,
+                max_invalid_rate=cfg.runner.max_invalid_rate,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                health_probe_fn=health_probe_fn,
+                reference_sha256=reference_sha256,
+            ):
+                _append_runs(fh, outcome.valid_runs)
+                if outcome.void:
+                    tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                    void_ids.append(tid)
+                    print(
+                        f"[void] task {tid}: max invalid-rate tripped with only "
+                        f"{len(outcome.valid_runs)} valid trial(s) — condition "
+                        f"INCOMPLETE for this task (D34); excluded from pass^k.",
+                        file=sys.stderr,
+                    )
+    finally:
+        if http_client is None:
+            client.close()
+    path.with_suffix(".void.json").write_text(
+        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
+    )
+    if void_ids:
+        print(f"[void] {len(void_ids)} D-set task(s) VOID", file=sys.stderr)
     print(path)
     return 0
 

@@ -533,3 +533,49 @@ def test_no_health_probe_yields_none_env_health() -> None:
     )
     assert trajectory.env_health is None
     assert trajectory.stop_reason == "completed_natural"
+
+
+# --- item 008: per-run provider errors are recorded, not crashes ---
+
+
+def test_loop_records_provider_http_error_as_parse_failure() -> None:
+    """A non-retryable provider error (e.g. the SiliconFlow 400 from context length
+    that aborted a GLM-5.1 D-run) is recorded as a failed run, never raised — one
+    bad request can no longer abort and lose a whole model's multi-task run."""
+    from agent_eval_lab.records.trajectory import PROVIDER_ERROR
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400, json={"error": {"message": "maximum context length exceeded"}}
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert trajectory.stop_reason == "parse_failure"
+    assert trajectory.parse_failure is not None
+    assert trajectory.parse_failure.error == PROVIDER_ERROR
+    assert "400" in trajectory.parse_failure.raw
+    assert "context length" in trajectory.parse_failure.raw
+
+
+def test_provider_error_raw_carries_no_auth_header() -> None:
+    """The recorded detail is the response body + status only — the API key lives in
+    request headers, never the response, so nothing sensitive is captured."""
+    from agent_eval_lab.runners.loop import _provider_error_raw
+
+    request = httpx.Request(
+        "POST", "https://x/chat/completions", headers={"Authorization": "Bearer SECRET"}
+    )
+    response = httpx.Response(429, text="rate limited", request=request)
+    exc = httpx.HTTPStatusError("429", request=request, response=response)
+    raw = _provider_error_raw(exc)
+    assert "SECRET" not in raw
+    assert "429" in raw and "rate limited" in raw
