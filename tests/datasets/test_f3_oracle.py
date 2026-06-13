@@ -31,6 +31,13 @@ requires_node = pytest.mark.skipif(
     reason="node>=20 + local web-dossier golden store + repo required",
 )
 
+# build_f3_verification reads the golden TEST from the store but needs no node;
+# guard the no-leak test on store presence alone (absent in CI).
+requires_store = pytest.mark.skipif(
+    not (_STORE / "golden-files" / "report-to-allure.test.js.golden").exists(),
+    reason="local web-dossier golden store required",
+)
+
 
 def _candidate_base(report_src: str) -> dict[str, str]:
     tree = {"tests/wdio/package.json": '{"type":"module"}'}
@@ -58,6 +65,7 @@ def _grade(verification, base) -> bool:
     ).passed
 
 
+@requires_store
 def test_build_f3_does_not_leak_golden_source_into_held_out() -> None:
     v = build_f3_verification(_STORE)
     # the held-out files must contain the golden TEST, never the golden SOURCE
