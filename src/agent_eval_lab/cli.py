@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -19,6 +20,21 @@ from agent_eval_lab.calibrate.packet import (
     packet_to_jsonl,
     render_agreement_report,
 )
+from agent_eval_lab.experiments.evaluator_config import (
+    health_probe,
+    load_evaluator_config,
+)
+from agent_eval_lab.experiments.m1_run import run_m1
+from agent_eval_lab.experiments.pricing import load_pricing
+from agent_eval_lab.experiments.schema import (
+    ConditionDef,
+    DomainWeight,
+    ExperimentSpec,
+    MetricDef,
+    MultiplicityFamily,
+    PlannedComparison,
+)
+from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
@@ -27,6 +43,8 @@ from agent_eval_lab.reports.comparison import build_comparison_report
 from agent_eval_lab.reports.comparison import render_markdown as render_comparison
 from agent_eval_lab.reports.final import FinalConditionInput, build_final_report
 from agent_eval_lab.reports.final import render_markdown as render_final
+from agent_eval_lab.reports.m1 import build_m1_report
+from agent_eval_lab.reports.m1 import render_markdown as render_m1
 from agent_eval_lab.reports.validation import ConditionInput, build_validation_report
 from agent_eval_lab.reports.validation import render_markdown as render_validation
 from agent_eval_lab.runners.config import (
@@ -35,7 +53,11 @@ from agent_eval_lab.runners.config import (
     condition_id,
     resolve_proxy,
 )
-from agent_eval_lab.runners.multi_run import run_task_k
+from agent_eval_lab.runners.multi_run import (
+    ReplacementOutcome,
+    TrialAttempt,
+    run_task_k,
+)
 from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
@@ -524,6 +546,411 @@ def _run_baseline_command(
     return 0
 
 
+def _spec_from_dict(data: dict) -> ExperimentSpec:
+    """Reconstruct an ExperimentSpec from a plain dict (from JSON)."""
+    return ExperimentSpec(
+        experiment_id=data["experiment_id"],
+        k=data["k"],
+        repeats=data["repeats"],
+        safety_cap=data["safety_cap"],
+        max_invalid_rate=data["max_invalid_rate"],
+        conditions=tuple(
+            ConditionDef(
+                condition_id=c["condition_id"],
+                label=c["label"],
+                skill_variant=c.get("skill_variant", "none"),
+                system_prompt_hash=c.get("system_prompt_hash"),
+            )
+            for c in data["conditions"]
+        ),
+        metrics=tuple(
+            MetricDef(
+                name=m["name"],
+                domain=m["domain"],
+                primary=m["primary"],
+                aggregation=m["aggregation"],
+                ci_method=m["ci_method"],
+                validity_mask=m["validity_mask"],
+                censoring_policy=m["censoring_policy"],
+            )
+            for m in data["metrics"]
+        ),
+        macro_weights=tuple(
+            DomainWeight(domain=w["domain"], weight=w["weight"])
+            for w in data["macro_weights"]
+        ),
+        families=tuple(
+            MultiplicityFamily(
+                id=f["id"],
+                description=f["description"],
+                correction=f["correction"],
+                alpha=f["alpha"],
+            )
+            for f in data["families"]
+        ),
+        planned_comparisons=tuple(
+            PlannedComparison(
+                name=pc["name"],
+                family_id=pc["family_id"],
+                domain=pc["domain"],
+                condition_a=pc["condition_a"],
+                condition_b=pc["condition_b"],
+                metric_name=pc["metric_name"],
+            )
+            for pc in data["planned_comparisons"]
+        ),
+        dataset_snapshot_hash=data["dataset_snapshot_hash"],
+        pricing_snapshot_hash=data["pricing_snapshot_hash"],
+        spec_hash=data.get("spec_hash", ""),
+    )
+
+
+def _spec_to_dict(spec: ExperimentSpec) -> dict:
+    """Project an ExperimentSpec to a plain JSON-serialisable dict."""
+    from agent_eval_lab.experiments.spec_hash import canonical_json as _cj
+    # Use canonical_json to serialise then parse back to a plain dict.
+    return json.loads(_cj(spec))
+
+
+def _run_freeze_spec(args: argparse.Namespace) -> int:
+    """Load a draft spec JSON, freeze it, write the frozen spec, and print the hash."""
+    spec_path = Path(args.spec)
+    out_path = Path(args.out)
+    try:
+        data = json.loads(spec_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"[FAIL] spec file not found: {spec_path}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"[FAIL] spec file is not valid JSON: {exc}", file=sys.stderr)
+        return 1
+    try:
+        draft = _spec_from_dict(data)
+        frozen = _freeze_spec_pure(draft)
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"[FAIL] spec validation error: {exc}", file=sys.stderr)
+        return 1
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(_spec_to_dict(frozen), sort_keys=True, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    print(frozen.spec_hash)
+    return 0
+
+
+def _run_check_env(  # noqa: C901
+    args: argparse.Namespace, http_client: httpx.Client | None
+) -> int:
+    """Preflight: verify playwright-cli + MSTR health probe (if config given)."""
+    ok = True
+
+    # 1. playwright-cli version check
+    try:
+        result = subprocess.run(
+            ["playwright-cli", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip() or result.stderr.strip()
+            print(f"[ok] playwright-cli: {version}")
+        else:
+            rc = result.returncode
+            print(f"[FAIL] playwright-cli exited {rc}: {result.stderr.strip()}")
+            ok = False
+    except FileNotFoundError:
+        print(
+            "[FAIL] playwright-cli not found"
+            " — run: npm install -g @playwright/cli@latest"
+        )
+        ok = False
+    except subprocess.TimeoutExpired:
+        print("[FAIL] playwright-cli --version timed out")
+        ok = False
+
+    # 2. MSTR health probe — only when evaluator config is provided.
+    #    Delegates to load_evaluator_config + health_probe so item 006 can
+    #    call the same health_probe function directly.
+    if args.evaluator_config:
+        config_path = Path(args.evaluator_config)
+        try:
+            cfg = load_evaluator_config(config_path)
+            hp = cfg.health_probe
+            # The MSTR labs server presents a self-signed cert; TLS verification
+            # is disabled for this internal, owner-authorized health probe (the
+            # `curl -k` equivalent). Scoped to the probe client only — not a
+            # global default. §18.5 needs reachability/auth, not a trusted chain.
+            client = http_client or httpx.Client(timeout=10.0, verify=False)
+            probe_result = health_probe(
+                url=hp.url,
+                username=hp.username,
+                password=hp.password,
+                client=client,
+            )
+            if probe_result.healthy:
+                print(f"[ok] MSTR health probe: HTTP {probe_result.status_code}")
+            else:
+                print(f"[FAIL] MSTR health probe: HTTP {probe_result.status_code}")
+                ok = False
+        except FileNotFoundError:
+            print(f"[FAIL] evaluator config not found: {config_path}")
+            ok = False
+        except Exception as exc:  # noqa: BLE001
+            print(f"[FAIL] MSTR health probe error: {exc}")
+            ok = False
+    else:
+        print("[skip] MSTR health probe — pass --evaluator-config to enable")
+
+    return 0 if ok else 1
+
+
+def _run_dset_command(
+    args: argparse.Namespace, http_client: httpx.Client | None
+) -> int:
+    """EDGE: run a model over the D-set (CMC docs QA) via playwright-cli."""
+    from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
+    from agent_eval_lab.runners.dset_run import run_dset
+
+    cfg = load_evaluator_config(args.evaluator_config)
+    store = Path(cfg.store.path)
+    data = json.loads((store / "cmc-docs-factkeys.json").read_text())
+    reference_sha256 = data["snapshot_sha256"]
+
+    config = PROVIDERS[args.provider]
+    if args.model:
+        config = replace(config, model_id=args.model)
+
+    tasks = build_cmc_tasks(
+        evaluator_store=store,
+        questions_path=Path("examples/datasets/cmc-docs-questions.txt"),
+    )
+    client = http_client or httpx.Client(
+        timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+    )
+
+    def health_probe_fn():
+        from agent_eval_lab.records.env_health import EnvHealth
+
+        hp = cfg.health_probe
+        probe_client = httpx.Client(timeout=10.0, verify=False)
+        try:
+            r = health_probe(hp.url, hp.username, hp.password, client=probe_client)
+        finally:
+            probe_client.close()
+        return EnvHealth(
+            pre_healthy=r.healthy,
+            post_healthy=r.healthy,
+            pre_status=r.status_code,
+            post_status=r.status_code,
+        )
+
+    try:
+        outcomes = run_dset(
+            evaluator_store=store,
+            tasks=tasks,
+            config=config,
+            http_client=client,
+            k_valid=cfg.runner.k_valid,
+            max_invalid_rate=cfg.runner.max_invalid_rate,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            health_probe_fn=health_probe_fn,
+            reference_sha256=reference_sha256,
+        )
+    finally:
+        if http_client is None:
+            client.close()
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    slug = _slug(condition_id(config))
+    path = args.out / f"runs-dset-{slug}.jsonl"
+    voided = 0
+    with path.open("w") as fh:
+        for outcome in outcomes:
+            _append_runs(fh, outcome.valid_runs)
+            if outcome.void:
+                voided += 1
+                tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                print(
+                    f"[void] task {tid}: max invalid-rate tripped with only "
+                    f"{len(outcome.valid_runs)} valid trial(s) — condition "
+                    f"INCOMPLETE for this task (D34); excluded from pass^k.",
+                    file=sys.stderr,
+                )
+    if voided:
+        print(f"[void] {voided}/{len(outcomes)} D-set task(s) VOID", file=sys.stderr)
+    print(path)
+    return 0
+
+
+def _load_m1_domain_tasks(args, cfg) -> dict:
+    """Build the per-domain task map. D = CMC docs tasks (reused from run-dset).
+    F/B return no tasks until items 004/006 land — absent, not a crash.
+    cfg is the loaded EvaluatorConfig (passed so callers can stub this function
+    in tests without touching load_evaluator_config)."""
+    from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
+
+    store = Path(cfg.store.path)
+    tasks = build_cmc_tasks(
+        evaluator_store=store,
+        questions_path=Path("examples/datasets/cmc-docs-questions.txt"),
+    )
+    return {"D": tasks}
+
+
+def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) -> int:
+    data = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    spec = _spec_from_dict(data)
+    if not spec.spec_hash:
+        print("error: spec is not frozen (run freeze-spec first)", file=sys.stderr)
+        return 1
+
+    # Load evaluator config; allow tests to monkeypatch _load_m1_domain_tasks
+    # so that a missing evaluator.toml is never reached in unit tests.
+    evaluator_config_path = Path(args.evaluator_config)
+    try:
+        cfg = load_evaluator_config(evaluator_config_path)
+    except FileNotFoundError:
+        print(f"error: evaluator config not found: {evaluator_config_path}",
+              file=sys.stderr)
+        return 1
+
+    store = Path(cfg.store.path)
+    reference_sha256 = None
+    factkeys = store / "cmc-docs-factkeys.json"
+    if factkeys.exists():
+        reference_sha256 = json.loads(factkeys.read_text())["snapshot_sha256"]
+
+    providers = args.provider or sorted(PROVIDERS)
+    configs = tuple(PROVIDERS[p] for p in providers)
+    domain_tasks = _load_m1_domain_tasks(args, cfg)
+
+    client = http_client or httpx.Client(timeout=120.0, trust_env=False)
+
+    def health_probe_fn():
+        from agent_eval_lab.records.env_health import EnvHealth
+
+        hp = cfg.health_probe
+        probe_client = httpx.Client(timeout=10.0, verify=False)
+        try:
+            r = health_probe(hp.url, hp.username, hp.password, client=probe_client)
+        finally:
+            probe_client.close()
+        return EnvHealth(pre_healthy=r.healthy, post_healthy=r.healthy,
+                         pre_status=r.status_code, post_status=r.status_code)
+
+    try:
+        outcomes = run_m1(
+            configs=configs, domain_tasks=domain_tasks, http_client=client,
+            k_valid=cfg.runner.k_valid, max_invalid_rate=cfg.runner.max_invalid_rate,
+            temperature=args.temperature, max_tokens=args.max_tokens,
+            health_probe_fn=health_probe_fn, reference_sha256=reference_sha256,
+            evaluator_store=store,
+        )
+    finally:
+        if http_client is None:
+            client.close()
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    for cond, by_domain in outcomes.items():
+        for domain, domain_outcomes in by_domain.items():
+            path = args.out / f"runs-m1-{_slug(cond)}-{domain}.jsonl"
+            void_ids: list[str] = []
+            with path.open("w") as fh:
+                for o in domain_outcomes:
+                    _append_runs(fh, o.valid_runs)
+                    if o.void:
+                        tid = o.attempts[0].run.task_id if o.attempts else "?"
+                        void_ids.append(tid)
+                        print(f"[void] {cond}/{domain} task {tid}: INCOMPLETE (D34)",
+                              file=sys.stderr)
+            # Persist void/INCOMPLETE task ids beside the runs: the valid-runs-only
+            # JSONL can't convey them, so report-m1's replay would under-count voids
+            # without this sidecar (L2).
+            path.with_suffix(".void.json").write_text(
+                json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
+            )
+            print(path)
+    return 0
+
+
+def _parse_domain_runs_spec(spec: str) -> tuple[str, str, Path]:
+    """'DOMAIN:condition_id=path' -> (domain, condition_id, path). condition_id
+    may contain '=' (openrouter-style), so split domain off the left then path
+    off the right."""
+    if ":" not in spec:
+        raise ValueError(f"bad --runs spec {spec!r}; want DOMAIN:condition_id=path")
+    domain, rest = spec.split(":", 1)
+    cond, *tail = rest.rsplit("=", 1)
+    if not tail:
+        raise ValueError(f"bad --runs spec {spec!r}; missing '=path'")
+    return domain, cond, Path(tail[0])
+
+
+def _outcomes_from_runs(
+    results: Sequence[RunResult], void_task_ids: frozenset[str] = frozenset()
+) -> tuple[ReplacementOutcome, ...]:
+    """One ReplacementOutcome per task_id. The run path writes only valid runs;
+    a task listed in the run's `.void.json` sidecar is marked void=True (D34
+    INCOMPLETE) with whatever partial valid runs it produced — including the
+    zero-valid case (a fully-void task has no JSONL rows but is restored from the
+    sidecar). Without a sidecar (legacy artifacts) every task is non-void (L2)."""
+    by_task: dict[str, list[RunResult]] = {}
+    for r in results:
+        by_task.setdefault(r.task_id, []).append(r)
+    outcomes = []
+    for tid in sorted(set(by_task) | set(void_task_ids)):
+        runs = tuple(by_task.get(tid, ()))
+        attempts = tuple(
+            TrialAttempt(attempt_index=i, valid=True, run=r) for i, r in enumerate(runs)
+        )
+        outcomes.append(
+            ReplacementOutcome(
+                valid_runs=runs, attempts=attempts, void=tid in void_task_ids
+            )
+        )
+    return tuple(outcomes)
+
+
+def _void_task_ids_for(path: Path) -> frozenset[str]:
+    """Read the `<runs>.void.json` sidecar (written by run-m1) if present."""
+    sidecar = path.with_suffix(".void.json")
+    if not sidecar.exists():
+        return frozenset()
+    data = json.loads(sidecar.read_text(encoding="utf-8"))
+    return frozenset(data.get("void_task_ids", ()))
+
+
+def _run_report_m1(args: argparse.Namespace) -> int:
+    data = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    spec = _spec_from_dict(data)
+    if not spec.spec_hash:
+        print("error: spec is not frozen (run freeze-spec first)", file=sys.stderr)
+        return 1
+    pricing = load_pricing(args.prices)
+    outcomes: dict[str, dict[str, tuple[ReplacementOutcome, ...]]] = {}
+    for spec_str in args.runs:
+        try:
+            domain, cond, path = _parse_domain_runs_spec(spec_str)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        results = _load_run_results(path) if path.exists() else []
+        outcomes.setdefault(cond, {})[domain] = _outcomes_from_runs(
+            results, _void_task_ids_for(path)
+        )
+    report = build_m1_report(
+        spec=spec, outcomes_by_condition_domain=outcomes, pricing=pricing,
+        seed=args.seed, n_resamples=args.n_resamples, alpha=args.alpha,
+    )
+    _atomic_write(args.out, render_m1(report))
+    print(args.out)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-eval-lab")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -621,6 +1048,17 @@ def _build_parser() -> argparse.ArgumentParser:
     rf.add_argument("--n-resamples", type=int, default=2000)
     rf.add_argument("--alpha", type=float, default=0.05)
 
+    ce = subparsers.add_parser(
+        "check-env",
+        help="preflight: verify playwright-cli + MSTR environment health",
+    )
+    ce.add_argument(
+        "--evaluator-config",
+        type=Path,
+        metavar="TOML",
+        help="path to evaluator.toml (enables MSTR health probe)",
+    )
+
     cc = subparsers.add_parser(
         "compare-configs", help="rebuild the two-config comparison from JSONL (pure)"
     )
@@ -634,12 +1072,69 @@ def _build_parser() -> argparse.ArgumentParser:
     cc.add_argument("--n-resamples", type=int, default=2000)
     cc.add_argument("--alpha", type=float, default=0.05)
 
+    fs = subparsers.add_parser(
+        "freeze-spec",
+        help="validate and freeze an ExperimentSpec JSON, writing the spec_hash",
+    )
+    fs.add_argument(
+        "--spec", required=True, metavar="DRAFT_JSON", help="path to draft spec JSON"
+    )
+    fs.add_argument(
+        "--out", required=True, metavar="FROZEN_JSON", help="path for frozen output"
+    )
+
+    rd = subparsers.add_parser(
+        "run-dset", help="run a model over the D-set (CMC docs) via playwright-cli"
+    )
+    rd.add_argument("--provider", required=True, choices=sorted(PROVIDERS))
+    rd.add_argument("--model", help="override the provider's default model id")
+    rd.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rd.add_argument("--out", type=Path, default=Path("reports"))
+    rd.add_argument("--temperature", type=float, default=0.0)
+    rd.add_argument("--max-tokens", type=int, default=4096)
+
+    rmm = subparsers.add_parser(
+        "run-m1", help="orchestrate M1 conditions × domains over the runners"
+    )
+    rmm.add_argument(
+        "--spec", required=True, type=Path, help="frozen ExperimentSpec JSON"
+    )
+    rmm.add_argument(
+        "--provider", action="append", choices=sorted(PROVIDERS),
+        help="repeatable; default = all reachable providers",
+    )
+    rmm.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rmm.add_argument("--out", type=Path, default=Path("reports"))
+    rmm.add_argument("--temperature", type=float, default=0.0)
+    rmm.add_argument("--max-tokens", type=int, default=4096)
+
+    rm = subparsers.add_parser(
+        "report-m1",
+        help="aggregate recorded M1 runs into the per-domain + macro report (pure)",
+    )
+    rm.add_argument(
+        "--spec", required=True, type=Path, help="frozen ExperimentSpec JSON"
+    )
+    rm.add_argument(
+        "--runs", required=True, nargs="+",
+        help="one per (domain,condition): DOMAIN:condition_id=path/to/runs.jsonl",
+    )
+    rm.add_argument("--prices", required=True, type=Path)
+    rm.add_argument("--out", required=True, type=Path)
+    rm.add_argument("--seed", type=int, default=20260613)
+    rm.add_argument("--n-resamples", type=int, default=2000)
+    rm.add_argument("--alpha", type=float, default=0.05)
+
     return parser
 
 
 def main(argv: list[str] | None = None, http_client: httpx.Client | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "freeze-spec":
+        return _run_freeze_spec(args)
+    if args.command == "check-env":
+        return _run_check_env(args, http_client)
     if args.command == "calibrate":
         return _run_calibrate(args, parser, http_client)
     if args.command == "report-validation":
@@ -648,6 +1143,12 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_report_final(args)
     if args.command == "compare-configs":
         return _run_compare_configs(args)
+    if args.command == "run-dset":
+        return _run_dset_command(args, http_client)
+    if args.command == "report-m1":
+        return _run_report_m1(args)
+    if args.command == "run-m1":
+        return _run_m1_command(args, http_client)
     return _run_baseline_command(args, parser, http_client)
 
 

@@ -11,6 +11,18 @@ from agent_eval_lab.tasks.schema import (
 )
 
 
+def test_node_execution_spec_is_a_verification_spec() -> None:
+    from agent_eval_lab.tasks.schema import NodeExecutionSpec, VerificationSpec
+
+    spec = NodeExecutionSpec(
+        held_out_files={"tests/wdio/package.json": '{"type":"module"}'},
+        test_paths=("tests/wdio/utils/failure-analysis/__tests__/report-to-allure.test.js",),
+    )
+    assert isinstance(spec, VerificationSpec)
+    assert spec.type == "node_execution"
+    assert spec.timeout_s is None
+
+
 def test_final_state_spec_holds_state_constraints() -> None:
     spec = FinalStateSpec(
         constraints=(
@@ -84,3 +96,21 @@ def test_execution_spec_shape_defaults_and_union_membership() -> None:
     ]
     with pytest.raises(dataclasses.FrozenInstanceError):
         spec.timeout_s = 5.0  # type: ignore[misc]
+
+
+def test_fact_key_spec_is_frozen_and_in_union():
+    from agent_eval_lab.tasks.schema import FactKeySpec, VerificationSpec
+
+    spec = FactKeySpec(
+        required=("1.34",),
+        forbidden=("1.32", "1.33"),
+        page_snapshot="... Kubernetes Cluster 1.34 ...",
+        page_snapshot_sha256="abc123",
+        level=2,
+    )
+    assert spec.required == ("1.34",)
+    assert spec.forbidden == ("1.32", "1.33")
+    assert spec.level == 2
+    # the union accepts it (a FactKeySpec is a VerificationSpec)
+    v: VerificationSpec = spec
+    assert v.type == "fact_key"

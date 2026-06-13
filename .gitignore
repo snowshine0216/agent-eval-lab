@@ -9,3 +9,19 @@ build/
 /reports/
 /runs/
 .autodev-current
+
+# Evaluator-only — answer keys, goldens, oracle artifacts must NEVER be committed
+# into the candidate-visible repo (agentic_v1 integrity boundary, D19). A stray
+# `git add -A` must not be able to reintroduce them.
+/evaluator-only/
+/examples/datasets/cmc-docs-answers.txt
+*.answers.txt
+*.golden.*
+
+# Local secrets — never commit
+.env
+.playwright-cli/
+.claude/skills/playwright-cli/
+
+# Evaluator config — creds + store path, never committed (D33/§18.4)
+evaluator.toml

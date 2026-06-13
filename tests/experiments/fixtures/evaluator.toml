@@ -1,0 +1,18 @@
+[store]
+path = "/tmp/eval-store"
+
+[health_probe]
+url = "http://mstr.example.com/api/auth/login"
+username = "evaluator"
+password = "s3cr3t!"
+
+[skill]
+strategy_test_path = "/tmp/strategy_test.js"
+
+[runner]
+safety_cap = 12
+k_valid = 3
+max_invalid_rate = 0.25
+
+[oracle.b_set]
+readback = "playwright-cli"

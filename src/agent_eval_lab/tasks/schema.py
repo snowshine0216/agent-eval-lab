@@ -1,4 +1,4 @@
-"""Task records and the Weeks 1-2 VerificationSpec subset (spec §4.3-§4.4)."""
+"""Task records and the VerificationSpec subset (spec §4.3-§4.4 + D-set §4.2)."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -107,8 +107,51 @@ class ExecutionSpec:
     timeout_s: float | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class NodeExecutionSpec:
+    """Tier-2 oracle that runs `node --test` over a candidate-supplied base tree
+    with evaluator-store test files overlaid oracle-wins (F3, §18.6 / D31).
+
+    `held_out_files` maps POSIX-relative path -> text (the golden test file and
+    a minimal `tests/wdio/package.json`); these overlay the caller's base_tree.
+    `test_paths` are the POSIX-relative test files passed to `node --test`.
+    `timeout_s` None => the node edge's DEFAULT_TIMEOUT_S.
+    """
+
+    type: Literal["node_execution"] = "node_execution"
+    held_out_files: Mapping[str, str]
+    test_paths: tuple[str, ...]
+    timeout_s: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FactKeySpec:
+    """Deterministic D-set L1-L3 oracle (§4.2 / D18 / D24).
+
+    required: literal substrings that MUST appear in the candidate's answer AND
+      in page_snapshot (the faithfulness gate: a stated fact must be on the page).
+    forbidden: contradiction substrings that must be ABSENT from the answer
+      (e.g. a wrong version number = a hallucination).
+    page_snapshot: the evaluator-frozen page text the answer is graded against
+      (D36 snapshot); page_snapshot_sha256 records its content hash.
+    level: the question's level (1-5); informs reporting, not the pass rule.
+
+    Matching is case-insensitive, whitespace-normalized literal substring
+    (graders/fact_key.py). No regex — keys stay owner-auditable.
+    """
+
+    type: Literal["fact_key"] = "fact_key"
+    required: tuple[str, ...]
+    forbidden: tuple[str, ...]
+    page_snapshot: str
+    page_snapshot_sha256: str
+    level: int
+
+
 # The complete tagged union: deterministic tiers (Weeks 1-4), the Tier-3
-# model-based judge (item 003), and the Tier-2 execution oracle (Weeks 5-6).
+# model-based judge (item 003), the Tier-2 execution oracle (Weeks 5-6),
+# the Tier-2 node execution oracle (Weeks 7-10, F3), and the D-set
+# fact-key oracle (item 005 §4.2).
 VerificationSpec = (
     OutputMatchSpec
     | ToolCallMatchSpec
@@ -117,6 +160,8 @@ VerificationSpec = (
     | AllOf
     | LlmJudgeSpec
     | ExecutionSpec
+    | NodeExecutionSpec
+    | FactKeySpec
 )
 
 

@@ -1147,3 +1147,58 @@ def test_max_tokens_default_is_4096(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert all(body.get("max_tokens") == 4096 for body in seen_bodies)
+
+
+# ── Task 11 (item 005): run-dset subcommand parser ────────────────────────────
+
+def test_run_dset_subcommand_parses():
+    from agent_eval_lab.cli import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args([
+        "run-dset",
+        "--provider", "deepseek",
+        "--evaluator-config", "evaluator.toml",
+        "--out", "reports",
+    ])
+    assert args.command == "run-dset"
+    assert args.provider == "deepseek"
+    assert args.evaluator_config == Path("evaluator.toml")
+
+
+def test_outcomes_from_runs_honors_void_sidecar(tmp_path):
+    # review L2: a task listed in the void sidecar is marked void (INCOMPLETE),
+    # including a fully-void task with zero valid rows (restored from the sidecar).
+    from agent_eval_lab.cli import _outcomes_from_runs, _void_task_ids_for
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    def _run(task):
+        t = Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+            run_index=0, stop_reason="completed_natural",
+        )
+        return RunResult(
+            task_id=task, condition_id="c", run_index=0, trajectory=t,
+            grade=GradeResult(grader_id="g", passed=True, score=1.0,
+                              evidence={}, failure_reason=None),
+        )
+
+    # task A produced 1 valid run; task B was fully void (no rows) per the sidecar.
+    outs = _outcomes_from_runs([_run("A")], frozenset({"B"}))
+    # A: present, non-void; B: present, void, zero valid runs
+    a = next(o for o in outs if o.valid_runs and o.valid_runs[0].task_id == "A")
+    b = next(o for o in outs if not o.valid_runs)
+    assert a.void is False and len(a.valid_runs) == 1
+    assert b.void is True and len(b.valid_runs) == 0
+
+    # sidecar reader round-trip
+    import json
+    runs_path = tmp_path / "runs-m1-c-D.jsonl"
+    runs_path.write_text("")
+    runs_path.with_suffix(".void.json").write_text(
+        json.dumps({"void_task_ids": ["B", "C"]})
+    )
+    assert _void_task_ids_for(runs_path) == frozenset({"B", "C"})
+    assert _void_task_ids_for(tmp_path / "nope.jsonl") == frozenset()

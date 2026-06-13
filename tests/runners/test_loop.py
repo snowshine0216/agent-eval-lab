@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.turns import (
     MessageTurn,
     ToolCallTurn,
@@ -107,12 +108,11 @@ def test_loop_threads_state_and_stops_on_final_message() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=6,
         temperature=0.0,
         max_tokens=4096,
     )
 
-    assert trajectory.stop_reason == "completed"
+    assert trajectory.stop_reason == "completed_natural"
     kinds = [type(turn) for turn in trajectory.turns]
     assert kinds == [
         MessageTurn,  # user
@@ -162,7 +162,6 @@ def test_loop_records_parse_failure_and_stops() -> None:
         config=CONFIG,
         http_client=client,
         run_index=1,
-        max_steps=6,
         temperature=0.0,
         max_tokens=4096,
     )
@@ -170,28 +169,6 @@ def test_loop_records_parse_failure_and_stops() -> None:
     assert trajectory.stop_reason == "parse_failure"
     assert trajectory.parse_failure is not None
     assert trajectory.run_index == 1
-
-
-def test_loop_enforces_max_steps() -> None:
-    responses = [
-        _tool_call_response("search_docs", {"query": "x"}, f"c{i}") for i in range(5)
-    ]
-    client = _scripted_client(responses)
-
-    trajectory = run_single(
-        task=TASK,
-        registry=WORKSPACE_TOOLS,
-        config=CONFIG,
-        http_client=client,
-        run_index=0,
-        max_steps=2,
-        temperature=0.0,
-        max_tokens=4096,
-    )
-
-    assert trajectory.stop_reason == "max_steps"
-    tool_call_turns = [t for t in trajectory.turns if isinstance(t, ToolCallTurn)]
-    assert len(tool_call_turns) == 2
 
 
 def test_loop_records_missing_choices_as_parse_failure() -> None:
@@ -205,7 +182,6 @@ def test_loop_records_missing_choices_as_parse_failure() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=6,
         temperature=0.0,
         max_tokens=4096,
     )
@@ -249,7 +225,6 @@ def test_run_single_records_final_state() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=4,
         temperature=0.0,
         max_tokens=4096,
     )
@@ -287,7 +262,6 @@ def test_loop_rejects_task_referencing_unregistered_tool() -> None:
             config=CONFIG,
             http_client=client,
             run_index=0,
-            max_steps=6,
             temperature=0.0,
             max_tokens=4096,
         )
@@ -308,7 +282,6 @@ def test_empty_choices_records_the_shared_constant_verbatim() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=6,
         temperature=0.0,
         max_tokens=4096,
     )
@@ -342,7 +315,6 @@ def test_run_single_sends_max_tokens_in_every_request() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=6,
         temperature=0.0,
         max_tokens=4096,
     )
@@ -363,8 +335,201 @@ def test_run_single_records_max_tokens_on_trajectory() -> None:
         config=CONFIG,
         http_client=client,
         run_index=0,
-        max_steps=6,
         temperature=0.0,
         max_tokens=2048,
     )
     assert trajectory.max_tokens == 2048
+
+
+# --- Task 4 new tests: natural completion, rounds/counts, run_uid, wall_time ---
+
+
+def test_loop_completes_naturally_emits_completed_natural() -> None:
+    client = _scripted_client(
+        [
+            _tool_call_response("search_docs", {"query": "x"}, "c1"),
+            _final_response("Done."),
+        ]
+    )
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert trajectory.stop_reason == "completed_natural"
+    assert trajectory.safety_cap_bound is False
+
+
+def test_loop_counts_rounds_and_per_tool_calls() -> None:
+    client = _scripted_client(
+        [
+            _tool_call_response(
+                "create_ticket", {"title": "x", "priority": "low"}, "c1"
+            ),
+            _tool_call_response(
+                "update_ticket", {"ticket_id": "T-1", "status": "closed"}, "c2"
+            ),
+            _final_response("Done."),
+        ]
+    )
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    # 3 model turns: two tool-call turns + one final message.
+    assert trajectory.rounds == 3
+    assert trajectory.tool_call_counts == {"create_ticket": 1, "update_ticket": 1}
+
+
+def test_loop_threads_run_uid() -> None:
+    client = _scripted_client([_final_response("Done.")])
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=3,
+        temperature=0.0,
+        max_tokens=4096,
+        run_uid="local:m__0003",
+    )
+    assert trajectory.run_uid == "local:m__0003"
+
+
+def test_loop_records_wall_time_from_latency() -> None:
+    client = _scripted_client([_final_response("Done.")])
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    # wall_time_s mirrors accumulated provider latency (usage.latency_s).
+    assert trajectory.wall_time_s == trajectory.usage.latency_s
+
+
+# --- Task 5 new tests: safety cap + health probe ---
+
+
+def _always_tool_call_client():
+    """A client that always returns a fresh tool call (never a final message),
+    so the loop only stops at the safety cap."""
+    counter = [0]
+
+    def handler(request):
+        counter[0] += 1
+        return httpx.Response(
+            200,
+            json=_tool_call_response("search_docs", {"query": "x"}, f"c{counter[0]}"),
+        )
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_loop_stops_at_safety_cap() -> None:
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_always_tool_call_client(),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        safety_cap=3,  # small cap so the test is fast; production default is 200
+    )
+    assert trajectory.stop_reason == "safety_cap"
+    assert trajectory.safety_cap_bound is True
+    # Exactly the cap's worth of tool calls were recorded (one tool call per turn).
+    assert sum(trajectory.tool_call_counts.values()) == 3
+
+
+def test_safety_cap_default_is_200() -> None:
+    import inspect
+
+    sig = inspect.signature(run_single)
+    assert sig.parameters["safety_cap"].default == 200
+
+
+def test_health_probe_called_pre_and_post_records_env_health() -> None:
+    calls = []
+
+    def probe():
+        calls.append("probe")
+        # pre healthy, the test inspects only that it was recorded twice
+        return EnvHealth(
+            pre_healthy=True, post_healthy=True, pre_status=200, post_status=200
+        )
+
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_scripted_client([_final_response("Done.")]),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        health_probe_fn=probe,
+    )
+    assert len(calls) == 2  # pre + post
+    assert trajectory.env_health is not None
+    assert trajectory.env_health.pre_healthy is True
+    assert trajectory.env_health.post_healthy is True
+    # A healthy post-probe does not override a natural completion.
+    assert trajectory.stop_reason == "completed_natural"
+
+
+def test_post_probe_unhealthy_sets_env_unhealthy_stop_reason() -> None:
+    results = iter(
+        [
+            EnvHealth(  # pre
+                pre_healthy=True, post_healthy=True, pre_status=200, post_status=200
+            ),
+            EnvHealth(  # post
+                pre_healthy=True, post_healthy=False, pre_status=200, post_status=503
+            ),
+        ]
+    )
+
+    def probe():
+        return next(results)
+
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_scripted_client([_final_response("Done.")]),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        health_probe_fn=probe,
+    )
+    assert trajectory.stop_reason == "env_unhealthy"
+    assert trajectory.env_health is not None
+    assert trajectory.env_health.post_healthy is False
+    assert trajectory.env_health.pre_healthy is True
+
+
+def test_no_health_probe_yields_none_env_health() -> None:
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_scripted_client([_final_response("Done.")]),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert trajectory.env_health is None
+    assert trajectory.stop_reason == "completed_natural"

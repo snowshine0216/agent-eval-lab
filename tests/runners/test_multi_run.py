@@ -237,40 +237,24 @@ def _budget_task(max_steps_value) -> Task:
     )
 
 
-def test_per_task_budget_drives_loop_iterations_over_cli_default() -> None:
+def test_run_task_k_runs_to_safety_cap_when_model_never_finishes() -> None:
     counter = [0]
     handler = _counting_tool_call_handler(counter)
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    # CLI default is 4 but the task declares max_steps=6 -> expect 6 iterations.
-    run_task_k(
-        task=_budget_task(6),
-        registry=WORKSPACE_TOOLS,
-        config=CONFIG,
-        http_client=client,
-        k=1,
-        max_steps=4,
-        temperature=0.0,
-        max_tokens=4096,
-    )
-    assert counter[0] == 6
-
-
-def test_task_without_max_steps_uses_cli_default() -> None:
-    counter = [0]
-    handler = _counting_tool_call_handler(counter)
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    # No declared budget -> falls back to the CLI default of 4.
-    run_task_k(
+    results = run_task_k(
         task=_budget_task(None),
         registry=WORKSPACE_TOOLS,
         config=CONFIG,
         http_client=client,
         k=1,
-        max_steps=4,
+        max_steps=4,  # accepted for CLI back-compat; no longer bounds the loop
         temperature=0.0,
         max_tokens=4096,
     )
-    assert counter[0] == 4
+    # The model never emits a final message -> the run stops at the 200 cap.
+    assert results[0].trajectory.stop_reason == "safety_cap"
+    assert results[0].trajectory.safety_cap_bound is True
+    assert sum(results[0].trajectory.tool_call_counts.values()) == 200
 
 
 def test_runs_k_times_and_grades_each_run() -> None:
@@ -384,6 +368,152 @@ def test_run_task_k_defaults_yield_byte_identical_workspace_run(monkeypatch) -> 
         sort_keys=True,
     )
     assert defaults == explicit
+
+
+def test_run_task_k_threads_run_uid_per_run() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+    results = run_task_k(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        k=3,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    uids = [r.trajectory.run_uid for r in results]
+    assert uids == [
+        "local:qwen3-8b__0000",
+        "local:qwen3-8b__0001",
+        "local:qwen3-8b__0002",
+    ]
+
+
+def test_run_task_k_valid_replaces_invalid_until_k_valid() -> None:
+    from agent_eval_lab.runners.multi_run import run_task_k_valid
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+    # validity_fn: first call invalid, rest valid -> needs one replacement.
+    seen = [0]
+
+    def validity_fn(result):
+        seen[0] += 1
+        return seen[0] != 1  # run #1 invalid, runs #2.. valid
+
+    outcome = run_task_k_valid(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        k_valid=2,
+        max_invalid_rate=0.6,
+        validity_fn=validity_fn,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert outcome.void is False
+    assert len(outcome.valid_runs) == 2
+    # 3 attempts total (1 invalid + 2 valid); attempt_index increments.
+    assert [r.attempt_index for r in outcome.attempts] == [0, 1, 2]
+
+
+def test_run_task_k_valid_no_void_when_best_case_under_threshold() -> None:
+    # Distinguishes the principled best-case VOID predicate from a naive one that
+    # ignores already-banked valid runs. k_valid=5, rate=0.40. Sequence by attempt:
+    # V V V V  I I I  V  -> 5 valid banked + 3 invalid = 8 trials, final invalid-rate
+    # 3/8 = 0.375 <= 0.40, so the condition COMPLETES (void=False). A denominator of
+    # (invalid + remaining_needed) would wrongly VOID at the first invalid (4 valid
+    # banked, 1 needed -> 1/2 = 0.5 > 0.40); the correct denominator is (invalid +
+    # k_valid) -> the minimum achievable final rate (D28/D34).
+    from agent_eval_lab.runners.multi_run import run_task_k_valid
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+    calls = [0]
+
+    def validity_fn(result):
+        calls[0] += 1
+        return not (5 <= calls[0] <= 7)  # attempts 5,6,7 invalid; rest valid
+
+    outcome = run_task_k_valid(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        k_valid=5,
+        max_invalid_rate=0.4,
+        validity_fn=validity_fn,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert outcome.void is False
+    assert len(outcome.valid_runs) == 5
+    assert len(outcome.attempts) == 8  # 5 valid + 3 invalid
+
+
+def test_run_task_k_valid_voids_when_invalid_rate_exceeded() -> None:
+    from agent_eval_lab.runners.multi_run import run_task_k_valid
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    def validity_fn(result):
+        return False  # every run invalid
+
+    outcome = run_task_k_valid(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        k_valid=2,
+        max_invalid_rate=0.4,
+        validity_fn=validity_fn,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert outcome.void is True
+    assert len(outcome.valid_runs) < 2  # never scored over fewer than k valid
+
+
+def test_env_unhealthy_run_counts_as_invalid() -> None:
+    from agent_eval_lab.runners.multi_run import run_task_k_valid
+
+    # No validity_fn: invalidity is driven purely by stop_reason == env_unhealthy.
+    # Use a health probe that reports post-unhealthy on the first run only.
+    flips = [0]
+
+    def probe():
+        from agent_eval_lab.records.env_health import EnvHealth
+
+        flips[0] += 1
+        # pre always healthy; post unhealthy on the very first post-probe call.
+        # Each run calls probe twice (pre, post); the 2nd call is run-1's post.
+        post_ok = flips[0] != 2
+        return EnvHealth(
+            pre_healthy=True, post_healthy=post_ok, pre_status=200,
+            post_status=200 if post_ok else 503,
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+    outcome = run_task_k_valid(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        k_valid=1,
+        max_invalid_rate=0.9,
+        health_probe_fn=probe,
+        max_steps=6,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert outcome.void is False
+    assert len(outcome.valid_runs) == 1
+    assert any(
+        r.run.trajectory.stop_reason == "env_unhealthy" for r in outcome.attempts
+    )
 
 
 def test_run_task_k_threads_code_world_binding_to_run_single() -> None:

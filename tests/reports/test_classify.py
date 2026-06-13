@@ -2,6 +2,7 @@
 
 from typing import get_args
 
+from agent_eval_lab.records.env_health import EnvHealth
 from agent_eval_lab.records.grade import FailureCategory, GradeResult, RunResult
 from agent_eval_lab.records.trajectory import (
     NO_CHOICES_ERROR,
@@ -294,23 +295,17 @@ def test_failure_category_member_set_is_unchanged() -> None:
 
 
 def test_subcategory_vocabulary_is_closed_at_15() -> None:
-    # Kept as a historical marker; fc-v2 tests assert the updated count.
-    # Superseded by test_subcategory_vocabulary_is_closed_at_16_after_fc_v2.
+    # Kept as a historical marker; the live count is asserted by
+    # test_subcategory_vocabulary_is_closed_at_19_after_fc_v3.
     pass
 
 
 # fc-v2 additions ──────────────────────────────────────────────────────────────
 
 
-def test_classifier_version_is_fc_v2() -> None:
-    """After the fc-v2 bump the version string must be fc-v2, not fc-v1."""
-    assert CLASSIFIER_VERSION == "fc-v2"
-
-
-def test_subcategory_vocabulary_is_closed_at_16_after_fc_v2() -> None:
-    """fc-v2 adds token_budget_exhausted; closed vocabulary grows by one."""
-    assert len(get_args(Subcategory)) == 16
-    assert "token_budget_exhausted" in get_args(Subcategory)
+def test_classifier_version_is_fc_v3() -> None:
+    """The classifier version label is fc-v3 after the env_failure bump (item 001)."""
+    assert CLASSIFIER_VERSION == "fc-v3"
 
 
 def test_token_budget_exhausted_classification() -> None:
@@ -367,3 +362,105 @@ def test_parse_failure_none_record_classifies_as_harness_failure() -> None:
     c = classify_run(run)
     assert c.category == "harness_failure"
     # classify_run must never raise
+
+
+# fc-v3 additions ──────────────────────────────────────────────────────────────
+
+
+def _env_run(*, stop_reason="env_unhealthy", env_health=None, passed=False):
+    """A run carrying env-health fields, for fc-v3 environment_failure rows."""
+    return RunResult(
+        task_id="b-001",
+        condition_id="deepseek:deepseek-v4-pro",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+            run_index=0,
+            stop_reason=stop_reason,
+            final_state={"files": {}},
+            env_health=env_health,
+        ),
+        grade=GradeResult(
+            grader_id="execution",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=None,
+        ),
+    )
+
+
+def test_fc_v3_version_label() -> None:
+    assert CLASSIFIER_VERSION == "fc-v3"
+
+
+def test_environment_failure_is_a_category() -> None:
+    from typing import get_args
+
+    from agent_eval_lab.reports.classify import Category
+
+    assert "environment_failure" in get_args(Category)
+
+
+def test_env_unhealthy_post_probe_failed() -> None:
+    health = EnvHealth(
+        pre_healthy=True, post_healthy=False, pre_status=200, post_status=503
+    )
+    run = _env_run(stop_reason="env_unhealthy", env_health=health)
+    c = classify_run(run)
+    assert (c.category, c.subcategory) == ("environment_failure", "post_probe_failed")
+
+
+def test_env_unhealthy_pre_probe_failed() -> None:
+    health = EnvHealth(
+        pre_healthy=False, post_healthy=False, pre_status=503, post_status=503
+    )
+    run = _env_run(stop_reason="env_unhealthy", env_health=health)
+    c = classify_run(run)
+    assert (c.category, c.subcategory) == ("environment_failure", "pre_probe_failed")
+
+
+def test_env_unhealthy_runner_flagged_without_health_record() -> None:
+    # stop_reason flags env failure but no EnvHealth was recorded.
+    run = _env_run(stop_reason="env_unhealthy", env_health=None)
+    c = classify_run(run)
+    assert (c.category, c.subcategory) == ("environment_failure", "runner_flagged")
+
+
+def test_passed_run_with_unhealthy_post_probe_still_passes() -> None:
+    # Row 1 (passed) still wins first — a passed grade is not an env failure.
+    health = EnvHealth(
+        pre_healthy=True, post_healthy=False, pre_status=200, post_status=503
+    )
+    run = _env_run(stop_reason="env_unhealthy", env_health=health, passed=True)
+    assert classify_run(run).category == "passed"
+
+
+def test_env_check_runs_after_parse_but_before_execution_grading() -> None:
+    # A parse failure still classifies as parse failure even if env is unhealthy
+    # (parse/harness checks precede the env check; §6 ordering).
+    run = RunResult(
+        task_id="b-001",
+        condition_id="c",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+            run_index=0,
+            stop_reason="parse_failure",
+            parse_failure=ParseFailure(raw="{}", error=NO_CHOICES_ERROR),
+            env_health=EnvHealth(pre_healthy=True, post_healthy=False),
+        ),
+        grade=GradeResult(grader_id="execution", passed=False, score=0.0, evidence={}),
+    )
+    # NO_CHOICES_ERROR -> harness/provider_response (parse check wins over env).
+    c = classify_run(run)
+    assert c.category == "harness_failure"
+
+
+def test_subcategory_vocabulary_is_closed_at_19_after_fc_v3() -> None:
+    """fc-v3 adds pre_probe_failed | post_probe_failed | runner_flagged."""
+    assert len(get_args(Subcategory)) == 19
+    for sub in ("pre_probe_failed", "post_probe_failed", "runner_flagged"):
+        assert sub in get_args(Subcategory)
