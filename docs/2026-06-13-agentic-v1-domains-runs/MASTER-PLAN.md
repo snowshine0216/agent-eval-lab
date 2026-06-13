@@ -10,10 +10,13 @@
 - **Protected-branch opt-in:** GRANTED this turn ("each as its own PR to main"). Squash-merge to `main` per package.
 - **Project type:** non-web (Python eval library) → **Verify** (not QA) on every item. The live
   run IS part of verification for 008/009 (real models, real money — authorized "full roster").
-- **Implementation:** orchestrator-led **strict TDD** (red→green→refactor per CLAUDE.md) — the user
-  asked for "the same TDD + drift + /code-review + /verify rigor"; the FP/type-design rigor + deep
-  loaded context make inline TDD the right call over dispatching intricate code to Sonnet subagents.
-  Gates honored verbatim: drift (diff vs plan) → `/code-review` (on the diff) → `/verify` → PR → squash-merge.
+- **Implementation (corrected 2026-06-13 after user pushback):** follow the autodev
+  **`superpowers:subagent-driven-development`** contract — Sonnet impl subagents — for the net-new
+  **009 (F-domain)** and **010 (B-domain)** work. **008** was implemented inline on Opus before the
+  correction; per user decision it is **kept** (TDD-green) and routed through its independent gates
+  (drift subagent + `/code-review` + `/verify`) rather than wastefully re-implemented. Earlier
+  "inline is the right call" framing was a rationalization and is retracted. Gates unchanged for all
+  items: drift → `/code-review` → `/verify` → PR → squash-merge to main.
 - **Test discipline:** tests mirror src (`tests/<pkg>/test_<mod>.py`), `uv run pytest`. Whole tree ruff-clean.
 - **Env for live arms (every run):**
   `export PATH="$HOME/.nvm/versions/node/v22.22.2/bin:$PATH"` + `set -a; . ./.env; set +a`.
@@ -29,7 +32,8 @@
 | 010 | b-domain-m2 | Pkg 006: B isolation + readback oracle + stripped-skill fork + **RUN M2** | IN (owner artifacts pending) | 009 |
 
 ## Models per dispatch
-Plan→Fable (specs pre-completed, plans inline-light). Impl/drift/verify/review/fix→orchestrator (Opus, strict TDD).
+Plan→Fable (specs pre-completed, plans inline-light). **Impl (009/010)→Sonnet subagents via
+`superpowers:subagent-driven-development`.** Drift→Sonnet subagent. 008 impl was inline-Opus (kept).
 `/code-review` + `/verify` invoked as skills on each package's diff.
 
 ## Run convention
