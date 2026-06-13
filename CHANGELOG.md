@@ -7,6 +7,29 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — agentic_v1 runner hardening + provider ladder (item 008)
+
+- Bounded tool-result context fed back to the provider: new pure
+  `runners/history.trim_tool_result_history(turns, *, char_budget)` (newest-first
+  greedy keep; older `ToolResultTurn` contents elided once over budget; the
+  newest tool result is always kept; non-tool turns untouched; idempotent),
+  wired into `loop.run_single`. Stops a context blow-up from 400-ing the
+  provider mid-run. Grading is unaffected — the grader reads only the final
+  assistant message + the evaluator-frozen snapshot, never the browse dumps.
+- Per-run provider HTTP error is recorded, not fatal: an `httpx.HTTPStatusError`
+  inside `run_single` becomes a `ParseFailure(error=PROVIDER_ERROR)` with
+  `stop_reason="parse_failure"` (`raw` carries the response body only — never an
+  auth header), mapped by the classifier to `harness_failure/provider_response`
+  (a valid failed trial, surfaced in the taxonomy). A `TransportError` (provider
+  unreachable) still propagates to the CLI's exit-1 "is the server running?" path.
+- Incremental run-JSONL: `dset_run.run_dset` is now a generator yielding one
+  `ReplacementOutcome` per task; the CLI flushes per task and writes a
+  `<runs>.void.json` sidecar, so one bad task can no longer lose a whole
+  model's run. `experiments/m1_run.run_m1` collects via `tuple(run_dset(...))`.
+- Providers: default `local` model id corrected to `Qwen/Qwen3-8B` (the id the
+  local ollama endpoint actually serves); added the `siliconflow` provider for
+  the Qwen ladder (`Qwen/Qwen3.5-397B-A17B` default; the 35B rung via `--model`).
+
 ### Added — Weeks 5–6 coding agent evaluation
 
 - Explicit completion budget as an eval parameter (item 004 fix round): the
