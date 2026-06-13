@@ -752,9 +752,10 @@ def _run_dset_command(
     slug = _slug(condition_id(config))
     path = args.out / f"runs-dset-{slug}.jsonl"
     void_ids: list[str] = []
+    aborted = False
     # run_dset yields per task; write each task's runs immediately (flushed) so a
     # later bad request can't lose the tasks already completed. The void sidecar is
-    # written on clean completion so report-m1 consumes run-dset output directly.
+    # written in both the clean and the aborted path so report-m1 always finds it.
     try:
         with path.open("w") as fh:
             for outcome in run_dset(
@@ -779,6 +780,17 @@ def _run_dset_command(
                         f"INCOMPLETE for this task (D34); excluded from pass^k.",
                         file=sys.stderr,
                     )
+    except httpx.TransportError as exc:
+        # Criterion 5: a connection failure is a one-line exit-1 diagnostic —
+        # never a traceback mid-corpus. The streamed JSONL keeps any partial
+        # progress for `incomplete` reporting.
+        hint = " — is the server running?" if config.id == "local" else ""
+        print(
+            f"error: cannot reach provider {config.id!r} at {config.base_url} "
+            f"({type(exc).__name__}: {exc}){hint}",
+            file=sys.stderr,
+        )
+        aborted = True
     finally:
         if http_client is None:
             client.close()
@@ -787,6 +799,8 @@ def _run_dset_command(
     )
     if void_ids:
         print(f"[void] {len(void_ids)} D-set task(s) VOID", file=sys.stderr)
+    if aborted:
+        return 1
     print(path)
     return 0
 

@@ -22,7 +22,6 @@ from agent_eval_lab.runners.wire import turn_to_message
 
 DEFAULT_TOOL_RESULT_CHAR_BUDGET = 24000
 ELISION_MARKER = "[earlier tool output elided to bound context]"
-_ELIDED_RESULT = {"elided": ELISION_MARKER}
 
 
 def _result_size(turn: ToolResultTurn) -> int:
@@ -31,8 +30,10 @@ def _result_size(turn: ToolResultTurn) -> int:
 
 
 def _elide(turn: ToolResultTurn) -> ToolResultTurn:
+    # Construct a fresh dict each call — no shared mutable module-level state
+    # (CLAUDE.md FP invariant).
     return ToolResultTurn(
-        call_id=turn.call_id, outcome=ToolSuccess(result=_ELIDED_RESULT)
+        call_id=turn.call_id, outcome=ToolSuccess(result={"elided": ELISION_MARKER})
     )
 
 
