@@ -608,6 +608,7 @@ def _spec_from_dict(data: dict) -> ExperimentSpec:
 def _spec_to_dict(spec: ExperimentSpec) -> dict:
     """Project an ExperimentSpec to a plain JSON-serialisable dict."""
     from agent_eval_lab.experiments.spec_hash import canonical_json as _cj
+
     # Use canonical_json to serialise then parse back to a plain dict.
     return json.loads(_cj(spec))
 
@@ -814,8 +815,10 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
     try:
         cfg = load_evaluator_config(evaluator_config_path)
     except FileNotFoundError:
-        print(f"error: evaluator config not found: {evaluator_config_path}",
-              file=sys.stderr)
+        print(
+            f"error: evaluator config not found: {evaluator_config_path}",
+            file=sys.stderr,
+        )
         return 1
 
     store = Path(cfg.store.path)
@@ -839,15 +842,24 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
             r = health_probe(hp.url, hp.username, hp.password, client=probe_client)
         finally:
             probe_client.close()
-        return EnvHealth(pre_healthy=r.healthy, post_healthy=r.healthy,
-                         pre_status=r.status_code, post_status=r.status_code)
+        return EnvHealth(
+            pre_healthy=r.healthy,
+            post_healthy=r.healthy,
+            pre_status=r.status_code,
+            post_status=r.status_code,
+        )
 
     try:
         outcomes = run_m1(
-            configs=configs, domain_tasks=domain_tasks, http_client=client,
-            k_valid=cfg.runner.k_valid, max_invalid_rate=cfg.runner.max_invalid_rate,
-            temperature=args.temperature, max_tokens=args.max_tokens,
-            health_probe_fn=health_probe_fn, reference_sha256=reference_sha256,
+            configs=configs,
+            domain_tasks=domain_tasks,
+            http_client=client,
+            k_valid=cfg.runner.k_valid,
+            max_invalid_rate=cfg.runner.max_invalid_rate,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            health_probe_fn=health_probe_fn,
+            reference_sha256=reference_sha256,
             evaluator_store=store,
         )
     finally:
@@ -865,8 +877,10 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
                     if o.void:
                         tid = o.attempts[0].run.task_id if o.attempts else "?"
                         void_ids.append(tid)
-                        print(f"[void] {cond}/{domain} task {tid}: INCOMPLETE (D34)",
-                              file=sys.stderr)
+                        print(
+                            f"[void] {cond}/{domain} task {tid}: INCOMPLETE (D34)",
+                            file=sys.stderr,
+                        )
             # Persist void/INCOMPLETE task ids beside the runs: the valid-runs-only
             # JSONL can't convey them, so report-m1's replay would under-count voids
             # without this sidecar (L2).
@@ -943,8 +957,12 @@ def _run_report_m1(args: argparse.Namespace) -> int:
             results, _void_task_ids_for(path)
         )
     report = build_m1_report(
-        spec=spec, outcomes_by_condition_domain=outcomes, pricing=pricing,
-        seed=args.seed, n_resamples=args.n_resamples, alpha=args.alpha,
+        spec=spec,
+        outcomes_by_condition_domain=outcomes,
+        pricing=pricing,
+        seed=args.seed,
+        n_resamples=args.n_resamples,
+        alpha=args.alpha,
     )
     _atomic_write(args.out, render_m1(report))
     print(args.out)
@@ -1100,7 +1118,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--spec", required=True, type=Path, help="frozen ExperimentSpec JSON"
     )
     rmm.add_argument(
-        "--provider", action="append", choices=sorted(PROVIDERS),
+        "--provider",
+        action="append",
+        choices=sorted(PROVIDERS),
         help="repeatable; default = all reachable providers",
     )
     rmm.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
@@ -1116,7 +1136,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--spec", required=True, type=Path, help="frozen ExperimentSpec JSON"
     )
     rm.add_argument(
-        "--runs", required=True, nargs="+",
+        "--runs",
+        required=True,
+        nargs="+",
         help="one per (domain,condition): DOMAIN:condition_id=path/to/runs.jsonl",
     )
     rm.add_argument("--prices", required=True, type=Path)

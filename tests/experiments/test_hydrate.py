@@ -66,6 +66,7 @@ def _write_jsonl(path: Path, runs: list[RunResult]) -> None:
 
 # ---------- happy path ----------
 
+
 def test_hydrate_run_record_returns_record(tmp_path: Path) -> None:
     run = _make_run(run_uid="uid-001")
     artifact = tmp_path / "runs.jsonl"
@@ -120,6 +121,7 @@ def test_hydrate_run_record_searches_multiple_files(tmp_path: Path) -> None:
 
 # ---------- hard-fail: zero matches ----------
 
+
 def test_hydrate_raises_when_run_uid_not_found(tmp_path: Path) -> None:
     run = _make_run(run_uid="uid-001")
     artifact = tmp_path / "runs.jsonl"
@@ -136,6 +138,7 @@ def test_hydrate_raises_when_run_uid_not_found(tmp_path: Path) -> None:
 
 
 # ---------- hard-fail: >1 matches ----------
+
 
 def test_hydrate_raises_when_run_uid_duplicated(tmp_path: Path) -> None:
     run_a = _make_run(task_id="t_a", run_uid="uid-DUP")
@@ -154,6 +157,7 @@ def test_hydrate_raises_when_run_uid_duplicated(tmp_path: Path) -> None:
 
 
 # ---------- hard-fail: SHA mismatch ----------
+
 
 def test_hydrate_raises_on_sha_mismatch(tmp_path: Path) -> None:
     run = _make_run(run_uid="uid-001")

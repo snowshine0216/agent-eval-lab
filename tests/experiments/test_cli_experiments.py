@@ -25,8 +25,12 @@ def _draft_spec_dict() -> dict:
         "safety_cap": 12,
         "max_invalid_rate": 0.25,
         "conditions": [
-            {"condition_id": "deepseek:deepseek-v4-pro", "label": "noskill",
-             "skill_variant": "none", "system_prompt_hash": None}
+            {
+                "condition_id": "deepseek:deepseek-v4-pro",
+                "label": "noskill",
+                "skill_variant": "none",
+                "system_prompt_hash": None,
+            }
         ],
         "metrics": [
             {
@@ -51,6 +55,7 @@ def _draft_spec_dict() -> dict:
 
 
 # ---------- freeze-spec ----------
+
 
 def test_freeze_spec_writes_frozen_json(tmp_path: Path) -> None:
     draft_path = tmp_path / "draft.json"
@@ -102,6 +107,7 @@ def test_freeze_spec_invalid_spec_exits_nonzero(tmp_path: Path) -> None:
 
 # ---------- check-env: playwright ----------
 
+
 def _make_completed_process(
     returncode: int, stdout: str = "", stderr: str = ""
 ) -> subprocess.CompletedProcess:
@@ -146,6 +152,7 @@ def test_check_env_skips_probe_when_no_config(capsys) -> None:
 
 
 # ---------- check-env: MSTR health probe ----------
+
 
 def _ok_client() -> httpx.Client:
     """A mock httpx.Client that returns 200 for any request."""
@@ -205,6 +212,7 @@ def test_check_env_missing_config_file_exits_1(tmp_path: Path, capsys) -> None:
 
 
 # ---------- health_probe function (factored, reusable) ----------
+
 
 def test_health_probe_function_returns_healthy_on_2xx() -> None:
     """The standalone health_probe function must be importable and testable."""

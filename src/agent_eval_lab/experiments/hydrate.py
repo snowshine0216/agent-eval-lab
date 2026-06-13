@@ -20,6 +20,7 @@ from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from
 # Canonical bytes for SHA256 — must match how freeze-spec hashes
 # ---------------------------------------------------------------------------
 
+
 def _canonical_bytes(run: RunResult) -> bytes:
     """Deterministic JSON bytes of a RunResult (sorted keys, no extra whitespace)."""
     d = run_result_to_dict(run)
@@ -35,6 +36,7 @@ def _sha256_hex(run: RunResult) -> str:
 # ---------------------------------------------------------------------------
 # JSONL parsing
 # ---------------------------------------------------------------------------
+
 
 def _load_run_results_from_jsonl(path: Path) -> list[RunResult]:
     """Parse a JSONL artifact file into RunResult objects."""
@@ -67,6 +69,7 @@ def _load_run_results_from_jsonl(path: Path) -> list[RunResult]:
 # ---------------------------------------------------------------------------
 # hydrate_run_record — the public API
 # ---------------------------------------------------------------------------
+
 
 def hydrate_run_record(
     *,

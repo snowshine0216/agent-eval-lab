@@ -70,7 +70,6 @@ def canonicalize_output(text: str, root: str) -> str:
     return _TIMING_TOKEN.sub("in <duration>", text.replace(root, SANDBOX_PLACEHOLDER))
 
 
-
 def suite_status(exit_code: int) -> SuiteStatus:
     """Pytest exit-code classification: 0/1/5 named; 2-4 (and rest) error."""
     if exit_code == 0:

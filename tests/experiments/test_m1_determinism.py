@@ -11,13 +11,15 @@ from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 def _outcome(tid, cond, passes):
     runs = tuple(
         RunResult(
-            task_id=tid, condition_id=cond, run_index=i,
+            task_id=tid,
+            condition_id=cond,
+            run_index=i,
             trajectory=Trajectory(
                 turns=(MessageTurn(role="assistant", content="x"),),
-                usage=Usage(
-                    prompt_tokens=10, completion_tokens=5, latency_s=0.1
-                ),
-                run_index=i, stop_reason="completed_natural", rounds=3,
+                usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=0.1),
+                run_index=i,
+                stop_reason="completed_natural",
+                rounds=3,
             ),
             grade=GradeResult(
                 grader_id="g", passed=p, score=1.0 if p else 0.0, evidence={}
@@ -41,24 +43,22 @@ def test_same_runs_and_spec_render_byte_identical():
             "deepseek:deepseek-v4-pro": PricePoint(
                 input_per_mtok=1.0, output_per_mtok=2.0
             ),
-            "minimax:MiniMax-M3": PricePoint(
-                input_per_mtok=0.5, output_per_mtok=1.0
-            ),
+            "minimax:MiniMax-M3": PricePoint(input_per_mtok=0.5, output_per_mtok=1.0),
         },
     )
     _ds = "deepseek:deepseek-v4-pro"
     _mm = "minimax:MiniMax-M3"
     outcomes = {
-        _ds: {"D": tuple(
-            _outcome(f"t{i}", _ds, [i % 2 == 0]*5) for i in range(6)
-        )},
-        _mm: {"D": tuple(
-            _outcome(f"t{i}", _mm, [True]*5) for i in range(6)
-        )},
+        _ds: {"D": tuple(_outcome(f"t{i}", _ds, [i % 2 == 0] * 5) for i in range(6))},
+        _mm: {"D": tuple(_outcome(f"t{i}", _mm, [True] * 5) for i in range(6))},
     }
     kw = dict(
-        spec=spec, outcomes_by_condition_domain=outcomes, pricing=pricing,
-        seed=20260613, n_resamples=1000, alpha=0.05,
+        spec=spec,
+        outcomes_by_condition_domain=outcomes,
+        pricing=pricing,
+        seed=20260613,
+        n_resamples=1000,
+        alpha=0.05,
     )
     md1 = render_markdown(build_m1_report(**kw))
     md2 = render_markdown(build_m1_report(**kw))

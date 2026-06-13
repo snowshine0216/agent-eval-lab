@@ -46,6 +46,7 @@ def _minimal_run_result() -> RunResult:
 
 # ---------- DomainWeight ----------
 
+
 def test_domain_weight_frozen() -> None:
     dw = DomainWeight(domain="F", weight=0.5)
     with pytest.raises(Exception):
@@ -57,6 +58,7 @@ def test_domain_weight_equality() -> None:
 
 
 # ---------- ConditionDef ----------
+
 
 def test_condition_def_default_skill_variant() -> None:
     c = ConditionDef(condition_id="deepseek:deepseek-v4-pro", label="deepseek-noskill")
@@ -82,6 +84,7 @@ def test_condition_def_with_skill_variant() -> None:
 
 
 # ---------- MetricDef ----------
+
 
 def test_metric_def_frozen() -> None:
     m = MetricDef(
@@ -112,6 +115,7 @@ def test_metric_def_composite_domain() -> None:
 
 # ---------- MultiplicityFamily ----------
 
+
 def test_multiplicity_family_frozen() -> None:
     f = MultiplicityFamily(
         id="fam1",
@@ -131,6 +135,7 @@ def test_multiplicity_family_equality() -> None:
 
 # ---------- PlannedComparison ----------
 
+
 def test_planned_comparison_frozen() -> None:
     pc = PlannedComparison(
         name="skill_effect_F",
@@ -145,6 +150,7 @@ def test_planned_comparison_frozen() -> None:
 
 
 # ---------- ExperimentSpec ----------
+
 
 def _make_spec(**overrides) -> ExperimentSpec:
     defaults = dict(
@@ -197,6 +203,7 @@ def test_experiment_spec_tuple_fields() -> None:
 
 # ---------- ExperimentResult ----------
 
+
 def test_experiment_result_frozen() -> None:
     r = ExperimentResult(
         experiment_id="M1",
@@ -236,6 +243,7 @@ def test_experiment_result_nullable_ci() -> None:
 
 
 # ---------- ExperimentRunRef / ExperimentRunRecord ----------
+
 
 def test_experiment_run_ref_frozen() -> None:
     ref = ExperimentRunRef(

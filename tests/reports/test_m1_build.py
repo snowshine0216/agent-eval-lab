@@ -12,11 +12,19 @@ def _run(task_id, cond, passed, rounds=3):
     traj = Trajectory(
         turns=(MessageTurn(role="assistant", content="x"),),
         usage=Usage(prompt_tokens=100, completion_tokens=50, latency_s=1.0),
-        run_index=0, stop_reason="completed_natural", rounds=rounds,
+        run_index=0,
+        stop_reason="completed_natural",
+        rounds=rounds,
     )
-    return RunResult(task_id=task_id, condition_id=cond, run_index=0, trajectory=traj,
-                     grade=GradeResult(grader_id="g", passed=passed,
-                                       score=1.0 if passed else 0.0, evidence={}))
+    return RunResult(
+        task_id=task_id,
+        condition_id=cond,
+        run_index=0,
+        trajectory=traj,
+        grade=GradeResult(
+            grader_id="g", passed=passed, score=1.0 if passed else 0.0, evidence={}
+        ),
+    )
 
 
 def _outcome(task_id, cond, passes):
@@ -46,10 +54,16 @@ def _pricing():
 
 def test_d_only_first_run_renders_d_and_marks_f_b_not_run():
     cond = "deepseek:deepseek-v4-pro"
-    outcomes = {cond: {"D": tuple(_outcome(f"t{i}", cond, [True]*5) for i in range(3))}}
+    outcomes = {
+        cond: {"D": tuple(_outcome(f"t{i}", cond, [True] * 5) for i in range(3))}
+    }
     report = build_m1_report(
-        spec=_spec(), outcomes_by_condition_domain=outcomes, pricing=_pricing(),
-        seed=20260613, n_resamples=200, alpha=0.05,
+        spec=_spec(),
+        outcomes_by_condition_domain=outcomes,
+        pricing=_pricing(),
+        seed=20260613,
+        n_resamples=200,
+        alpha=0.05,
     )
     d_results = [r for r in report.per_domain_results if r.domain == "D"]
     assert d_results and d_results[0].estimate == 1.0
@@ -61,23 +75,33 @@ def test_d_only_first_run_renders_d_and_marks_f_b_not_run():
 
 def test_composite_over_present_domains_only():
     cond = "deepseek:deepseek-v4-pro"
-    outcomes = {cond: {"D": tuple(_outcome(f"t{i}", cond, [True]*5) for i in range(3))}}
+    outcomes = {
+        cond: {"D": tuple(_outcome(f"t{i}", cond, [True] * 5) for i in range(3))}
+    }
     report = build_m1_report(
-        spec=_spec(), outcomes_by_condition_domain=outcomes, pricing=_pricing(),
-        seed=20260613, n_resamples=200, alpha=0.05,
+        spec=_spec(),
+        outcomes_by_condition_domain=outcomes,
+        pricing=_pricing(),
+        seed=20260613,
+        n_resamples=200,
+        alpha=0.05,
     )
     comp = [r for r in report.composites if r.condition_id == cond][0]
     assert comp.estimate == 1.0  # only D present -> composite == D
-    assert comp.void is True     # F/B dropped -> reduced coverage disclosed
+    assert comp.void is True  # F/B dropped -> reduced coverage disclosed
 
 
 def test_spec_hash_and_provenance_carried():
     spec = _spec()
     cond = "deepseek:deepseek-v4-pro"
-    outcomes = {cond: {"D": (_outcome("t0", cond, [True]*5),)}}
+    outcomes = {cond: {"D": (_outcome("t0", cond, [True] * 5),)}}
     report = build_m1_report(
-        spec=spec, outcomes_by_condition_domain=outcomes, pricing=_pricing(),
-        seed=20260613, n_resamples=100, alpha=0.05,
+        spec=spec,
+        outcomes_by_condition_domain=outcomes,
+        pricing=_pricing(),
+        seed=20260613,
+        n_resamples=100,
+        alpha=0.05,
     )
     assert report.spec_hash == spec.spec_hash
     assert report.dataset_snapshot_hash == "ds"
@@ -88,15 +112,28 @@ def test_deterministic_for_same_inputs():
     spec = _spec()
     cond = "deepseek:deepseek-v4-pro"
     outcomes = {
-        cond: {"D": tuple(_outcome(f"t{i}", cond, [i % 2 == 0]*5) for i in range(4))}
+        cond: {"D": tuple(_outcome(f"t{i}", cond, [i % 2 == 0] * 5) for i in range(4))}
     }
-    r1 = build_m1_report(spec=spec, outcomes_by_condition_domain=outcomes,
-                         pricing=_pricing(), seed=7, n_resamples=300, alpha=0.05)
-    r2 = build_m1_report(spec=spec, outcomes_by_condition_domain=outcomes,
-                         pricing=_pricing(), seed=7, n_resamples=300, alpha=0.05)
+    r1 = build_m1_report(
+        spec=spec,
+        outcomes_by_condition_domain=outcomes,
+        pricing=_pricing(),
+        seed=7,
+        n_resamples=300,
+        alpha=0.05,
+    )
+    r2 = build_m1_report(
+        spec=spec,
+        outcomes_by_condition_domain=outcomes,
+        pricing=_pricing(),
+        seed=7,
+        n_resamples=300,
+        alpha=0.05,
+    )
     d1 = [r for r in r1.per_domain_results if r.domain == "D"][0]
     d2 = [r for r in r2.per_domain_results if r.domain == "D"][0]
-    assert (
-        (d1.estimate, d1.ci_lower, d1.ci_upper)
-        == (d2.estimate, d2.ci_lower, d2.ci_upper)
+    assert (d1.estimate, d1.ci_lower, d1.ci_upper) == (
+        d2.estimate,
+        d2.ci_lower,
+        d2.ci_upper,
     )

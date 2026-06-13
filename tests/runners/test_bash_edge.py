@@ -9,7 +9,10 @@ from agent_eval_lab.runners.bash_edge import (
 def test_parse_argv_rejects_shell_metacharacters():
     # `;`, `|`, `&` must not be honoured — one program per call.
     assert parse_argv("playwright-cli -s=S open http://x") == [
-        "playwright-cli", "-s=S", "open", "http://x"
+        "playwright-cli",
+        "-s=S",
+        "open",
+        "http://x",
     ]
     assert parse_argv("playwright-cli x ; rm -rf /") is None  # contains `;`
     assert parse_argv("cmd | bash") is None  # contains `|`
@@ -68,7 +71,9 @@ def test_unparseable_command_is_127(tmp_path):
 
 def test_timeout_kills_and_flags(tmp_path):
     executor, close = make_bash_executor(
-        session_id="t", workdir=tmp_path, allowed_bins=frozenset({"sleep"}),
+        session_id="t",
+        workdir=tmp_path,
+        allowed_bins=frozenset({"sleep"}),
         timeout_s=0.5,
     )
     try:

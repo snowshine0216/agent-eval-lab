@@ -50,7 +50,8 @@ def test_answer_values_absent_from_system_prompt():
 
     # The system prompt is shared; get it from the first task
     system_content = next(
-        m.content for m in tasks[0].input.messages
+        m.content
+        for m in tasks[0].input.messages
         if isinstance(m, MessageTurn) and m.role == "system"
     ).lower()
 
@@ -58,7 +59,8 @@ def test_answer_values_absent_from_system_prompt():
     for task, q in zip(tasks, data["questions"]):
         # Get this task's user-turn (the actual question text)
         user_content = next(
-            m.content for m in task.input.messages
+            m.content
+            for m in task.input.messages
             if isinstance(m, MessageTurn) and m.role == "user"
         ).lower()
         # Check keys that are NOT in the question text (these are answer-specific)
@@ -81,7 +83,8 @@ def test_critical_answer_values_not_in_any_task_system_prompt():
 
     tasks = build_cmc_tasks(evaluator_store=_STORE, questions_path=_QUESTIONS)
     system_content = next(
-        m.content for m in tasks[0].input.messages
+        m.content
+        for m in tasks[0].input.messages
         if isinstance(m, MessageTurn) and m.role == "system"
     ).lower()
     # These are answer-specific values that MUST NOT be in the system prompt
@@ -102,8 +105,10 @@ def test_evaluator_store_is_gitignored():
     # D33: the store is gitignored (commit guard); permission-isolation is an
     # ops concern, but the commit guard is testable here.
     import subprocess
+
     out = subprocess.run(
         ["git", "check-ignore", "evaluator-only/cmc-docs-factkeys.json"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert out.returncode == 0  # the path IS ignored

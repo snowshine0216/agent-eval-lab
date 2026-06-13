@@ -42,14 +42,24 @@ _FAMILY_ID = "m1-pairwise-D-primary"
 def _metrics() -> tuple[MetricDef, ...]:
     def primary(domain, ci):
         return MetricDef(
-            name="pass_pow_k", domain=domain, primary=True, aggregation="pass_pow_k",
-            ci_method=ci, validity_mask=True, censoring_policy="failure",
+            name="pass_pow_k",
+            domain=domain,
+            primary=True,
+            aggregation="pass_pow_k",
+            ci_method=ci,
+            validity_mask=True,
+            censoring_policy="failure",
         )
 
     def efficiency(name, domain):
         return MetricDef(
-            name=name, domain=domain, primary=False, aggregation="median",
-            ci_method="none", validity_mask=True, censoring_policy="right_censored",
+            name=name,
+            domain=domain,
+            primary=False,
+            aggregation="median",
+            ci_method="none",
+            validity_mask=True,
+            censoring_policy="right_censored",
         )
 
     metrics: list[MetricDef] = [
@@ -69,25 +79,36 @@ def build_m1_spec(
     family = MultiplicityFamily(
         id=_FAMILY_ID,
         description="Pairwise model comparisons on the D-domain primary pass^k.",
-        correction="holm", alpha=0.05,
+        correction="holm",
+        alpha=0.05,
     )
     comparisons = tuple(
         PlannedComparison(
-            name=f"{a.label}_vs_{b.label}", family_id=_FAMILY_ID, domain="D",
-            condition_a=a.condition_id, condition_b=b.condition_id,
+            name=f"{a.label}_vs_{b.label}",
+            family_id=_FAMILY_ID,
+            domain="D",
+            condition_a=a.condition_id,
+            condition_b=b.condition_id,
             metric_name="pass_pow_k",
         )
         for a, b in combinations(_CONDITIONS, 2)
     )
     return ExperimentSpec(
-        experiment_id="M1-agentic-v1", k=5, repeats=1, safety_cap=200,
-        max_invalid_rate=0.40, conditions=_CONDITIONS, metrics=_metrics(),
+        experiment_id="M1-agentic-v1",
+        k=5,
+        repeats=1,
+        safety_cap=200,
+        max_invalid_rate=0.40,
+        conditions=_CONDITIONS,
+        metrics=_metrics(),
         macro_weights=(
             DomainWeight(domain="F", weight=1.0),
             DomainWeight(domain="D", weight=1.0),
             DomainWeight(domain="B", weight=1.0),
         ),
-        families=(family,), planned_comparisons=comparisons,
+        families=(family,),
+        planned_comparisons=comparisons,
         dataset_snapshot_hash=dataset_snapshot_hash,
-        pricing_snapshot_hash=pricing_snapshot_hash, spec_hash="",
+        pricing_snapshot_hash=pricing_snapshot_hash,
+        spec_hash="",
     )

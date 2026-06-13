@@ -57,9 +57,7 @@ def bootstrap_diff_p_value(
     n_zero = 0
     for _ in range(n_resamples):
         drawn = [ids[rng.randrange(n)] for _ in range(n)]
-        delta = (
-            sum(rel_b[t] for t in drawn) - sum(rel_a[t] for t in drawn)
-        ) / n
+        delta = (sum(rel_b[t] for t in drawn) - sum(rel_a[t] for t in drawn)) / n
         # Tail mass on the side of 0 OPPOSITE the point estimate.
         if point > 0 and delta < 0:
             n_opposite += 1

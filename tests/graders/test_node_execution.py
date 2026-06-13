@@ -21,8 +21,11 @@ def _spec(**kw):
 
 def _traj(base_tree):
     return Trajectory(
-        turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed", final_state={"files": base_tree},
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed",
+        final_state={"files": base_tree},
     )
 
 
@@ -52,9 +55,19 @@ def test_grade_reads_passed_verdict() -> None:
     spec, base = _spec(), {"src.js": "v1"}
     key = node_execution_hash(spec, base)
     verdict = NodeExecutionVerdict(
-        result=ExecutionResult(status="passed", exit_code=0, passed=1, failed=0,
-                               errors=0, skipped=0, tests=(), stdout="", stderr=""),
-        execution_hash=key, displaced_paths=(),
+        result=ExecutionResult(
+            status="passed",
+            exit_code=0,
+            passed=1,
+            failed=0,
+            errors=0,
+            skipped=0,
+            tests=(),
+            stdout="",
+            stderr="",
+        ),
+        execution_hash=key,
+        displaced_paths=(),
     )
     res = grade_node_execution(
         spec=spec, trajectory=_traj(base), verdicts={key: verdict}
@@ -66,9 +79,19 @@ def test_grade_fails_on_failed_verdict() -> None:
     spec, base = _spec(), {"src.js": "v1"}
     key = node_execution_hash(spec, base)
     verdict = NodeExecutionVerdict(
-        result=ExecutionResult(status="failed", exit_code=1, passed=33, failed=2,
-                               errors=0, skipped=0, tests=(), stdout="", stderr=""),
-        execution_hash=key, displaced_paths=(),
+        result=ExecutionResult(
+            status="failed",
+            exit_code=1,
+            passed=33,
+            failed=2,
+            errors=0,
+            skipped=0,
+            tests=(),
+            stdout="",
+            stderr="",
+        ),
+        execution_hash=key,
+        displaced_paths=(),
     )
     res = grade_node_execution(
         spec=spec, trajectory=_traj(base), verdicts={key: verdict}

@@ -41,7 +41,7 @@ _SYSTEM = (
     "Cloud (CMC). You have a single tool: `bash`. Use it to drive a headless "
     "browser via playwright-cli. Start a session and open the docs, e.g.:\n"
     f"  playwright-cli -s=$SESSION open {CMC_SOURCE_URL}\n"
-    "  playwright-cli -s=$SESSION eval \"() => document.body.innerText\"\n"
+    '  playwright-cli -s=$SESSION eval "() => document.body.innerText"\n'
     "Reuse the same -s=$SESSION id across commands. Read the page, then answer "
     "the question using ONLY information found in the documentation. Give your "
     "final answer as a plain-text message (no tool call)."

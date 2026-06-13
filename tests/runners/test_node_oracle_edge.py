@@ -17,12 +17,20 @@ from agent_eval_lab.tasks.schema import AllOf, NodeExecutionSpec
 _NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
 from agent_eval_lab.runners.node_edge import node_supports_junit  # noqa: E402
 
-requires_node = pytest.mark.skipif(
-    not node_supports_junit(), reason="node >=20 (junit reporter) required"
-)
 _FA = "tests/wdio/utils/failure-analysis"
 _REPO = Path.home() / "Documents/Repository/web-dossier"
-_EVAL = Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden/golden-files"  # noqa: E501
+_AGENT = Path.home() / "Documents/Repository/agent-eval-lab"
+_EVAL = _AGENT / "evaluator-only/web-dossier-golden/golden-files"
+
+# Skip unless node>=20 AND the local-only artifacts exist: the gitignored golden
+# store + the web-dossier clone. Both are absent in CI (where node IS present), so
+# guarding on node alone FileNotFound'd there — this also gates on the artifacts.
+requires_node = pytest.mark.skipif(
+    not node_supports_junit()
+    or not (_EVAL / "report-to-allure.test.js.golden").exists()
+    or not _REPO.exists(),
+    reason="node>=20 + local web-dossier golden store + repo required",
+)
 
 
 def _read(p: Path) -> str:
@@ -58,8 +66,12 @@ def _f3_allof() -> AllOf:
         held_out_files={"tests/wdio/package.json": WDIO_PKG_CONTENT},
         test_paths=tuple(
             f"{_FA}/__tests__/{n}"
-            for n in ("correlate.test.js", "signal.test.js",
-                      "compose.test.js", "index.test.js")
+            for n in (
+                "correlate.test.js",
+                "signal.test.js",
+                "compose.test.js",
+                "index.test.js",
+            )
         ),
     )
     return AllOf(specs=(f3, causal))
@@ -67,15 +79,20 @@ def _f3_allof() -> AllOf:
 
 def _traj(base_tree):
     return Trajectory(
-        turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed", final_state={"files": base_tree},
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed",
+        final_state={"files": base_tree},
     )
 
 
 def test_returns_empty_when_no_node_spec() -> None:
     from agent_eval_lab.tasks.schema import OutputMatchSpec
+
     out = precompute_node_verdicts(
-        verification=OutputMatchSpec(expected_output="x"), trajectory=_traj({}))
+        verification=OutputMatchSpec(expected_output="x"), trajectory=_traj({})
+    )
     assert out == {}
 
 
@@ -95,9 +112,16 @@ def test_golden_fix_passes_both_specs() -> None:
 def test_prefix_base_fails_the_f3_spec_but_passes_causal() -> None:
     allof = _f3_allof()
     base_js = subprocess.run(
-        ["git", "-C", str(_REPO), "show",
-         "5b0c13a6:tests/wdio/utils/failure-analysis/report-to-allure.js"],
-        check=True, capture_output=True, text=True,
+        [
+            "git",
+            "-C",
+            str(_REPO),
+            "show",
+            "5b0c13a6:tests/wdio/utils/failure-analysis/report-to-allure.js",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     base = _base_tree(base_js)
     verdicts = precompute_node_verdicts(verification=allof, trajectory=_traj(base))
@@ -124,7 +148,8 @@ def test_causal_tamper_passes_f3_but_fails_causal_guard() -> None:
     golden_src = _read(_EVAL / "report-to-allure.js.golden")
     base = _base_tree(golden_src)
     tampered = base[f"{_FA}/signal.js"].replace(
-        "backend-error-present", "backend-error-BROKEN")
+        "backend-error-present", "backend-error-BROKEN"
+    )
     assert tampered != base[f"{_FA}/signal.js"]
     base[f"{_FA}/signal.js"] = tampered
     verdicts = precompute_node_verdicts(verification=allof, trajectory=_traj(base))

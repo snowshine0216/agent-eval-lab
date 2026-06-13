@@ -492,7 +492,9 @@ def test_env_unhealthy_run_counts_as_invalid() -> None:
         # Each run calls probe twice (pre, post); the 2nd call is run-1's post.
         post_ok = flips[0] != 2
         return EnvHealth(
-            pre_healthy=True, post_healthy=post_ok, pre_status=200,
+            pre_healthy=True,
+            post_healthy=post_ok,
+            pre_status=200,
             post_status=200 if post_ok else 503,
         )
 

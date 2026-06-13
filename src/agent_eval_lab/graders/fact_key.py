@@ -38,8 +38,11 @@ def _final_answer(trajectory: Trajectory) -> str | None:
 
 def _non_pass(evidence: Mapping[str, Any]) -> GradeResult:
     return GradeResult(
-        grader_id=GRADER_ID, passed=False, score=0.0,
-        evidence=evidence, failure_reason=None,
+        grader_id=GRADER_ID,
+        passed=False,
+        score=0.0,
+        evidence=evidence,
+        failure_reason=None,
     )
 
 
@@ -58,9 +61,7 @@ def grade_fact_key(*, spec: FactKeySpec, trajectory: Trajectory) -> GradeResult:
     # Forbidden/contradiction keys the candidate stated (hallucination).
     present_forbidden = [k for k in spec.forbidden if _normalize(k) in ans]
 
-    passed = (
-        not required_not_on_page and not missing_required and not present_forbidden
-    )
+    passed = not required_not_on_page and not missing_required and not present_forbidden
     return GradeResult(
         grader_id=GRADER_ID,
         passed=passed,

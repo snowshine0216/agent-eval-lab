@@ -16,6 +16,7 @@ import httpx
 # Config dataclasses (frozen)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, kw_only=True)
 class StoreConfig:
     path: str
@@ -58,6 +59,7 @@ class EvaluatorConfig:
 # health_probe — factored for reuse by item 006
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, kw_only=True)
 class ProbeResult:
     """Result of a single health probe attempt."""
@@ -90,12 +92,11 @@ def health_probe(
 # load_evaluator_config — I/O at the edge
 # ---------------------------------------------------------------------------
 
+
 def _require_section(data: dict, section: str) -> dict:
     """Return a required TOML section or raise ValueError with a clear message."""
     if section not in data:
-        raise ValueError(
-            f"evaluator.toml is missing required section [{section}]"
-        )
+        raise ValueError(f"evaluator.toml is missing required section [{section}]")
     return data[section]
 
 
@@ -125,9 +126,7 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
     # data["oracle"]["b_set"]. Read it that way (not a flat [oracle_b_set]).
     oracle_parent = _require_section(data, "oracle")
     if "b_set" not in oracle_parent:
-        raise ValueError(
-            "evaluator.toml is missing required section [oracle.b_set]"
-        )
+        raise ValueError("evaluator.toml is missing required section [oracle.b_set]")
     oracle_sec = oracle_parent["b_set"]
 
     return EvaluatorConfig(

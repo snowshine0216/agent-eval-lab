@@ -96,11 +96,13 @@ def clopper_pearson_ci(*, successes: int, n: int, alpha: float) -> BinomialCI:
     if not (0 <= successes <= n):
         raise ValueError(f"successes {successes} out of range [0, {n}]")
     lo = (
-        0.0 if successes == 0
+        0.0
+        if successes == 0
         else _beta_quantile(alpha / 2.0, successes, n - successes + 1)
     )
     hi = (
-        1.0 if successes == n
+        1.0
+        if successes == n
         else _beta_quantile(1.0 - alpha / 2.0, successes + 1, n - successes)
     )
     return BinomialCI(

@@ -123,8 +123,7 @@ def test_condition_cost_usd_multiruns_sum_tokens() -> None:
     assert abs(cost - 2.0) < 1e-6
 
 
-def test_condition_cost_usd_ignores_other_conditions(
-) -> None:
+def test_condition_cost_usd_ignores_other_conditions() -> None:
     """LB-1 regression: tokens from OTHER conditions must not inflate the cost.
     Passing a mixed-condition result set must price only the target condition."""
     snap = PricingSnapshot(
@@ -133,9 +132,7 @@ def test_condition_cost_usd_ignores_other_conditions(
             "deepseek:deepseek-v4-pro": PricePoint(
                 input_per_mtok=1.0, output_per_mtok=2.0
             ),
-            "minimax:MiniMax-M3": PricePoint(
-                input_per_mtok=99.0, output_per_mtok=99.0
-            ),
+            "minimax:MiniMax-M3": PricePoint(input_per_mtok=99.0, output_per_mtok=99.0),
         },
     )
     # target deepseek: 1M @ $1 + 1M @ $2 = $3; the minimax run must NOT count.

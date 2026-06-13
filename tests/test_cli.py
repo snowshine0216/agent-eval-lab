@@ -1151,16 +1151,22 @@ def test_max_tokens_default_is_4096(tmp_path: Path) -> None:
 
 # ── Task 11 (item 005): run-dset subcommand parser ────────────────────────────
 
+
 def test_run_dset_subcommand_parses():
     from agent_eval_lab.cli import _build_parser
 
     parser = _build_parser()
-    args = parser.parse_args([
-        "run-dset",
-        "--provider", "deepseek",
-        "--evaluator-config", "evaluator.toml",
-        "--out", "reports",
-    ])
+    args = parser.parse_args(
+        [
+            "run-dset",
+            "--provider",
+            "deepseek",
+            "--evaluator-config",
+            "evaluator.toml",
+            "--out",
+            "reports",
+        ]
+    )
     assert args.command == "run-dset"
     assert args.provider == "deepseek"
     assert args.evaluator_config == Path("evaluator.toml")
@@ -1177,12 +1183,17 @@ def test_outcomes_from_runs_honors_void_sidecar(tmp_path):
         t = Trajectory(
             turns=(),
             usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
-            run_index=0, stop_reason="completed_natural",
+            run_index=0,
+            stop_reason="completed_natural",
         )
         return RunResult(
-            task_id=task, condition_id="c", run_index=0, trajectory=t,
-            grade=GradeResult(grader_id="g", passed=True, score=1.0,
-                              evidence={}, failure_reason=None),
+            task_id=task,
+            condition_id="c",
+            run_index=0,
+            trajectory=t,
+            grade=GradeResult(
+                grader_id="g", passed=True, score=1.0, evidence={}, failure_reason=None
+            ),
         )
 
     # task A produced 1 valid run; task B was fully void (no rows) per the sidecar.
@@ -1195,6 +1206,7 @@ def test_outcomes_from_runs_honors_void_sidecar(tmp_path):
 
     # sidecar reader round-trip
     import json
+
     runs_path = tmp_path / "runs-m1-c-D.jsonl"
     runs_path.write_text("")
     runs_path.with_suffix(".void.json").write_text(

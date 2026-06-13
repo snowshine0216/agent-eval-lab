@@ -141,6 +141,9 @@ def _interpret(verdict: NodeExecutionVerdict) -> GradeResult:
 
 def _non_pass(evidence: Mapping[str, Any]) -> GradeResult:
     return GradeResult(
-        grader_id=GRADER_ID, passed=False, score=0.0,
-        evidence=evidence, failure_reason=None,
+        grader_id=GRADER_ID,
+        passed=False,
+        score=0.0,
+        evidence=evidence,
+        failure_reason=None,
     )

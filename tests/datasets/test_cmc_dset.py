@@ -40,7 +40,8 @@ def test_build_cmc_tasks_makes_15_domain_D_tasks():
         # the question text is in the user turn; the URL is in the system turn
         assert any(
             CMC_SOURCE_URL in m.content
-            for m in t.input.messages if isinstance(m, MessageTurn)
+            for m in t.input.messages
+            if isinstance(m, MessageTurn)
         )
 
 
@@ -51,11 +52,13 @@ def test_l1_l3_tasks_are_factkey_l4_l5_are_allof_with_judge_stub():
         # task ids: cmc-q01..cmc-q15; questions 1-9 are L1-L3
         n = int(t.id.split("-q")[1])  # cmc-q07 -> 7
         if n <= 9:  # L1-L3 (questions 1-9)
-            assert isinstance(t.verification, FactKeySpec), \
+            assert isinstance(t.verification, FactKeySpec), (
                 f"{t.id} expected FactKeySpec, got {type(t.verification)}"
-        else:       # L4-L5 (questions 10-15)
-            assert isinstance(t.verification, AllOf), \
+            )
+        else:  # L4-L5 (questions 10-15)
+            assert isinstance(t.verification, AllOf), (
                 f"{t.id} expected AllOf, got {type(t.verification)}"
+            )
 
 
 @requires_store
@@ -90,7 +93,8 @@ def test_golden_answers_pass_their_own_factkey_oracle():
         traj = Trajectory(
             turns=(MessageTurn(role="assistant", content=ans),),
             usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-            run_index=0, stop_reason="completed_natural",
+            run_index=0,
+            stop_reason="completed_natural",
         )
         g = grade_trajectory(verification=t.verification, trajectory=traj, registry={})
         assert g.passed, f"{t.id} golden answer failed its own oracle: {g.evidence}"

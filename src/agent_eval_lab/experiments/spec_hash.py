@@ -17,6 +17,7 @@ from agent_eval_lab.experiments.schema import ExperimentSpec
 # canonical_json — deterministic serialisation
 # ---------------------------------------------------------------------------
 
+
 def _to_plain(obj: object) -> object:
     """Recursively project a dataclass/Mapping/list/tuple/scalar to plain types.
 
@@ -52,6 +53,7 @@ def canonical_json(obj: object) -> str:
 # compute_spec_hash — SHA256 over spec without spec_hash field
 # ---------------------------------------------------------------------------
 
+
 def compute_spec_hash(spec: ExperimentSpec) -> str:
     """SHA256 hex over the canonical JSON of the spec with spec_hash blanked."""
     # Project to plain dict, then blank the spec_hash key.
@@ -67,6 +69,7 @@ def compute_spec_hash(spec: ExperimentSpec) -> str:
 # ---------------------------------------------------------------------------
 # validation helpers
 # ---------------------------------------------------------------------------
+
 
 def _validate_spec(spec: ExperimentSpec) -> None:
     """Raise ValueError with a clear message on any pre-registration violation."""
@@ -113,6 +116,7 @@ def _validate_spec(spec: ExperimentSpec) -> None:
 # freeze_spec — idempotent; adds spec_hash
 # ---------------------------------------------------------------------------
 
+
 def freeze_spec(draft: ExperimentSpec) -> ExperimentSpec:
     """Validate and return a new spec with spec_hash populated.
 
@@ -126,6 +130,7 @@ def freeze_spec(draft: ExperimentSpec) -> ExperimentSpec:
 # ---------------------------------------------------------------------------
 # verify_spec_hash
 # ---------------------------------------------------------------------------
+
 
 def verify_spec_hash(spec: ExperimentSpec) -> bool:
     """Return True iff the stored spec_hash matches a fresh computation."""

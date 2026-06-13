@@ -24,9 +24,7 @@ class NodeExecutionError:
 
 
 def _collision_detail(collision: NodeOverlayCollision) -> str:
-    pairs = ", ".join(
-        f"base {b!r} vs oracle {o!r}" for b, o in collision.pairs
-    )
+    pairs = ", ".join(f"base {b!r} vs oracle {o!r}" for b, o in collision.pairs)
     return f"canonical-prefix collision: {pairs}"
 
 

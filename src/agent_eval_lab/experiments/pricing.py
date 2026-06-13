@@ -19,6 +19,7 @@ from agent_eval_lab.records.grade import RunResult
 # Pricing dataclasses (frozen)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, kw_only=True)
 class PricePoint:
     input_per_mtok: float
@@ -34,6 +35,7 @@ class PricingSnapshot:
 # ---------------------------------------------------------------------------
 # I/O: load_pricing + pricing_snapshot_hash
 # ---------------------------------------------------------------------------
+
 
 def load_pricing(path: Path) -> PricingSnapshot:
     """Load a pricing.json file and return a typed PricingSnapshot."""
@@ -61,6 +63,7 @@ def pricing_snapshot_hash(path: Path) -> str:
 # Pure cost derivation — reuses metrics/cost.py token_totals
 # ---------------------------------------------------------------------------
 
+
 def condition_cost_usd(
     results: Sequence[RunResult],
     condition_id: str,
@@ -77,6 +80,5 @@ def condition_cost_usd(
     own = [r for r in results if r.condition_id == condition_id]
     prompt_tokens, completion_tokens = token_totals(own)
     return (
-        prompt_tokens * price.input_per_mtok
-        + completion_tokens * price.output_per_mtok
+        prompt_tokens * price.input_per_mtok + completion_tokens * price.output_per_mtok
     ) / 1_000_000
