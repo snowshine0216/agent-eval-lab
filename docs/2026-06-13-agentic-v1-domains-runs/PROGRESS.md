@@ -4,7 +4,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 
 | # | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
-| 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | 🔄 | ⬜ | ⬜ | ⬜ |
 | 009 | f-domain-adapter | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | 010 | b-domain-m2 | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
@@ -27,3 +27,8 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   9 oracle-subprocess timeout flakes proven PRE-EXISTING by reproducing on base sans-008-diff),
   ruff clean. Commit `3ebd7d0`. ParseFailure.raw verified to carry response body only (no auth header).
   Next: drift subagent → ship → verify ‖ pr-review → fix → squash-merge to main → execute live k=5.
+- 2026-06-13 — **008 drift ✅** (Sonnet, commit `c1eda30`): 0 findings, all 4 code-phase steps verified
+  vs plan; ParseFailure.raw header-leak clear. **008 ship ✅** via **tier-2** (`gh pr create`, NOT /ship —
+  repo uses plain gh squash PRs, no VERSION file, untracked 010 file in tree, flaky oracle suite; see
+  items/008-ship.md). **PR #18** → main: https://github.com/snowshine0216/agent-eval-lab/pull/18.
+  CHANGELOG `[Unreleased]` updated. Post-ship: dispatching review (tier-2 substitute) ‖ verify ‖ pr-review.
