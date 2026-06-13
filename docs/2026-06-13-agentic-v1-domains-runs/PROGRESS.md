@@ -32,3 +32,12 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   repo uses plain gh squash PRs, no VERSION file, untracked 010 file in tree, flaky oracle suite; see
   items/008-ship.md). **PR #18** → main: https://github.com/snowshine0216/agent-eval-lab/pull/18.
   CHANGELOG `[Unreleased]` updated. Post-ship: dispatching review (tier-2 substitute) ‖ verify ‖ pr-review.
+- 2026-06-13 — **008 post-ship round 1:** verify ✅ PASS (check-env + CLI integration tests + real local
+  ollama smoke). review + pr-review BOTH independently caught a **latent blocker**: `_run_dset_command`
+  lacked `except httpx.TransportError` (the live-roster path) → mid-corpus abort crashed uncaught + skipped
+  the `.void.json` sidecar. Triage: 1 blocker (fix), 1 nit `history.py` shared mutable `_ELIDED_RESULT`
+  (fix), 1 false-positive nit (skipped, verified). **Fix round 1** (Sonnet, commit `e297082`, pushed):
+  added the TransportError guard (sidecar now written in both paths; clean exit-1) + regression test
+  `test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar` (red→green); fresh-dict `_elide`.
+  Suite green (42 cli/history pass; only pre-existing oracle-subprocess flakes), ruff clean. Re-running
+  review ‖ verify ‖ pr-review against `e297082`.
