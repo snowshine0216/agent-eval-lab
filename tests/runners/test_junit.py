@@ -10,6 +10,7 @@ _NODE_XML = """<?xml version="1.0" encoding="utf-8"?>
 </testsuites>
 """
 
+
 def test_parse_node_junit_sorts_and_maps_statuses() -> None:
     assert parse_junit_xml(_NODE_XML) == (
         TestCaseResult(test_id="test::alpha pass", status="passed"),

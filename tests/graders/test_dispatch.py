@@ -369,19 +369,36 @@ def test_dispatch_routes_node_execution_spec() -> None:
     spec = NodeExecutionSpec(held_out_files={}, test_paths=("a.test.js",))
     base = {"src.js": "v"}
     traj = Trajectory(
-        turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed", final_state={"files": base})
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed",
+        final_state={"files": base},
+    )
     key = node_execution_hash(spec, base)
     verdict = NodeExecutionVerdict(
-        result=ExecutionResult(status="passed", exit_code=0, passed=1, failed=0,
-                               errors=0, skipped=0, tests=(), stdout="", stderr=""),
-        execution_hash=key, displaced_paths=())
+        result=ExecutionResult(
+            status="passed",
+            exit_code=0,
+            passed=1,
+            failed=0,
+            errors=0,
+            skipped=0,
+            tests=(),
+            stdout="",
+            stderr="",
+        ),
+        execution_hash=key,
+        displaced_paths=(),
+    )
     res = grade_trajectory(
-        verification=spec, trajectory=traj, registry={}, verdicts={key: verdict})
+        verification=spec, trajectory=traj, registry={}, verdicts={key: verdict}
+    )
     assert res.grader_id == "node_execution" and res.passed is True
 
 
 # ── Task 7 (item 005): FactKeySpec dispatch ──────────────────────────────────
+
 
 def test_dispatch_routes_fact_key_spec():
     from agent_eval_lab.graders.dispatch import grade_trajectory
@@ -390,8 +407,11 @@ def test_dispatch_routes_fact_key_spec():
     from agent_eval_lab.tasks.schema import FactKeySpec
 
     spec = FactKeySpec(
-        required=("1.34",), forbidden=(), page_snapshot="v 1.34",
-        page_snapshot_sha256="x", level=1,
+        required=("1.34",),
+        forbidden=(),
+        page_snapshot="v 1.34",
+        page_snapshot_sha256="x",
+        level=1,
     )
     traj = Trajectory(
         turns=(
@@ -399,7 +419,8 @@ def test_dispatch_routes_fact_key_spec():
             MessageTurn(role="assistant", content="the version is 1.34"),
         ),
         usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed_natural",
+        run_index=0,
+        stop_reason="completed_natural",
     )
     g = grade_trajectory(verification=spec, trajectory=traj, registry={})
     assert g.grader_id == "fact_key"

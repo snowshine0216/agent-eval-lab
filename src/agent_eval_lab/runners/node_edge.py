@@ -108,8 +108,15 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 def _timeout_result() -> ExecutionResult:
     return ExecutionResult(
-        status="timeout", exit_code=_TIMEOUT_EXIT_CODE,
-        passed=0, failed=0, errors=0, skipped=0, tests=(), stdout="", stderr="",
+        status="timeout",
+        exit_code=_TIMEOUT_EXIT_CODE,
+        passed=0,
+        failed=0,
+        errors=0,
+        skipped=0,
+        tests=(),
+        stdout="",
+        stderr="",
     )
 
 
@@ -124,13 +131,19 @@ def run_node_tests(
         materialize_tree(files, root)
         xml_path = root / ".junit.xml"
         command = [
-            _node_bin(), "--test",
-            "--test-reporter=junit", f"--test-reporter-destination={xml_path}",
+            _node_bin(),
+            "--test",
+            "--test-reporter=junit",
+            f"--test-reporter-destination={xml_path}",
             *test_paths,
         ]
         process = subprocess.Popen(
-            command, cwd=root, env=_node_env(str(root)),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+            command,
+            cwd=root,
+            env=_node_env(str(root)),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
         try:
             stdout, stderr = process.communicate(timeout=timeout_s)
@@ -169,10 +182,12 @@ def run_node_tests(
             errors=_count(cases, "error"),
             skipped=_count(cases, "skipped"),
             tests=cases,
-            stdout=truncate_output(canonicalize_node_output(
-                stdout.decode("utf-8", "replace"), str(root))),
-            stderr=truncate_output(canonicalize_node_output(
-                stderr.decode("utf-8", "replace"), str(root))),
+            stdout=truncate_output(
+                canonicalize_node_output(stdout.decode("utf-8", "replace"), str(root))
+            ),
+            stderr=truncate_output(
+                canonicalize_node_output(stderr.decode("utf-8", "replace"), str(root))
+            ),
         )
     finally:
         shutil.rmtree(root, ignore_errors=True)

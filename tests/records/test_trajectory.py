@@ -111,8 +111,8 @@ def test_v1_compat_hydrates_legacy_dict_with_defaults() -> None:
         "final_state": None,
     }
     t = Trajectory.v1_compat(legacy)
-    assert t.schema_version == "1"          # tagged as v1
-    assert t.stop_reason == "completed"     # legacy value preserved as-is
+    assert t.schema_version == "1"  # tagged as v1
+    assert t.stop_reason == "completed"  # legacy value preserved as-is
     assert t.rounds == 0
     assert t.wall_time_s == 0.0
     assert t.tool_call_counts == {}

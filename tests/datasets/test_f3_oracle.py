@@ -17,11 +17,19 @@ from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 _NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
 from agent_eval_lab.runners.node_edge import node_supports_junit  # noqa: E402
 
-requires_node = pytest.mark.skipif(
-    not node_supports_junit(), reason="node >=20 (junit reporter) required"
-)
 _REPO = Path.home() / "Documents/Repository/web-dossier"
-_STORE = Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden"  # noqa: E501
+_AGENT = Path.home() / "Documents/Repository/agent-eval-lab"
+_STORE = _AGENT / "evaluator-only/web-dossier-golden"
+
+# Skip unless node>=20 AND the local-only artifacts exist (the gitignored golden
+# store + the web-dossier clone). Both are absent in CI where node IS present, so
+# guarding on node alone FileNotFound'd there — gate on the artifacts too.
+requires_node = pytest.mark.skipif(
+    not node_supports_junit()
+    or not (_STORE / "golden-files" / "report-to-allure.test.js.golden").exists()
+    or not _REPO.exists(),
+    reason="node>=20 + local web-dossier golden store + repo required",
+)
 
 
 def _candidate_base(report_src: str) -> dict[str, str]:
@@ -38,8 +46,12 @@ def _candidate_base(report_src: str) -> dict[str, str]:
 
 def _grade(verification, base) -> bool:
     traj = Trajectory(
-        turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed", final_state={"files": base})
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed",
+        final_state={"files": base},
+    )
     verdicts = precompute_node_verdicts(verification=verification, trajectory=traj)
     return grade_trajectory(
         verification=verification, trajectory=traj, registry={}, verdicts=verdicts
@@ -59,15 +71,23 @@ def test_f3_passes_golden_fails_base_mutant_and_causal_tamper() -> None:
     v = build_f3_verification(_STORE)
     golden_src = (_STORE / "golden-files/report-to-allure.js.golden").read_text("utf-8")
     base_src = subprocess.run(
-        ["git", "-C", str(_REPO), "show",
-         "5b0c13a6:tests/wdio/utils/failure-analysis/report-to-allure.js"],
-        check=True, capture_output=True, text=True).stdout
+        [
+            "git",
+            "-C",
+            str(_REPO),
+            "show",
+            "5b0c13a6:tests/wdio/utils/failure-analysis/report-to-allure.js",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     mutant_src = golden_src.replace(
         "e.status < 200 || e.status >= 300", "e.status >= 600"
     )
 
-    assert _grade(v, _candidate_base(golden_src)) is True   # golden fix PASSES
-    assert _grade(v, _candidate_base(base_src)) is False    # pre-fix base FAILS
+    assert _grade(v, _candidate_base(golden_src)) is True  # golden fix PASSES
+    assert _grade(v, _candidate_base(base_src)) is False  # pre-fix base FAILS
     assert _grade(v, _candidate_base(mutant_src)) is False  # surfaces-2xx mutant FAILS
 
     tampered = _candidate_base(golden_src)

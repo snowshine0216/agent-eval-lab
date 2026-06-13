@@ -65,8 +65,10 @@ def run_planned_comparisons(
         if comp.domain == "F":
             rel_a, rel_b = task_reliability(a), task_reliability(b)
             p = fisher_exact_two_sided(
-                a_success=sum(rel_a.values()), a_n=len(rel_a),
-                b_success=sum(rel_b.values()), b_n=len(rel_b),
+                a_success=sum(rel_a.values()),
+                a_n=len(rel_a),
+                b_success=sum(rel_b.values()),
+                b_n=len(rel_b),
             )
             point = sum(rel_b.values()) / len(rel_b) - sum(rel_a.values()) / len(rel_a)
             lo = hi = None  # F CI is the per-domain Clopper-Pearson, not a Delta CI
@@ -95,8 +97,13 @@ def run_planned_comparisons(
         c, point, lo, hi, p = pre[comp.name]
         rows.append(
             ComparisonRow(
-                comparison_name=comp.name, family_id=comp.family_id, domain=comp.domain,
-                skipped=(p is None), delta_point=point, ci_lower=lo, ci_upper=hi,
+                comparison_name=comp.name,
+                family_id=comp.family_id,
+                domain=comp.domain,
+                skipped=(p is None),
+                delta_point=point,
+                ci_lower=lo,
+                ci_upper=hi,
                 decision=decisions.get(comp.name),
             )
         )

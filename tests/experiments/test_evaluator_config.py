@@ -59,9 +59,11 @@ def test_load_evaluator_config_oracle_b_set() -> None:
 
 def test_load_evaluator_config_oracle_section_must_be_nested() -> None:
     """A flat [oracle_b_set] (not §18.4's nested [oracle.b_set]) must be rejected."""
-    bad = (FIXTURES.parent / "_bad_oracle.toml")
-    base = (FIXTURES / "evaluator.toml").read_text().replace(
-        "[oracle.b_set]", "[oracle_b_set]"
+    bad = FIXTURES.parent / "_bad_oracle.toml"
+    base = (
+        (FIXTURES / "evaluator.toml")
+        .read_text()
+        .replace("[oracle.b_set]", "[oracle_b_set]")
     )
     bad.write_text(base)
     try:

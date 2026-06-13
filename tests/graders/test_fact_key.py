@@ -20,8 +20,11 @@ def _answer(text: str) -> Trajectory:
 
 def _spec(required, forbidden):
     return FactKeySpec(
-        required=required, forbidden=forbidden,
-        page_snapshot=_PAGE, page_snapshot_sha256="x", level=1,
+        required=required,
+        forbidden=forbidden,
+        page_snapshot=_PAGE,
+        page_snapshot_sha256="x",
+        level=1,
     )
 
 
@@ -80,7 +83,8 @@ def test_no_assistant_message_is_non_pass():
     traj = Trajectory(
         turns=(MessageTurn(role="user", content="q"),),
         usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-        run_index=0, stop_reason="completed_natural",
+        run_index=0,
+        stop_reason="completed_natural",
     )
     g = grade_fact_key(spec=_spec(required=("1.34",), forbidden=()), trajectory=traj)
     assert g.passed is False

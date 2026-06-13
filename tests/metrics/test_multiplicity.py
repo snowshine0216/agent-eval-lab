@@ -37,7 +37,7 @@ def test_holm_step_down_orders_and_stops_at_first_non_reject():
     )
     decisions = holm_step_down(ps, alpha=0.05)
     by_name = {d.name: d for d in decisions}
-    assert by_name["c1"].rejected is True   # 0.001 <= 0.0167
+    assert by_name["c1"].rejected is True  # 0.001 <= 0.0167
     assert by_name["c2"].rejected is False  # 0.04 > 0.025 -> stop
     assert by_name["c3"].rejected is False  # step-down: retained after c2 fails
     # Adjusted p is monotone non-decreasing in the sorted order.

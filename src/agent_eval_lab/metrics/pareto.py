@@ -13,7 +13,7 @@ from dataclasses import dataclass
 class ParetoPoint:
     condition_id: str
     success: float  # higher is better (pass^k)
-    cost: float     # lower is better (usd | rounds | tokens)
+    cost: float  # lower is better (usd | rounds | tokens)
 
 
 def _dominates(p: ParetoPoint, q: ParetoPoint) -> bool:

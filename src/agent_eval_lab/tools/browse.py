@@ -22,7 +22,7 @@ BROWSE_TOOLS: Mapping[str, ToolDef] = {
             "Run a single shell command and return its stdout, stderr, and exit "
             "code. Use this to drive playwright-cli (a headless browser) — e.g. "
             "`playwright-cli -s=<session> open <url>`, then "
-            "`playwright-cli -s=<session> eval \"() => document.body.innerText\"`. "
+            '`playwright-cli -s=<session> eval "() => document.body.innerText"`. '
             "Reuse the same -s=<session> id across commands to keep one browser "
             "session. Each command has a time limit; output is truncated if large."
         ),

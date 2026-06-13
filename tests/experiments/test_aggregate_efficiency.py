@@ -13,10 +13,15 @@ def _run(rounds, prompt, completion, wall, safety_cap=False):
         usage=Usage(prompt_tokens=prompt, completion_tokens=completion, latency_s=wall),
         run_index=0,
         stop_reason="safety_cap" if safety_cap else "completed_natural",
-        rounds=rounds, wall_time_s=wall, safety_cap_bound=safety_cap,
+        rounds=rounds,
+        wall_time_s=wall,
+        safety_cap_bound=safety_cap,
     )
     return RunResult(
-        task_id="t", condition_id="m1", run_index=0, trajectory=traj,
+        task_id="t",
+        condition_id="m1",
+        run_index=0,
+        trajectory=traj,
         grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
     )
 

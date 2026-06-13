@@ -87,7 +87,7 @@ class M1Report:
     alpha: float
     classifier_version: str
     macro_weights: Mapping[str, float]
-    per_domain_results: tuple[ExperimentResult, ...]   # primary metric only
+    per_domain_results: tuple[ExperimentResult, ...]  # primary metric only
     composites: tuple[ExperimentResult, ...]
     efficiency: tuple[DomainEfficiency, ...]
     pareto_charts: tuple[ParetoChart, ...]
@@ -154,9 +154,14 @@ def build_m1_report(
             domains_seen.add(domain)
             primary = _primary_for(spec, domain)
             result = aggregate_domain_metric(
-                outcomes=outcomes, metric=primary, condition_id=cond,
-                experiment_id=spec.experiment_id, spec_hash=spec.spec_hash,
-                seed=seed, n_resamples=n_resamples, alpha=alpha,
+                outcomes=outcomes,
+                metric=primary,
+                condition_id=cond,
+                experiment_id=spec.experiment_id,
+                spec_hash=spec.spec_hash,
+                seed=seed,
+                n_resamples=n_resamples,
+                alpha=alpha,
             )
             per_domain.append(result)
             valid = _valid_runs(outcomes)
@@ -177,8 +182,11 @@ def build_m1_report(
             total = result.valid_run_count + invalid
             validity.append(
                 ValidityRow(
-                    condition_id=cond, domain=domain, valid=result.valid_run_count,
-                    invalid=invalid, invalid_rate=(invalid / total if total else 0.0),
+                    condition_id=cond,
+                    domain=domain,
+                    valid=result.valid_run_count,
+                    invalid=invalid,
+                    invalid_rate=(invalid / total if total else 0.0),
                     void_task_count=sum(1 for o in outcomes if o.void),
                 )
             )
@@ -191,8 +199,10 @@ def build_m1_report(
     composites = tuple(
         macro_composite(
             per_domain_primary=[r for r in per_domain if r.condition_id == cond],
-            weights=spec.macro_weights, condition_id=cond,
-            experiment_id=spec.experiment_id, spec_hash=spec.spec_hash,
+            weights=spec.macro_weights,
+            condition_id=cond,
+            experiment_id=spec.experiment_id,
+            spec_hash=spec.spec_hash,
         )
         for cond in conditions_present
     )
@@ -204,24 +214,36 @@ def build_m1_report(
     )
 
     comparisons = run_planned_comparisons(
-        comparisons=spec.planned_comparisons, families=spec.families,
-        runs_by_condition_domain=runs_by, seed=seed, n_resamples=n_resamples,
+        comparisons=spec.planned_comparisons,
+        families=spec.families,
+        runs_by_condition_domain=runs_by,
+        seed=seed,
+        n_resamples=n_resamples,
         alpha_default=alpha,
     )
     domains_not_run = tuple(d for d in _DOMAINS if d not in domains_seen)
 
     return M1Report(
-        experiment_id=spec.experiment_id, spec_hash=spec.spec_hash,
+        experiment_id=spec.experiment_id,
+        spec_hash=spec.spec_hash,
         dataset_snapshot_hash=spec.dataset_snapshot_hash,
         pricing_snapshot_hash=spec.pricing_snapshot_hash,
-        pricing_snapshot_date=pricing.snapshot_date, k=spec.k,
-        max_invalid_rate=spec.max_invalid_rate, seed=seed, n_resamples=n_resamples,
-        alpha=alpha, classifier_version=CLASSIFIER_VERSION,
+        pricing_snapshot_date=pricing.snapshot_date,
+        k=spec.k,
+        max_invalid_rate=spec.max_invalid_rate,
+        seed=seed,
+        n_resamples=n_resamples,
+        alpha=alpha,
+        classifier_version=CLASSIFIER_VERSION,
         macro_weights={w.domain: w.weight for w in spec.macro_weights},
-        per_domain_results=tuple(per_domain), composites=composites,
-        efficiency=tuple(efficiency), pareto_charts=pareto_charts,
-        failure_taxonomy=tuple(taxonomy), validity=tuple(validity),
-        comparisons=comparisons, conditions_present=conditions_present,
+        per_domain_results=tuple(per_domain),
+        composites=composites,
+        efficiency=tuple(efficiency),
+        pareto_charts=pareto_charts,
+        failure_taxonomy=tuple(taxonomy),
+        validity=tuple(validity),
+        comparisons=comparisons,
+        conditions_present=conditions_present,
         domains_not_run=domains_not_run,
     )
 
@@ -232,9 +254,7 @@ def _pareto_for(
     domain: str,
     axis: str,
 ) -> ParetoChart:
-    success_of = {
-        r.condition_id: r.estimate for r in per_domain if r.domain == domain
-    }
+    success_of = {r.condition_id: r.estimate for r in per_domain if r.domain == domain}
     points: list[ParetoPoint] = []
     for eff in efficiency:
         if eff.domain != domain or eff.condition_id not in success_of:
@@ -255,7 +275,9 @@ def _pareto_for(
             )
         )
     return ParetoChart(
-        domain=domain, axis=axis, frontier=pareto_frontier(tuple(points)),
+        domain=domain,
+        axis=axis,
+        frontier=pareto_frontier(tuple(points)),
         all_points=tuple(points),
     )
 
@@ -263,6 +285,7 @@ def _pareto_for(
 # ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
+
 
 def _ci_cell(r: ExperimentResult) -> str:
     if r.void and r.valid_run_count == 0:
@@ -308,11 +331,13 @@ def _composite_lines(report: M1Report) -> list[str]:
     for c in report.composites:
         note = (
             "reduced coverage (some domains not run / void)"
-            if c.void else "all domains present"
+            if c.void
+            else "all domains present"
         )
         ci = (
             f" [{c.ci_lower:.3f}, {c.ci_upper:.3f}]"
-            if c.ci_lower is not None and c.ci_upper is not None else ""
+            if c.ci_lower is not None and c.ci_upper is not None
+            else ""
         )
         lines.append(f"| {c.condition_id} | {c.estimate:.3f}{ci} | {note} |")
     if report.domains_not_run:
@@ -348,8 +373,12 @@ def _pareto_lines(report: M1Report) -> list[str]:
 def _taxonomy_lines(report: M1Report) -> list[str]:
     lines = [f"## Failure taxonomy ({report.classifier_version}) per condition", ""]
     for t in report.failure_taxonomy:
-        lines += [f"### {t.condition_id}", "", "| category | subcategory | count |",
-                  "| --- | --- | --- |"]
+        lines += [
+            f"### {t.condition_id}",
+            "",
+            "| category | subcategory | count |",
+            "| --- | --- | --- |",
+        ]
         if not t.counts:
             lines.append("| (no failures) | — | 0 |")
         else:
@@ -398,7 +427,8 @@ def _comparison_lines(report: M1Report) -> list[str]:
             continue
         ci = (
             f"{c.delta_point:+.3f} [{c.ci_lower:+.3f}, {c.ci_upper:+.3f}]"
-            if c.ci_lower is not None else f"{c.delta_point:+.3f}"
+            if c.ci_lower is not None
+            else f"{c.delta_point:+.3f}"
         )
         lines.append(
             f"| {c.comparison_name} | {c.domain} | {ci} | {c.decision.p:.4f} "
@@ -422,7 +452,8 @@ def _header_lines(report: M1Report) -> list[str]:
         (
             f"- domains not yet run: {', '.join(report.domains_not_run)} "
             "(rendered as 'not yet run', not as failures)"
-            if report.domains_not_run else "- all domains (F/D/B) present"
+            if report.domains_not_run
+            else "- all domains (F/D/B) present"
         ),
         "",
     ]

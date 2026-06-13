@@ -16,7 +16,9 @@ def test_node_execution_spec_is_a_verification_spec() -> None:
 
     spec = NodeExecutionSpec(
         held_out_files={"tests/wdio/package.json": '{"type":"module"}'},
-        test_paths=("tests/wdio/utils/failure-analysis/__tests__/report-to-allure.test.js",),
+        test_paths=(
+            "tests/wdio/utils/failure-analysis/__tests__/report-to-allure.test.js",
+        ),
     )
     assert isinstance(spec, VerificationSpec)
     assert spec.type == "node_execution"

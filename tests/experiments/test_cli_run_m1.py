@@ -13,16 +13,19 @@ def test_run_m1_streams_runs_per_condition_domain(tmp_path, monkeypatch):
 
     def _outcome(tid, cond):
         r = RunResult(
-            task_id=tid, condition_id=cond, run_index=0,
+            task_id=tid,
+            condition_id=cond,
+            run_index=0,
             trajectory=Trajectory(
                 turns=(MessageTurn(role="assistant", content="x"),),
                 usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
-                run_index=0, stop_reason="completed_natural",
+                run_index=0,
+                stop_reason="completed_natural",
             ),
             grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
         )
         return ReplacementOutcome(
-            valid_runs=(r,)*5,
+            valid_runs=(r,) * 5,
             attempts=(TrialAttempt(attempt_index=0, valid=True, run=r),),
             void=False,
         )
@@ -43,6 +46,7 @@ def test_run_m1_streams_runs_per_condition_domain(tmp_path, monkeypatch):
     from agent_eval_lab.cli import _spec_to_dict
     from agent_eval_lab.experiments.m1_spec import build_m1_spec
     from agent_eval_lab.experiments.spec_hash import freeze_spec
+
     spec = freeze_spec(
         build_m1_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
     )
@@ -54,16 +58,24 @@ def test_run_m1_streams_runs_per_condition_domain(tmp_path, monkeypatch):
         '[store]\npath = "/tmp/eval-store"\n'
         '[health_probe]\nurl = "http://localhost"\nusername = "u"\npassword = "p"\n'
         '[skill]\nstrategy_test_path = "/tmp/skill"\n'
-        '[runner]\nsafety_cap = 200\nk_valid = 5\nmax_invalid_rate = 0.40\n'
+        "[runner]\nsafety_cap = 200\nk_valid = 5\nmax_invalid_rate = 0.40\n"
         '[oracle]\n[oracle.b_set]\nreadback = "playwright-cli"\n'
     )
 
     out = tmp_path / "runs"
-    rc = main([
-        "run-m1", "--spec", str(spec_path), "--provider", "deepseek",
-        "--evaluator-config", str(tmp_path / "evaluator.toml"),
-        "--out", str(out),
-    ])
+    rc = main(
+        [
+            "run-m1",
+            "--spec",
+            str(spec_path),
+            "--provider",
+            "deepseek",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ]
+    )
     assert rc == 0
     written = list(out.glob("runs-m1-*-D.jsonl"))
     assert len(written) == 1

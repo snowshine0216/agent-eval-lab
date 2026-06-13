@@ -42,10 +42,15 @@ def run_m1(
         d_tasks = domain_tasks.get("D")
         if d_tasks:
             out[cond]["D"] = run_dset(
-                evaluator_store=evaluator_store, tasks=tuple(d_tasks), config=config,
-                http_client=http_client, k_valid=k_valid,
-                max_invalid_rate=max_invalid_rate, temperature=temperature,
-                max_tokens=max_tokens, health_probe_fn=health_probe_fn,
+                evaluator_store=evaluator_store,
+                tasks=tuple(d_tasks),
+                config=config,
+                http_client=http_client,
+                k_valid=k_valid,
+                max_invalid_rate=max_invalid_rate,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                health_probe_fn=health_probe_fn,
                 reference_sha256=reference_sha256,
             )
         # F / B: no domain runner yet (items 004/006). Absent -> skipped, never a crash.

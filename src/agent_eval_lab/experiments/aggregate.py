@@ -49,17 +49,22 @@ def aggregate_domain_metric(
 ) -> ExperimentResult:
     any_void = any(o.void for o in outcomes)
     complete = _complete_runs(outcomes)
-    invalid_run_count = sum(
-        sum(1 for a in o.attempts if not a.valid) for o in outcomes
-    )
+    invalid_run_count = sum(sum(1 for a in o.attempts if not a.valid) for o in outcomes)
     if not complete:
         # Every task voided / no scoreable run: never invent a number.
         return ExperimentResult(
-            experiment_id=experiment_id, spec_hash=spec_hash,
-            condition_id=condition_id, domain=metric.domain,
-            metric_name=metric.name, estimate=0.0,
-            ci_lower=None, ci_upper=None, ci_method=metric.ci_method,
-            valid_run_count=0, invalid_run_count=invalid_run_count, void=True,
+            experiment_id=experiment_id,
+            spec_hash=spec_hash,
+            condition_id=condition_id,
+            domain=metric.domain,
+            metric_name=metric.name,
+            estimate=0.0,
+            ci_lower=None,
+            ci_upper=None,
+            ci_method=metric.ci_method,
+            valid_run_count=0,
+            invalid_run_count=invalid_run_count,
+            void=True,
         )
     estimate = pass_pow_k(complete)
     ci_lower: float | None = None
@@ -77,17 +82,25 @@ def aggregate_domain_metric(
         ci_lower, ci_upper = bci.lo, bci.hi
     # ci_method == "none": leave both None.
     return ExperimentResult(
-        experiment_id=experiment_id, spec_hash=spec_hash,
-        condition_id=condition_id, domain=metric.domain, metric_name=metric.name,
-        estimate=estimate, ci_lower=ci_lower, ci_upper=ci_upper,
-        ci_method=metric.ci_method, valid_run_count=len(complete),
-        invalid_run_count=invalid_run_count, void=any_void,
+        experiment_id=experiment_id,
+        spec_hash=spec_hash,
+        condition_id=condition_id,
+        domain=metric.domain,
+        metric_name=metric.name,
+        estimate=estimate,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        ci_method=metric.ci_method,
+        valid_run_count=len(complete),
+        invalid_run_count=invalid_run_count,
+        void=any_void,
     )
 
 
 # ---------------------------------------------------------------------------
 # Efficiency summary (DEC-6)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, kw_only=True)
 class EfficiencySummary:
@@ -102,8 +115,11 @@ def efficiency_summary(*, outcomes: Sequence[ReplacementOutcome]) -> EfficiencyS
     runs = _complete_runs(outcomes)
     if not runs:
         return EfficiencySummary(
-            median_rounds=0.0, total_tokens=0, median_wall_time_s=0.0,
-            n_censored=0, n_runs=0,
+            median_rounds=0.0,
+            total_tokens=0,
+            median_wall_time_s=0.0,
+            n_censored=0,
+            n_runs=0,
         )
     prompt, completion = token_totals(runs)
     return EfficiencySummary(
@@ -147,10 +163,17 @@ def macro_composite(
     # (all-zero weights -> no defensible composite; avoids a ZeroDivisionError — L1).
     if not contributing or total_w <= 0.0:
         return ExperimentResult(
-            experiment_id=experiment_id, spec_hash=spec_hash,
-            condition_id=condition_id, domain="composite", metric_name="composite",
-            estimate=0.0, ci_lower=None, ci_upper=None,
-            ci_method=COMPOSITE_CI_METHOD, valid_run_count=0, invalid_run_count=0,
+            experiment_id=experiment_id,
+            spec_hash=spec_hash,
+            condition_id=condition_id,
+            domain="composite",
+            metric_name="composite",
+            estimate=0.0,
+            ci_lower=None,
+            ci_upper=None,
+            ci_method=COMPOSITE_CI_METHOD,
+            valid_run_count=0,
+            invalid_run_count=0,
             void=True,
         )
     estimate = (
@@ -165,9 +188,14 @@ def macro_composite(
             var += (w_norm * half) ** 2
     spread = _math.sqrt(var)
     return ExperimentResult(
-        experiment_id=experiment_id, spec_hash=spec_hash, condition_id=condition_id,
-        domain="composite", metric_name="composite", estimate=estimate,
-        ci_lower=max(0.0, estimate - spread), ci_upper=min(1.0, estimate + spread),
+        experiment_id=experiment_id,
+        spec_hash=spec_hash,
+        condition_id=condition_id,
+        domain="composite",
+        metric_name="composite",
+        estimate=estimate,
+        ci_lower=max(0.0, estimate - spread),
+        ci_upper=min(1.0, estimate + spread),
         ci_method=COMPOSITE_CI_METHOD,
         valid_run_count=sum(r.valid_run_count for r in contributing),
         invalid_run_count=sum(r.invalid_run_count for r in contributing),

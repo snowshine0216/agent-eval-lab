@@ -86,6 +86,7 @@ def _make_spec(**overrides) -> ExperimentSpec:
 
 # ---------- canonical_json ----------
 
+
 def test_canonical_json_is_sorted_keys() -> None:
     d = {"z": 1, "a": 2, "m": 3}
     result = canonical_json(d)
@@ -122,6 +123,7 @@ def test_canonical_json_on_dataclass() -> None:
 
 # ---------- compute_spec_hash ----------
 
+
 def test_compute_spec_hash_returns_sha256_hex() -> None:
     spec = _make_spec()
     h = compute_spec_hash(spec)
@@ -149,6 +151,7 @@ def test_compute_spec_hash_deterministic() -> None:
 
 # ---------- freeze_spec ----------
 
+
 def test_freeze_spec_writes_spec_hash() -> None:
     draft = _make_spec(spec_hash="")
     frozen = freeze_spec(draft)
@@ -173,6 +176,7 @@ def test_freeze_spec_returns_new_object() -> None:
 
 # ---------- verify_spec_hash ----------
 
+
 def test_verify_spec_hash_true_for_frozen() -> None:
     frozen = freeze_spec(_make_spec())
     assert verify_spec_hash(frozen) is True
@@ -182,11 +186,13 @@ def test_verify_spec_hash_false_for_tampered() -> None:
     frozen = freeze_spec(_make_spec())
     # replace spec_hash with a bogus value
     from dataclasses import replace
+
     tampered = replace(frozen, spec_hash="0" * 64)
     assert verify_spec_hash(tampered) is False
 
 
 # ---------- validation in freeze_spec ----------
+
 
 def test_freeze_spec_rejects_zero_primary_metrics_for_domain() -> None:
     """A domain with no primary metric must raise."""
