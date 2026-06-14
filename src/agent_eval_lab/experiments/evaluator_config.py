@@ -7,6 +7,7 @@ The health_probe function is factored here so item 006 can import it directly.
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,17 @@ class SkillConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
+class CandidateConfig:
+    """The least-privilege candidate MSTR account (D20). Distinct from the
+    evaluator account used by health_probe / the readback oracle; this account
+    CANNOT read the golden (D19/D33)."""
+
+    url: str
+    username: str
+    password: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class RunnerConfig:
     safety_cap: int
     k_valid: int
@@ -44,6 +56,8 @@ class RunnerConfig:
 @dataclass(frozen=True, kw_only=True)
 class OracleBSetConfig:
     readback: str  # readback strategy, e.g. "playwright-cli" (§18.4/§18.7)
+    project_id: str  # MSTR project the run folder + golden live in (§18.7)
+    goldens: Mapping[str, str]  # task-id -> golden object id (evaluator-only, D19)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,6 +65,7 @@ class EvaluatorConfig:
     store: StoreConfig
     health_probe: HealthProbeConfig
     skill: SkillConfig
+    candidate: CandidateConfig
     runner: RunnerConfig
     oracle_b_set: OracleBSetConfig
 
@@ -121,6 +136,7 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
     store_sec = _require_section(data, "store")
     hp_sec = _require_section(data, "health_probe")
     skill_sec = _require_section(data, "skill")
+    candidate_sec = _require_section(data, "candidate")
     runner_sec = _require_section(data, "runner")
     # §18.4 declares a NESTED table [oracle.b_set]; tomllib parses it as
     # data["oracle"]["b_set"]. Read it that way (not a flat [oracle_b_set]).
@@ -128,6 +144,11 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
     if "b_set" not in oracle_parent:
         raise ValueError("evaluator.toml is missing required section [oracle.b_set]")
     oracle_sec = oracle_parent["b_set"]
+    if "goldens" not in oracle_sec:
+        raise ValueError(
+            "evaluator.toml is missing required section [oracle.b_set.goldens]"
+        )
+    goldens_sec = oracle_sec["goldens"]
 
     return EvaluatorConfig(
         store=StoreConfig(
@@ -143,6 +164,11 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
                 _require_key(skill_sec, "strategy_test_path", "skill")
             ),
         ),
+        candidate=CandidateConfig(
+            url=str(_require_key(candidate_sec, "url", "candidate")),
+            username=str(_require_key(candidate_sec, "username", "candidate")),
+            password=str(_require_key(candidate_sec, "password", "candidate")),
+        ),
         runner=RunnerConfig(
             safety_cap=int(_require_key(runner_sec, "safety_cap", "runner")),
             k_valid=int(_require_key(runner_sec, "k_valid", "runner")),
@@ -152,5 +178,7 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
         ),
         oracle_b_set=OracleBSetConfig(
             readback=str(_require_key(oracle_sec, "readback", "oracle.b_set")),
+            project_id=str(_require_key(oracle_sec, "project_id", "oracle.b_set")),
+            goldens={str(k): str(v) for k, v in goldens_sec.items()},
         ),
     )
