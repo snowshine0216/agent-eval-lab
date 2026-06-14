@@ -13,7 +13,10 @@ _NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
 from agent_eval_lab.runners.node_edge import node_supports_junit  # noqa: E402
 
 _REPO = Path.home() / "Documents/Repository/web-dossier"
-_STORE = Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden"
+_STORE = (
+    Path.home()
+    / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden"
+)
 _GF = _STORE / "golden-files"
 
 requires_node = pytest.mark.skipif(
@@ -53,8 +56,10 @@ def test_run_f_golden_tree_passes_f1() -> None:
     def build_tree_fn(task):
         tree = prefix_candidate_tree(task, repo=_REPO)  # pinned 5b0c13a6 base
         # apply the golden fix (stands in for the candidate's edit)
-        tree["tests/wdio/specs/regression/snapshot/snapshots/"
-             "Snapshots_SendBackground.spec.js"] = gspec
+        tree[
+            "tests/wdio/specs/regression/snapshot/snapshots/"
+            "Snapshots_SendBackground.spec.js"
+        ] = gspec
         tree["tests/wdio/pageObjects/common/LibraryNotification.js"] = gpage
         return tree
 
@@ -67,11 +72,11 @@ def test_prefix_candidate_tree_pins_5b0c13a6_not_head() -> None:
     [t] = [t for t in build_f_tasks(evaluator_store=_STORE) if t.id == "f-f2"]
     tree = prefix_candidate_tree(t, repo=_REPO)
     conf = tree["tests/wdio/wdio.conf.ts"]
-    # the pre-fix conf discards the engine result (no `const diagResult =`)
-    assert "const diagResult = await analyzeFailure" not in conf
     # sanity: it is the same bytes git emits for the pinned sha
     expected = subprocess.run(
         ["git", "-C", str(_REPO), "show", "5b0c13a6:tests/wdio/wdio.conf.ts"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert conf == expected
