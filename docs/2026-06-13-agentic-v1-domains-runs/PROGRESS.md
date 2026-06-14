@@ -6,7 +6,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
-| 010 | b-domain-m2 | ✅ | ⏭️ | ⬜ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
 
@@ -93,3 +93,18 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   returns {D,F} (needs B); `reports/m1._DOMAINS=("F","D","B")` (B renders generically);
   `load_evaluator_config` ignores the B extras (010 parses `[candidate]`/`project_id`/`[oracle.b_set.goldens]`).
   Next: Opus plan subagent → `items/010-plan.md`.
+- 2026-06-14 — **010 plan ✅** (Opus, `9eb74b2`): 10-task TDD plan mirroring F-domain; new `ReadbackSpec`
+  variant + injectable `MstrReadbackClient` Protocol; golden/mutant fixtures gitignored-only;
+  `requires_store` skipif; execute-phase follow-ups carved out for the deferred live run.
+- 2026-06-14 — **010 impl ✅** (Sonnet subagent-driven, 10 commits `49eaae2`…`eb949ea`): config plumbing
+  (`CandidateConfig`+`project_id`/`goldens`), `runners/mstr_client.py` (injectable Protocol),
+  `runners/b_isolation.py` (D20 save-name/preflight/capture/reset), `datasets/skill_loader.py`,
+  `datasets/b1_oracle.py` (`ReadbackSpec`+pure golden-discriminating grader), `datasets/b_tasks.py`
+  (B-1 noskill/skill arms), `runners/b_run.py`, `m1_run` B branch, `cli` B wiring. **Orchestrator
+  verified directly:** 940 passed/0 failed/0 skipped (local; `requires_store`/`requires_node` SKIP in
+  CI), ruff check + `format --check .` clean (whole repo), **TRAP-1 leak grep CLEAN** — all real 010
+  secrets (golden object id, project id, golden grid, MSTR host, store/skill paths) = 0 tracked-tree
+  matches; flagged items are false positives (`playwright-cli` tool name; `mstr1` generic default in
+  docs only; 6-char default pw coincidentally substring of the hex alphabet in 2 pre-existing untouched
+  test files). Fixtures gitignored+unstaged. 2 minor deviations (CandidateConfig.url optional to match
+  real config; 3 dependent fixtures updated). Next: drift subagent.
