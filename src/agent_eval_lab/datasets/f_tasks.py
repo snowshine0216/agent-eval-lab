@@ -28,29 +28,37 @@ _SYSTEM = (
     "owner-specified change, leaving all other layers untouched."
 )
 
+_F1_SPEC = (
+    "tests/wdio/specs/regression/snapshot/snapshots/Snapshots_SendBackground.spec.js"
+)
 _F1_USER = (
-    "In tests/wdio/specs/regression/snapshot/snapshots/Snapshots_SendBackground.spec.js, "
-    "test case [TC99396_10] asserts on a non-deterministic error notification via a flaky "
-    "image comparison (takeScreenshotByElement). Replace the image comparison with a "
-    "deterministic wait on the NAMED snapshot reaching a terminal state (ready or error), "
-    "adding a waitForSnapshotFinalNotificationByName(name) helper to "
+    f"In {_F1_SPEC}, test case [TC99396_10] asserts on a non-deterministic "
+    "error notification via a flaky image comparison (takeScreenshotByElement). "
+    "Replace the image comparison with a deterministic wait on the NAMED snapshot "
+    "reaching a terminal state (ready or error), adding a "
+    "waitForSnapshotFinalNotificationByName(name) helper to "
     "tests/wdio/pageObjects/common/LibraryNotification.js."
 )
 _F2_USER = (
-    "In tests/wdio/wdio.conf.ts, runFailureAnalysisEngine discards the failure-analysis "
-    "engine result. Capture it and print a terminal diagnose trace: log only failed "
-    "(non-2XX) requests under '[DiagTrace] Failed requests:', then log "
-    "'[DiagTrace] signal=<signal> confidence=<confidence>' from the engine result. Guard "
-    "the whole trace so a logging error never breaks afterTest/afterHook."
+    "In tests/wdio/wdio.conf.ts, runFailureAnalysisEngine discards the "
+    "failure-analysis engine result. Capture it and print a terminal diagnose "
+    "trace: log only failed (non-2XX) requests under "
+    "'[DiagTrace] Failed requests:', then log "
+    "'[DiagTrace] signal=<signal> confidence=<confidence>' from the engine "
+    "result. Guard the whole trace so a logging error never breaks "
+    "afterTest/afterHook."
 )
 _F3_USER = (
-    "In tests/wdio/utils/failure-analysis/report-to-allure.js, the network attachment "
-    "lists every request. Surface only failed (non-2XX) requests so a 503 is not buried "
-    "under hundreds of 200s, and emit no network attachment when all requests succeed."
+    "In tests/wdio/utils/failure-analysis/report-to-allure.js, the network "
+    "attachment lists every request. Surface only failed (non-2XX) requests so "
+    "a 503 is not buried under hundreds of 200s, and emit no network attachment "
+    "when all requests succeed."
 )
 
 
-def _task(*, task_id: str, user: str, verification, target_paths: tuple[str, ...]) -> Task:
+def _task(
+    *, task_id: str, user: str, verification, target_paths: tuple[str, ...]
+) -> Task:
     return Task(
         id=task_id,
         capability="repo_fix",

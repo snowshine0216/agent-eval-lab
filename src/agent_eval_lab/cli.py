@@ -807,7 +807,8 @@ def _run_dset_command(
 
 def _load_m1_domain_tasks(args, cfg) -> dict:
     """Build the per-domain task map.
-    D = CMC docs tasks; F = web-dossier repo-fix tasks (009). B returns no tasks until 010.
+    D = CMC docs tasks; F = web-dossier repo-fix tasks (009).
+    B returns no tasks until 010.
     cfg is the loaded EvaluatorConfig (passed so callers can stub this function
     in tests without touching load_evaluator_config)."""
     from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
