@@ -870,6 +870,13 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
     configs = tuple(PROVIDERS[p] for p in providers)
     domain_tasks = _load_m1_domain_tasks(args, cfg)
 
+    if domain_tasks.get("B"):
+        print(
+            "note: B-domain tasks loaded but skipped — live MSTR readback client not "
+            "wired (deferred; see EXECUTE-DEFERRED.md)",
+            file=sys.stderr,
+        )
+
     client = http_client or httpx.Client(timeout=120.0, trust_env=False)
 
     def health_probe_fn():
