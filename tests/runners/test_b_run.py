@@ -117,3 +117,57 @@ def test_run_b_preflight_occupied_name_voids_outcome() -> None:
     # an occupied save target is an env/isolation invalidity -> VOID, never scored
     assert outcomes[0].void is True
     assert outcomes[0].valid_runs == ()
+
+
+class _RecordingClient:
+    """Fake client that records every SaveTarget.name seen during preflight/capture."""
+
+    def __init__(self, result: ReadbackResult) -> None:
+        self._result = result
+        self.seen_names: list[str] = []
+
+    def name_exists(self, target: SaveTarget) -> bool:
+        self.seen_names.append(target.name)
+        return False
+
+    def created_object_id(self, target: SaveTarget) -> str:
+        return f"obj-{target.name}"
+
+    def readback(self, *, project_id, object_id, prompt) -> ReadbackResult:
+        return self._result
+
+    def delete_object(self, *, project_id, object_id) -> None:
+        pass
+
+
+def _noskill_task() -> Task:
+    return Task(
+        id="b-b1-noskill",
+        capability="browser_mstr",
+        input=TaskInput(messages=(), available_tools=("bash",)),
+        verification=_spec(),
+        metadata=TaskMetadata(split="held_out", version="b-domain-v1", provenance="x"),
+        initial_state={"task_key": "B-1"},
+    )
+
+
+def test_two_tasks_under_one_condition_get_distinct_save_names() -> None:
+    """D20: per-task save-name must be unique so no two arms can collide regardless
+    of reset timing.  With the old hardcoded __0000 both tasks yield the SAME name
+    and this assertion fails — the fix must make them distinct."""
+    client = _RecordingClient(_golden_result())
+    list(
+        run_b(
+            tasks=(_noskill_task(), _b_task()),
+            client=client,
+            project_id="FAKE_PROJECT",
+            folder="/runs",
+            condition_id="b-b1",
+            k=1,
+        )
+    )
+    assert len(client.seen_names) == 2, "expected one preflight call per task"
+    assert client.seen_names[0] != client.seen_names[1], (
+        f"both tasks derived the same save-name {client.seen_names[0]!r}; "
+        "per-task save-names must be distinct (D20)"
+    )

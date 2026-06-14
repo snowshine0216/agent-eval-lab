@@ -56,9 +56,14 @@ def run_b(
     (never scored over a contaminated run). Otherwise: capture the created object
     id, read it back, grade, reset, and wrap k identical valid runs (the readback
     of a fixed object is deterministic, so pass^k is well-defined here)."""
-    for task in tasks:
+    for task_index, task in enumerate(tasks):
         assert isinstance(task.verification, ReadbackSpec)
-        run_uid = f"{condition_id}__0000"
+        # Each task gets a DISTINCT per-task save-name (D20: unique per-arm,
+        # not reliant on reset timing). task_index drives uniqueness here;
+        # __0000 → noskill arm, __0001 → skill arm for B-1 (two-task set).
+        # NOTE: the live per-trial run_uid (k replacement trials of one saved
+        # object) is a separate axis and remains deferred (EXECUTE-DEFERRED).
+        run_uid = f"{condition_id}__{task_index:04d}"
         name = save_name_from_run_uid(run_uid)
         target = SaveTarget(project_id=project_id, folder=folder, name=name)
         try:
