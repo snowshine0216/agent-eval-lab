@@ -4,7 +4,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 
 | # | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
-| 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | 🔄 |
+| 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | 010 | b-domain-m2 | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
