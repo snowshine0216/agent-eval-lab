@@ -140,7 +140,7 @@ def test_grid_matches_helper_empty_grids() -> None:
 
 
 def test_grid_matches_helper_header_order_is_positional() -> None:
-    """_grid_matches treats the header row (row 0) as positional — swapped header fails."""
+    """_grid_matches header row (row 0) is positional — a swapped header fails."""
     g1 = (("A", "B"), ("1", "2"))
     g2 = (("B", "A"), ("1", "2"))
     assert _grid_matches(g1, g1) is True
