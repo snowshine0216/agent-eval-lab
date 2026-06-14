@@ -6,7 +6,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
-| 010 | b-domain-m2 | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 010 | b-domain-m2 | ✅ | ⏭️ | ⬜ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
 
@@ -83,3 +83,13 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 - 2026-06-14 — **CI fixed** (PR #20, `4b143c2`): CI's `ruff format --check .` (whole repo) was red on
   main after #19 — `test_f2_oracle.py` left unformatted by the e5f7ad3 fix (dev only checked
   `--check src tests`). main green again. **Session paused for handoff → `HANDOFF-010.md`.**
+- 2026-06-14 — **010 RESUMED** (fresh autodev session from `HANDOFF-010.md`). **Protected-base
+  merge opt-in re-confirmed THIS turn** ("Squash-merge to main") — the handoff's prior-turn opt-in
+  doesn't satisfy the protected-branch rule, so it was re-asked and GRANTED. Per-phase task graph
+  recreated (010-{spec,grill,plan,branch,impl,drift,ship,verify,pr-review,fix,merge}). spec/grill
+  ⏭️ pre-completed; branch already cut. **010-spec ✅** — `items/010-spec.md` authored from §4.3/
+  §6/§7/§18.7–18.9 + D19/D20/D25/D26/D27/D33/D37 + the staged artifacts. CODE ONLY; live MSTR runs
+  DEFERRED. Confirmed code facts: `Trajectory.run_uid` exists (D20 primitive); `_load_m1_domain_tasks`
+  returns {D,F} (needs B); `reports/m1._DOMAINS=("F","D","B")` (B renders generically);
+  `load_evaluator_config` ignores the B extras (010 parses `[candidate]`/`project_id`/`[oracle.b_set.goldens]`).
+  Next: Opus plan subagent → `items/010-plan.md`.
