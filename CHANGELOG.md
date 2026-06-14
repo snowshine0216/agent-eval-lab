@@ -7,6 +7,45 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — B-domain adapter + M2 skill-effect machinery (item 010)
+
+- Third M1 macro-composite domain (B) — long-horizon MicroStrategy Library GUI
+  automation graded by an **evaluator-credentialed readback oracle** against an
+  evaluator-only golden (§4.3/§18.7). The candidate never sees the golden
+  (D19/D33); the report engine already renders B generically.
+  - **Per-run isolation (D20)** (`runners/b_isolation.py`): a unique save name
+    `<model>-<condition>-<run_id>` derived from `Trajectory.run_uid`, a
+    preflight-absence assert, capture-the-created-object-id on save, and
+    reset/cleanup after grading — the grader keys on the captured object id,
+    never a name search.
+  - **Readback oracle** (`datasets/b1_oracle.py`, new `ReadbackSpec`): a pure,
+    total, golden-discriminating grader — (1) the captured object exists,
+    (2) definition matches (cube `Query_CharacteristicValue_Mandatory`,
+    Rows ⊇ {Years Hierarchy, Region}, Cols ⊇ {Cost}, prompt = South),
+    (3) executed grid == golden grid. golden ⇒ PASS; wrong cube / missing row /
+    missing Cost col / wrong prompt ⇒ FAIL (≥1 negative fixture per mode, D24).
+  - **M2 (D25/D37)** (`datasets/b_tasks.build_b_tasks`): B-noskill vs B-skill —
+    the same B-1 task and the IDENTICAL harness instrumentation; the only
+    difference is a stripped knowledge-only `strategy-test` `SKILL.md` fork
+    injected as the B-skill system prompt (`datasets/skill_loader.py`, §18.9/D27).
+    The estimand is the bundled stripped-skill effect, never knowledge-only.
+- All MSTR/`playwright-cli` I/O goes through an injectable `MstrReadbackClient`
+  Protocol (`runners/mstr_client.py`) — stubbed by a deterministic fake in every
+  test (no live infra in the suite). `runners/b_run` + `experiments/m1_run` gain
+  a B branch (absent ⇒ skipped, never a crash); `cli._load_m1_domain_tasks`
+  returns D, F **and** B when the gitignored evaluator store is present.
+- Config (`experiments/evaluator_config.py`): typed `CandidateConfig` for the
+  least-priv candidate account + `project_id`/`goldens` on `OracleBSetConfig`.
+- Integrity: creds / MSTR host / golden object id / golden grid live ONLY in
+  gitignored `evaluator.toml` + `evaluator-only/`; the B-1 candidate prompt stays
+  at fair problem level (no golden id, no grid value); golden/mutant fixtures live
+  ONLY in the gitignored evaluator store, guarded by `requires_store` skipif so CI
+  skips them. **B-2..B-10 + their goldens are not provided → M2 over B-1 is a
+  1-task contingency, never a cluster-bootstrap CI (D26).**
+- **Live MSTR runs are deferred** — this lands the deterministic machinery only;
+  the live readback + the M2 arm execution are in the owner's `EXECUTE-DEFERRED`
+  runbook.
+
 ### Added — F-domain repo adapter: F1/F2 env-free oracles + run-m1 wiring (item 009)
 
 - Second M1 macro-composite domain (F) over the `web-dossier` wdio toolchain,

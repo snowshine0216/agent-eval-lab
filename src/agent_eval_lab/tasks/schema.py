@@ -148,10 +148,31 @@ class FactKeySpec:
     level: int
 
 
+@dataclass(frozen=True, kw_only=True)
+class ReadbackSpec:
+    """B-set readback oracle (§18.7 / D24). The grader compares a ReadbackResult
+    (evaluator-credentialed playwright-cli readback of the captured object) to a
+    held-out golden. Three golden-discriminating checks: (1) the captured object
+    exists; (2) definition matches (cube == expected_cube, rows superset of
+    required_rows, columns superset of required_columns, prompt == expected_prompt);
+    (3) the executed grid equals the golden grid under prompt = expected_prompt.
+
+    The golden grid lives in the evaluator-only store, NOT in this spec text —
+    `golden_grid` is loaded from the gitignored fixture by the builder, never
+    authored into a tracked source file (D19)."""
+
+    type: Literal["readback"] = "readback"
+    expected_cube: str
+    required_rows: tuple[str, ...]
+    required_columns: tuple[str, ...]
+    expected_prompt: str
+    golden_grid: tuple[tuple[str, ...], ...]
+
+
 # The complete tagged union: deterministic tiers (Weeks 1-4), the Tier-3
 # model-based judge (item 003), the Tier-2 execution oracle (Weeks 5-6),
-# the Tier-2 node execution oracle (Weeks 7-10, F3), and the D-set
-# fact-key oracle (item 005 §4.2).
+# the Tier-2 node execution oracle (Weeks 7-10, F3), the D-set
+# fact-key oracle (item 005 §4.2), and the B-set readback oracle (item 010 §18.7).
 VerificationSpec = (
     OutputMatchSpec
     | ToolCallMatchSpec
@@ -162,6 +183,7 @@ VerificationSpec = (
     | ExecutionSpec
     | NodeExecutionSpec
     | FactKeySpec
+    | ReadbackSpec
 )
 
 

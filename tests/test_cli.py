@@ -1168,6 +1168,7 @@ def test_run_dset_writes_incrementally_and_records_void_sidecar(
     from agent_eval_lab import cli
     from agent_eval_lab.datasets import cmc_dset
     from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
         EvaluatorConfig,
         HealthProbeConfig,
         OracleBSetConfig,
@@ -1188,8 +1189,13 @@ def test_run_dset_writes_incrementally_and_records_void_sidecar(
         store=StoreConfig(path=str(store)),
         health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
         skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
         runner=RunnerConfig(safety_cap=200, k_valid=2, max_invalid_rate=0.4),
-        oracle_b_set=OracleBSetConfig(readback="playwright-cli"),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
     )
     monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
     monkeypatch.setattr(cmc_dset, "build_cmc_tasks", lambda **_k: ())
@@ -1270,6 +1276,7 @@ def test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar(
     from agent_eval_lab import cli
     from agent_eval_lab.datasets import cmc_dset
     from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
         EvaluatorConfig,
         HealthProbeConfig,
         OracleBSetConfig,
@@ -1290,8 +1297,13 @@ def test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar(
         store=StoreConfig(path=str(store)),
         health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
         skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
         runner=RunnerConfig(safety_cap=200, k_valid=2, max_invalid_rate=0.4),
-        oracle_b_set=OracleBSetConfig(readback="playwright-cli"),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
     )
     monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
     monkeypatch.setattr(cmc_dset, "build_cmc_tasks", lambda **_k: ())
@@ -1458,3 +1470,25 @@ def test_load_m1_domain_tasks_includes_f(tmp_path, monkeypatch) -> None:
     assert "D" in domain_tasks
     assert "F" in domain_tasks
     assert [t.id for t in domain_tasks["F"]] == ["f-f1", "f-f2", "f-f3"]
+
+
+def test_load_m1_domain_tasks_includes_b_when_store_present(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from agent_eval_lab import cli
+
+    golden = (
+        Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/b-set-golden"
+    )
+    if not (golden / "b1-golden.json").exists():
+        import pytest
+
+        pytest.skip("local b-set golden store required (gitignored)")
+
+    # build a cfg stub exposing the store path, candidate, skill, oracle_b_set
+    # exactly as load_evaluator_config would (read the real one only for the paths
+    # it needs; the test SKIPS if absent so CI never reaches here).
+    cfg = cli.load_evaluator_config(Path("evaluator.toml"))
+    domain_tasks = cli._load_m1_domain_tasks(args=None, cfg=cfg)
+    assert "B" in domain_tasks
+    assert {t.id for t in domain_tasks["B"]} == {"b-b1-noskill", "b-b1-skill"}
