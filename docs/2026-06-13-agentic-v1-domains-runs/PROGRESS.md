@@ -136,3 +136,14 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   keep: caught 2 real latent bugs (D20 save-name collision + an order-sensitive oracle false-negative),
   both fixed in 1 round. **All live MSTR/M2 runs remain DEFERRED to the owner** (`EXECUTE-DEFERRED.md`);
   B-2..B-10 + their goldens still NEEDED → M2 over B-1 is a 1-task contingency.
+- 2026-06-14 — **Session close-out (010).** Run-level doc-sync ✅ PASS — 010's functional changes are
+  covered by the CHANGELOG `[Unreleased]` + the frozen source spec (§4.3/§18.7–18.9, the grill output)
+  + code docstrings; consistent with 008/009 (this run's grill/ADR authoring is ⏭️ pre-completed).
+  Run-level final-verify ✅ PASS — CLI smoke on main green (`run-m1` present; all B modules import
+  cleanly; B wiring does not break the D/F path), full suite green via CI + local. **All 3 packages
+  (008/009/010) merged to main; the CODE phase of the run is COMPLETE.** Remaining work is the owner's
+  **DEFERRED live-execute** (D k=5 roster + F candidate + B/M2 live + final `report-m1`) per
+  `EXECUTE-DEFERRED.md` — NOT run this session (code-only mandate). `.autodev-current` left in place
+  (run dir remains the active context for the deferred execute). Optional follow-up flagged: an ADR for
+  the order-insensitive B-set grid grading decision (the F2 fix) — repo has a strong ADR culture; the
+  decision is documented in the `_grid_matches` docstring + this log meanwhile.
