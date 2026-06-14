@@ -5,7 +5,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 | # | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
-| 009 | f-domain-adapter | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 009 | f-domain-adapter | ✅ | ⏭️ | 🔄 | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | 010 | b-domain-m2 | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
@@ -41,3 +41,11 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   `test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar` (red→green); fresh-dict `_elide`.
   Suite green (42 cli/history pass; only pre-existing oracle-subprocess flakes), ruff clean. Re-running
   review ‖ verify ‖ pr-review against `e297082`.
+- 2026-06-14 — **008 MERGED to main** (PR #18, squash `d6d5b9e`) — all gates green, one real latent
+  bug (run-dset TransportError gap) caught by review+pr-review and fixed in 1 round.
+- 2026-06-14 — **008 EXECUTE started:** re-froze M1 spec for `local:Qwen/Qwen3-8B` (spec_hash
+  `ca4467f2`; existing pilot runs were k=2 → not reusable for k=5). check-env green (MSTR 204, all 6
+  arm keys present). **Launched D k=5 roster (6 arms) in background** (deepseek/glm/minimax/
+  sf-397b/sf-35b/local; sequential; log `reports/agentic-v1/run-d-k5.log`). Per user: "run D now,
+  code in parallel". **009 (F-domain) started in parallel** — branch `feat/agentic-v1-009-f-domain`
+  off main, spec authored (items/009-spec.md), plan phase next (Fable subagent).
