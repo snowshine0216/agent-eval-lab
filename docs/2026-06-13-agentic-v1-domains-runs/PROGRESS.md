@@ -6,7 +6,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
-| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#21] | ⬜ | ⬜ | ⬜ | ⬜ |
+| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#21] | ✅ | ✅ | ✅ r1 | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
 
@@ -115,3 +115,17 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   **PR #21** → main: https://github.com/snowshine0216/agent-eval-lab/pull/21. CHANGELOG `[Unreleased]`
   updated. Pre-ship orchestrator leak-grep CLEAN. Post-ship: dispatching review (tier-2 substitute)
   ‖ verify ‖ pr-review.
+- 2026-06-14 — **010 post-ship round 1:** verify ✅ PASS (oracle discriminates: golden PASS, 4 mutants +
+  missing FAIL; M2 arms differ only by the stripped-skill injection; 940 passed). tier-2 review ✅
+  PASS-WITH-NITS. **pr-review (`/code-review`) ✅ FAIL** — caught **2 real latent bugs** (both verified by
+  the orchestrator against the code): (F1) `b_run.py` hardcoded `run_uid=__0000` → both M2 arms share a
+  save-name, so D20 isolation depended on reset timing; (F2) `b1_oracle.py` strict order-sensitive grid
+  equality → a correct candidate with reordered readback rows would false-FAIL (009-class oracle
+  false-negative). Plus 2 nits (cli silent B-skip; hardcoded test path). **Fix round 1** (Sonnet,
+  `be015a8`/`2c3fb13`/`8a3696c`/`dc33612`, pushed): F1 → per-task save-name `f"{condition_id}__{task_index:04d}"`
+  via `enumerate` (distinct per arm); F2 → `_grid_matches` (header positional, data rows order-insensitive)
+  **with discrimination preserved** (new tests: reordered-correct ⇒ PASS, wrong-value-reordered ⇒ FAIL);
+  F3 nit → stderr diagnostic when B loaded but live client absent; F4 nit accepted (matches F-oracle path).
+  **Re-ran all 3 verifiers vs `dc33612`:** review ✅ PASS, verify ✅ PASS, pr-review ✅ PASS (0 findings,
+  both latent bugs resolved). 945 passed/0 failed, ruff clean. Leak re-grep CLEAN (golden id/project/host/
+  grid = 0 tracked matches). **Loop exit contract satisfied** (all 3 PASS, 1 fix round). Next: pre-merge gate.
