@@ -129,7 +129,9 @@ def test_run_m1_f_branch_yields_outcomes(monkeypatch) -> None:
     monkeypatch.setattr(
         m1_run,
         "run_f",
-        lambda *, tasks, build_tree_fn, k: iter(_outcome(t) for t in tasks),
+        lambda *, tasks, build_tree_fn, k, condition_id: iter(
+            _outcome(t) for t in tasks
+        ),
     )
 
     f_task = Task(
