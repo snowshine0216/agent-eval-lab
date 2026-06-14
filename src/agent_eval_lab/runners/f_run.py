@@ -21,7 +21,7 @@ from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 from agent_eval_lab.tasks.schema import Task
 
-_CANDIDATE_BASE_SHA = "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505"
+CANDIDATE_BASE_SHA = "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505"
 
 
 def prefix_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
@@ -31,12 +31,14 @@ def prefix_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     minimal tests/wdio/package.json. Never checks out; never reads m2021 HEAD.
     """
     assert task.initial_state is not None
-    assert task.initial_state["candidate_base_sha"] == _CANDIDATE_BASE_SHA
+    assert task.initial_state["candidate_base_sha"] == CANDIDATE_BASE_SHA
     tree: dict[str, str] = {"tests/wdio/package.json": '{"type":"module"}\n'}
     for rel in task.initial_state["target_paths"]:
         tree[rel] = subprocess.run(
-            ["git", "-C", str(repo), "show", f"{_CANDIDATE_BASE_SHA}:{rel}"],
-            check=True, capture_output=True, text=True,
+            ["git", "-C", str(repo), "show", f"{CANDIDATE_BASE_SHA}:{rel}"],
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout
     return tree
 
@@ -49,9 +51,7 @@ def _grade_tree(task: Task, files: Mapping[str, str]) -> RunResult:
         stop_reason="completed",
         final_state={"files": dict(files)},
     )
-    verdicts = precompute_node_verdicts(
-        verification=task.verification, trajectory=traj
-    )
+    verdicts = precompute_node_verdicts(verification=task.verification, trajectory=traj)
     grade = grade_trajectory(
         verification=task.verification, trajectory=traj, registry={}, verdicts=verdicts
     )

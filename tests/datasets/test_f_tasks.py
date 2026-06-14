@@ -5,7 +5,10 @@ import pytest
 from agent_eval_lab.datasets.f_tasks import build_f_tasks
 from agent_eval_lab.tasks.schema import AllOf
 
-_STORE = Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden"
+_STORE = (
+    Path.home()
+    / "Documents/Repository/agent-eval-lab/evaluator-only/web-dossier-golden"
+)
 
 requires_store = pytest.mark.skipif(
     not (_STORE / "golden-files" / "f1.held_out.test.js").exists(),
@@ -30,5 +33,8 @@ def test_build_f_tasks_returns_three_node_oracle_tasks() -> None:
 @requires_store
 def test_f_tasks_carry_the_repo_relative_target_paths() -> None:
     tasks = {t.id: t for t in build_f_tasks(evaluator_store=_STORE)}
-    assert "Snapshots_SendBackground.spec.js" in tasks["f-f1"].initial_state["target_paths"][0]
+    assert (
+        "Snapshots_SendBackground.spec.js"
+        in tasks["f-f1"].initial_state["target_paths"][0]
+    )
     assert tasks["f-f2"].initial_state["target_paths"] == ("tests/wdio/wdio.conf.ts",)

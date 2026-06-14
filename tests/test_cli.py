@@ -1445,6 +1445,7 @@ def test_load_m1_domain_tasks_includes_f(tmp_path, monkeypatch) -> None:
     f1_test = store_root / "web-dossier-golden/golden-files/f1.held_out.test.js"
     if not f1_test.exists():
         import pytest
+
         pytest.skip("local web-dossier golden store required")
 
     class _Store:

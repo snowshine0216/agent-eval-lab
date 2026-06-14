@@ -1404,4 +1404,8 @@ git commit -m "chore(009): ruff format + full-suite green for F-domain" || echo 
 
 ---
 
+## Execute-phase follow-ups
+
+- `f_run._grade_tree` condition_id is a stub (`"(f-local)"`); thread the real arm condition_id when wiring the live F roster run. Decision: deferred — would require adding a `condition_id` param to `run_f`/`_grade_tree` and updating the `run_m1` F branch call site; the live execute phase is a non-goal for this item (§Non-goals) and the per-arm IDs are only needed when producing the multi-condition report.
+
 **Plan complete and saved to `docs/2026-06-13-agentic-v1-domains-runs/items/009-plan.md`.** A Sonnet impl agent will execute it verbatim via subagent-driven-development.

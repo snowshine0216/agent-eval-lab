@@ -18,9 +18,8 @@ from agent_eval_lab.datasets.f1_oracle import (
 from agent_eval_lab.datasets.f2_oracle import F2_CONF_REL, build_f2_verification
 from agent_eval_lab.datasets.f3_oracle import F3_SOURCE_REL, build_f3_verification
 from agent_eval_lab.records.turns import MessageTurn
+from agent_eval_lab.runners.f_run import CANDIDATE_BASE_SHA as _CANDIDATE_BASE_SHA
 from agent_eval_lab.tasks.schema import Task, TaskInput, TaskMetadata
-
-_CANDIDATE_BASE_SHA = "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505"
 
 _SYSTEM = (
     "You are fixing a flaky end-to-end test in the web-dossier wdio suite. You have "
