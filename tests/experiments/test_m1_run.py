@@ -189,3 +189,96 @@ def test_run_m1_skips_absent_domains_without_crashing(monkeypatch):
         evaluator_store=None,
     )
     assert out == {"local:qwen3-8b": {}}  # present condition, no domains, no crash
+
+
+def test_run_m1_b_branch_yields_outcomes(monkeypatch) -> None:
+    from agent_eval_lab.experiments import m1_run
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+    from agent_eval_lab.tasks.schema import (
+        ReadbackSpec,
+        Task,
+        TaskInput,
+        TaskMetadata,
+    )
+
+    def _outcome(task):
+        traj = Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed",
+        )
+        run = RunResult(
+            task_id=task.id,
+            condition_id="c",
+            run_index=0,
+            trajectory=traj,
+            grade=GradeResult(
+                grader_id="b1_readback", passed=True, score=1.0, evidence={}
+            ),
+        )
+        return ReplacementOutcome(
+            valid_runs=(run,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=run),),
+            void=False,
+        )
+
+    # stub run_b so no MSTR client is needed in this unit test
+    monkeypatch.setattr(
+        m1_run,
+        "run_b",
+        lambda *, tasks, client, project_id, folder, condition_id, k: iter(
+            _outcome(t) for t in tasks
+        ),
+    )
+
+    b_task = Task(
+        id="b-b1-skill",
+        capability="browser_mstr",
+        input=TaskInput(messages=(), available_tools=("bash",)),
+        verification=ReadbackSpec(
+            expected_cube="C",
+            required_rows=(),
+            required_columns=(),
+            expected_prompt="South",
+            golden_grid=(),
+        ),
+        metadata=TaskMetadata(split="held_out", version="b-domain-v1", provenance="x"),
+        initial_state={"task_key": "B-1"},
+    )
+    cfg = ProviderConfig(id="local", base_url="http://x", api_key_env="", model_id="m")
+
+    class _FakeClient:
+        def name_exists(self, target):
+            return False
+
+        def created_object_id(self, target):
+            return "obj-1"
+
+        def readback(self, *, project_id, object_id, prompt):
+            raise AssertionError("run_b is stubbed; client must not be called")
+
+        def delete_object(self, *, project_id, object_id):
+            return None
+
+    out = m1_run.run_m1(
+        configs=(cfg,),
+        domain_tasks={"B": (b_task,)},
+        http_client=None,
+        k_valid=2,
+        max_invalid_rate=0.5,
+        temperature=0.0,
+        max_tokens=64,
+        health_probe_fn=None,
+        reference_sha256=None,
+        evaluator_store=None,
+        b_client=_FakeClient(),
+        b_project_id="FAKE_PROJECT",
+        b_folder="/runs",
+    )
+    [(cond, by_domain)] = out.items()
+    assert "B" in by_domain
+    assert by_domain["B"][0].valid_runs[0].grade.passed is True
