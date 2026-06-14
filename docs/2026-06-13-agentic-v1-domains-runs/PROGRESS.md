@@ -72,3 +72,14 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   hardcodes verbatim golden answer in mutant `.replace()` strings (D19/D33 — goldens must live only in
   gitignored evaluator-only/). Dispatching pre-ship fix: de-leak prompts to problem-level; move mutant
   fixtures into evaluator-only/; git-grep tracked tree clean of golden tokens; re-verify discriminating.
+- 2026-06-14 — **009 MERGED** (PR #19, `331bbe8`): post-ship review+pr-review caught a residual golden
+  leak in `test_f_run.py` + an F2 oracle false-negative (`extractDiagBlock` anchor); fixed
+  `d9a7f9f`/`b94d24c`/`e5f7ad3` (anchor now var-name-agnostic; complete-token git-grep clean).
+  condition_id="(f-local)" stub deferred → `items/009-plan.md §Execute-phase follow-ups`.
+- 2026-06-14 — **Decision: build 010 code, DEFER all live runs.** D run stopped + state preserved;
+  exact resume commands in **`EXECUTE-DEFERRED.md`**. 010 (B-domain/M2) branch cut + task graph set;
+  spec/plan/impl NOT started. Owner artifacts: candidate MSTR acct + stripped strategy-test fork + B-1
+  task + B-1 golden id STAGED; **B-2..B-10 + goldens STILL NEEDED** → M2 is a 1-task contingency.
+- 2026-06-14 — **CI fixed** (PR #20, `4b143c2`): CI's `ruff format --check .` (whole repo) was red on
+  main after #19 — `test_f2_oracle.py` left unformatted by the e5f7ad3 fix (dev only checked
+  `--check src tests`). main green again. **Session paused for handoff → `HANDOFF-010.md`.**
