@@ -18,6 +18,7 @@ import httpx
 
 from agent_eval_lab.runners.config import ProviderConfig, condition_id
 from agent_eval_lab.runners.dset_run import run_dset
+from agent_eval_lab.runners.f_run import prefix_candidate_tree, run_f
 from agent_eval_lab.runners.multi_run import ReplacementOutcome
 from agent_eval_lab.tasks.schema import Task
 
@@ -34,6 +35,7 @@ def run_m1(
     health_probe_fn: Callable | None,
     reference_sha256: str | None,
     evaluator_store: Path | None,
+    f_repo: Path | None = None,
 ) -> dict[str, dict[str, tuple[ReplacementOutcome, ...]]]:
     out: dict[str, dict[str, tuple[ReplacementOutcome, ...]]] = {}
     for config in configs:
@@ -57,5 +59,16 @@ def run_m1(
                     reference_sha256=reference_sha256,
                 )
             )
-        # F / B: no domain runner yet (items 004/006). Absent -> skipped, never a crash.
+        f_tasks = domain_tasks.get("F")
+        if f_tasks and f_repo is not None:
+
+            def _build_tree(task):
+                # POST-MERGE execute phase produces the model's edited tree here;
+                # absent a candidate edit, grade the pinned base tree (deterministic).
+                return prefix_candidate_tree(task, repo=f_repo)
+
+            out[cond]["F"] = tuple(
+                run_f(tasks=tuple(f_tasks), build_tree_fn=_build_tree, k=k_valid)
+            )
+        # B: no domain runner yet (item 010). Absent -> skipped, never a crash.
     return out
