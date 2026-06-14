@@ -17,6 +17,23 @@ from agent_eval_lab.tasks.schema import ReadbackSpec
 _GOLDEN_REL = "b1-golden.json"
 
 
+def _grid_matches(
+    result_grid: tuple[tuple[str, ...], ...],
+    golden_grid: tuple[tuple[str, ...], ...],
+) -> bool:
+    """Compare two grids: header row is positional; data rows are order-insensitive.
+
+    Data-row order is treated as non-significant (MSTR grid row order is not
+    guaranteed run-to-run); the header row (row 0) is positional; grading is
+    over row CONTENT.  An empty result_grid matches an empty golden_grid only.
+    """
+    if not result_grid or not golden_grid:
+        return result_grid == golden_grid
+    header_ok = result_grid[0] == golden_grid[0]
+    data_ok = sorted(result_grid[1:]) == sorted(golden_grid[1:])
+    return header_ok and data_ok
+
+
 def build_b1_verification(golden_dir: Path) -> ReadbackSpec:
     """Read the evaluator-only golden and assemble the B-1 ReadbackSpec. The cube
     name + required rows/cols + prompt come from the golden; the golden grid is
@@ -49,7 +66,7 @@ def grade_b1_readback(spec: ReadbackSpec, result: ReadbackResult) -> GradeResult
         set(result.columns)
     )
     checks["prompt"] = result.prompt == spec.expected_prompt
-    checks["grid"] = result.grid == spec.golden_grid
+    checks["grid"] = _grid_matches(result.grid, spec.golden_grid)
     passed = all(checks.values())
     failing = tuple(name for name, ok in checks.items() if not ok)
     return GradeResult(
