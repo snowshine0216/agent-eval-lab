@@ -901,7 +901,8 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
             reference_sha256=reference_sha256,
             evaluator_store=store,
             f_repo=Path.home() / "Documents/Repository/web-dossier",
-            b_client=None,  # DEFERRED: live playwright-cli readback client (EXECUTE-DEFERRED)
+            # DEFERRED: live playwright-cli readback client (EXECUTE-DEFERRED)
+            b_client=None,
             b_project_id=cfg.oracle_b_set.project_id,
             b_folder="/runs",
         )

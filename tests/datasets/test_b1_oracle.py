@@ -12,8 +12,7 @@ from agent_eval_lab.datasets.b1_oracle import build_b1_verification, grade_b1_re
 from agent_eval_lab.runners.mstr_client import ReadbackResult
 
 _GOLDEN_DIR = (
-    Path.home()
-    / "Documents/Repository/agent-eval-lab/evaluator-only/b-set-golden"
+    Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/b-set-golden"
 )
 _GOLDEN = _GOLDEN_DIR / "b1-golden.json"
 _MUTANTS = _GOLDEN_DIR / "b1-mutants.json"

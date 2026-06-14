@@ -59,7 +59,10 @@ def test_run_m1_streams_runs_per_condition_domain(tmp_path, monkeypatch):
         '[health_probe]\nurl = "http://localhost"\nusername = "u"\npassword = "p"\n'
         '[skill]\nstrategy_test_path = "/tmp/skill"\n'
         "[runner]\nsafety_cap = 200\nk_valid = 5\nmax_invalid_rate = 0.40\n"
-        '[oracle]\n[oracle.b_set]\nreadback = "playwright-cli"\n'
+        '[candidate]\nusername = "fake-candidate"\npassword = "fake-pass"\n'
+        "[oracle]\n"
+        '[oracle.b_set]\nreadback = "playwright-cli"\nproject_id = "FAKE_PROJECT_ID"\n'
+        '[oracle.b_set.goldens]\n"B-1" = "fake-golden-object-0001"\n'
     )
 
     out = tmp_path / "runs"

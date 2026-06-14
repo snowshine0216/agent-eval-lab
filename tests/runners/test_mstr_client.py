@@ -44,4 +44,5 @@ def test_fake_client_satisfies_protocol() -> None:
             return None
 
     client: MstrReadbackClient = _Fake()  # structural check
-    assert client.name_exists(SaveTarget(project_id="P", folder="/r", name="n")) is False
+    target = SaveTarget(project_id="P", folder="/r", name="n")
+    assert client.name_exists(target) is False

@@ -68,7 +68,7 @@ def test_loads_oracle_b_set_project_and_goldens(tmp_path: Path) -> None:
 
 def test_missing_candidate_section_raises_clear_value_error(tmp_path: Path) -> None:
     toml = _FIXTURE_TOML.replace(
-        '[candidate]\n'
+        "[candidate]\n"
         'url = "https://fake.example/MicroStrategyLibrary/app"\n'
         'username = "fake-candidate"\n'
         'password = "fake-candidate-pass"\n',

@@ -1478,8 +1478,7 @@ def test_load_m1_domain_tasks_includes_b_when_store_present(tmp_path, monkeypatc
     from agent_eval_lab import cli
 
     golden = (
-        Path.home()
-        / "Documents/Repository/agent-eval-lab/evaluator-only/b-set-golden"
+        Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only/b-set-golden"
     )
     if not (golden / "b1-golden.json").exists():
         import pytest

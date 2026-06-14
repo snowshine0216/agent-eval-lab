@@ -10,7 +10,9 @@ from agent_eval_lab.datasets.skill_loader import load_stripped_skill
 
 def test_load_stripped_skill_returns_the_file_text(tmp_path: Path) -> None:
     skill = tmp_path / "SKILL.md"
-    skill.write_text("# FAKE stripped strategy-test\nTopic map: ...\n", encoding="utf-8")
+    skill.write_text(
+        "# FAKE stripped strategy-test\nTopic map: ...\n", encoding="utf-8"
+    )
     text = load_stripped_skill(skill)
     assert "FAKE stripped strategy-test" in text
 

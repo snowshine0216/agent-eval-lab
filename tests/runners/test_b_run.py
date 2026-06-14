@@ -3,7 +3,6 @@
 flows into the outcome. The isolation lifecycle (preflight/capture/reset) is
 exercised against the fake — preflight on an occupied name VOIDs/raises per D20."""
 
-from agent_eval_lab.datasets.b1_oracle import build_b1_verification
 from agent_eval_lab.runners.b_run import run_b
 from agent_eval_lab.runners.mstr_client import ReadbackResult, SaveTarget
 from agent_eval_lab.runners.multi_run import ReplacementOutcome
