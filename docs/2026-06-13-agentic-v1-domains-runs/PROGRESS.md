@@ -6,7 +6,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
-| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#21] | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
 
@@ -108,3 +108,10 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   docs only; 6-char default pw coincidentally substring of the hex alphabet in 2 pre-existing untouched
   test files). Fixtures gitignored+unstaged. 2 minor deviations (CandidateConfig.url optional to match
   real config; 3 dependent fixtures updated). Next: drift subagent.
+- 2026-06-14 — **010 drift ✅** (Sonnet, `f21e718`; plan amend `bccd719`): 10/10 plan tasks present in
+  diff, 0 findings; both deviations ACCEPTED (CandidateConfig.url optional — plan amended; 3 dependent
+  fixtures = necessary Task-1 consequence). Integrity spot-check clean (TRAP-2 prompt OK, grader
+  pure/total, requires_store on all 3 oracle tests). **010 ship ✅ TIER-2** (`gh pr create`):
+  **PR #21** → main: https://github.com/snowshine0216/agent-eval-lab/pull/21. CHANGELOG `[Unreleased]`
+  updated. Pre-ship orchestrator leak-grep CLEAN. Post-ship: dispatching review (tier-2 substitute)
+  ‖ verify ‖ pr-review.
