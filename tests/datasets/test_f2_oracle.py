@@ -103,9 +103,7 @@ def test_f2_passes_when_capture_variable_name_is_not_the_golden_name() -> None:
     # Extract the CAPTURE_RE pattern from the gitignored held-out oracle so we
     # don't embed any golden function name in this tracked file.
     oracle_src = (_GF / "f2.held_out.test.js").read_text("utf-8")
-    cap_pattern_m = re.search(
-        r"const\s+CAPTURE_RE\s*=\s*/(.+?)/\s*;", oracle_src
-    )
+    cap_pattern_m = re.search(r"const\s+CAPTURE_RE\s*=\s*/(.+?)/\s*;", oracle_src)
     assert cap_pattern_m is not None, "held-out oracle must define CAPTURE_RE"
     cap_re = re.compile(cap_pattern_m.group(1))
     # Detect the identifier the golden conf uses for the captured result.
