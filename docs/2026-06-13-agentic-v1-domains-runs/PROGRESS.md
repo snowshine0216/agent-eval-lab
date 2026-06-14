@@ -49,3 +49,13 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   sf-397b/sf-35b/local; sequential; log `reports/agentic-v1/run-d-k5.log`). Per user: "run D now,
   code in parallel". **009 (F-domain) started in parallel** — branch `feat/agentic-v1-009-f-domain`
   off main, spec authored (items/009-spec.md), plan phase next (Fable subagent).
+- 2026-06-14 — **009 spec ✅ + plan ✅** (plan via Opus — Fable unavailable in env; commit bbaa1f9).
+  **009 impl** (Sonnet, 7 TDD tasks 5335e6c…2389e44): F1/F2 env-free node oracles
+  (golden⇒PASS / prefix 5b0c13a6⇒FAIL / 2 named mutants each⇒FAIL), build_f_tasks, run-m1 F wiring;
+  suite green (oracle flakes excepted), ruff clean. **⚠️ Pre-ship INTEGRITY BLOCKER caught by
+  orchestrator before ship (NOT shipped):** (1) `f_tasks.py` candidate prompt leaks the golden-NEW
+  helper `waitForSnapshotFinalNotificationByName` + solution mechanics (spec §4.1 withhold-localization
+  + §7 "golden reachable from prompt"); (2) `tests/datasets/test_f1_oracle.py` (TRACKED/PUBLIC)
+  hardcodes verbatim golden answer in mutant `.replace()` strings (D19/D33 — goldens must live only in
+  gitignored evaluator-only/). Dispatching pre-ship fix: de-leak prompts to problem-level; move mutant
+  fixtures into evaluator-only/; git-grep tracked tree clean of golden tokens; re-verify discriminating.
