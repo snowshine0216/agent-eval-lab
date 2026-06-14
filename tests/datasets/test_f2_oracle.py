@@ -92,3 +92,37 @@ def test_f2_passes_golden_fails_prefix_and_mutants() -> None:
         assert _grade(v, _base(mut_conf)) is False, (
             f"mutant '{m['name']}' should FAIL but PASSED"
         )
+
+
+@requires_node
+def test_f2_passes_when_capture_variable_name_is_not_the_golden_name() -> None:
+    """A correct candidate that uses any identifier to capture the engine result
+    must PASS — the oracle anchors on the capture pattern, not a specific name."""
+    v = build_f2_verification(_STORE)
+    gconf = (_GF / "wdio.conf.ts.golden").read_text("utf-8")
+    # Extract the CAPTURE_RE pattern from the gitignored held-out oracle so we
+    # don't embed any golden function name in this tracked file.
+    oracle_src = (_GF / "f2.held_out.test.js").read_text("utf-8")
+    cap_pattern_m = re.search(
+        r"const\s+CAPTURE_RE\s*=\s*/(.+?)/\s*;", oracle_src
+    )
+    assert cap_pattern_m is not None, "held-out oracle must define CAPTURE_RE"
+    cap_re = re.compile(cap_pattern_m.group(1))
+    # Detect the identifier the golden conf uses for the captured result.
+    m = cap_re.search(gconf)
+    assert m is not None, "golden conf must match CAPTURE_RE"
+    golden_var = m.group(1)
+    # Rename it to a different identifier throughout the conf.
+    alt_name = "engineResult" if golden_var != "engineResult" else "faResult"
+    alt_conf = re.sub(rf"\b{re.escape(golden_var)}\b", alt_name, gconf)
+    assert alt_conf != gconf, "renaming the capture variable produced no changes"
+    # Verify the rename is present.
+    assert cap_re.search(alt_conf) is not None, (
+        "renamed conf must still have a valid capture assignment"
+    )
+    assert cap_re.search(alt_conf).group(1) == alt_name, (  # type: ignore[union-attr]
+        "renamed conf must capture under the new name"
+    )
+    assert _grade(v, _base(alt_conf)) is True, (
+        "oracle must PASS when the engine result is captured under any variable name"
+    )
