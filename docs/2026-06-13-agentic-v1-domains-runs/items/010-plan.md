@@ -223,12 +223,22 @@ Edit `src/agent_eval_lab/experiments/evaluator_config.py`. Add a new dataclass a
 class CandidateConfig:
     """The least-privilege candidate MSTR account (D20). Distinct from the
     evaluator account used by health_probe / the readback oracle; this account
-    CANNOT read the golden (D19/D33)."""
+    CANNOT read the golden (D19/D33).
 
-    url: str
+    `url` is optional (the Library base URL; if absent, the live client uses
+    the health_probe URL root). Required fields for the execute phase are
+    username + password."""
+
+    url: str | None = None  # optional: real evaluator.toml [candidate] has no url key
     username: str
     password: str
 ```
+
+> **PLAN AMENDMENT (drift audit 010):** `url` was made OPTIONAL (`str | None = None`)
+> because the real gitignored `evaluator.toml [candidate]` section has no `url` key;
+> making it required crashes `load_evaluator_config` on the live file. The live
+> execute-phase client falls back to the health_probe URL root when `url` is absent.
+> This is a legitimate plan-correction — accepted in 010-drift.md.
 
 Replace the existing `OracleBSetConfig` with the extended version (the `readback` field stays; add `project_id` and `goldens`):
 
