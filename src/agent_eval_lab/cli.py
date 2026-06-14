@@ -806,18 +806,20 @@ def _run_dset_command(
 
 
 def _load_m1_domain_tasks(args, cfg) -> dict:
-    """Build the per-domain task map. D = CMC docs tasks (reused from run-dset).
-    F/B return no tasks until items 004/006 land — absent, not a crash.
+    """Build the per-domain task map.
+    D = CMC docs tasks; F = web-dossier repo-fix tasks (009). B returns no tasks until 010.
     cfg is the loaded EvaluatorConfig (passed so callers can stub this function
     in tests without touching load_evaluator_config)."""
     from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
+    from agent_eval_lab.datasets.f_tasks import build_f_tasks
 
     store = Path(cfg.store.path)
     tasks = build_cmc_tasks(
         evaluator_store=store,
         questions_path=Path("examples/datasets/cmc-docs-questions.txt"),
     )
-    return {"D": tasks}
+    f_tasks = build_f_tasks(evaluator_store=store / "web-dossier-golden")
+    return {"D": tasks, "F": f_tasks}
 
 
 def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) -> int:
@@ -879,6 +881,7 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
             health_probe_fn=health_probe_fn,
             reference_sha256=reference_sha256,
             evaluator_store=store,
+            f_repo=Path.home() / "Documents/Repository/web-dossier",
         )
     finally:
         if http_client is None:
