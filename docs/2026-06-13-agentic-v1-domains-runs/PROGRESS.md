@@ -6,7 +6,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
 | 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
-| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#21] | ✅ | ✅ | ✅ r1 | ⬜ |
+| 010 | b-domain-m2 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#21] | ✅ | ✅ | ✅ r1 | ✅ [4e57bc4] |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
 
@@ -129,3 +129,10 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   **Re-ran all 3 verifiers vs `dc33612`:** review ✅ PASS, verify ✅ PASS, pr-review ✅ PASS (0 findings,
   both latent bugs resolved). 945 passed/0 failed, ruff clean. Leak re-grep CLEAN (golden id/project/host/
   grid = 0 tracked matches). **Loop exit contract satisfied** (all 3 PASS, 1 fix round). Next: pre-merge gate.
+- 2026-06-14 — **010 MERGED to main** (PR #21, squash `4e57bc4`) — all pre-merge gates green
+  (protected-base opt-in granted this turn; ship+drift+verify+review+pr-review all PASS; **PR CI green**
+  — both `test` checks pass, `requires_store`/`requires_node` skip in CI as designed). Branch deleted.
+  **Package 010 (B-domain/M2) CODE COMPLETE.** Like 008/009, the review+pr-review gates earned their
+  keep: caught 2 real latent bugs (D20 save-name collision + an order-sensitive oracle false-negative),
+  both fixed in 1 round. **All live MSTR/M2 runs remain DEFERRED to the owner** (`EXECUTE-DEFERRED.md`);
+  B-2..B-10 + their goldens still NEEDED → M2 over B-1 is a 1-task contingency.
