@@ -174,6 +174,39 @@ def test_run_f_candidate_threads_each_tasks_edited_tree_into_its_grade() -> None
     assert all(r.grade is not None for r in outcomes[0].valid_runs)
 
 
+def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
+    """A provider HTTP rejection (e.g. 403/429) is env-invalid: excluded from
+    valid_runs, flagged invalid in attempts, and if fewer than k clean trials
+    result the task is VOID — never scored over <k (D-set parity)."""
+    from agent_eval_lab.records.trajectory import PROVIDER_ERROR, ParseFailure
+
+    task = _fake_task()
+
+    def run_fn(edit_task: Task, run_index: int) -> Trajectory:
+        if run_index < 3:
+            return Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+                run_index=run_index,
+                stop_reason="parse_failure",
+                parse_failure=ParseFailure(raw="HTTP 403", error=PROVIDER_ERROR),
+            )
+        return _traj_with_files({"a.js": "fixed\n"}, run_index=run_index)
+
+    [o] = list(
+        run_f_candidate(
+            tasks=(task,),
+            k=5,
+            condition_id="c",
+            build_tree_fn=lambda _t: {"a.js": "x\n"},
+            run_fn=run_fn,
+        )
+    )
+    assert len(o.valid_runs) == 2  # 3 provider errors masked, 2 clean
+    assert sum(1 for a in o.attempts if not a.valid) == 3
+    assert o.void is True  # only 2 < k=5 clean trials -> INCOMPLETE
+
+
 # ---- build_candidate_tree (integration: real repo at pinned base) ---------
 
 

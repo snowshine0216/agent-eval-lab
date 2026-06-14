@@ -1735,3 +1735,111 @@ def test_run_f_model_override_changes_condition_slug(
     assert rc == 0
     assert captured["condition_id"] == "siliconflow:Qwen/Qwen3.6-35B-A3B"
     assert (out / "runs-m1-siliconflow-Qwen-Qwen3.6-35B-A3B-F.jsonl").exists()
+
+
+def _run_with_provider_error(task: str, idx: int):
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import (
+        PROVIDER_ERROR,
+        ParseFailure,
+        Trajectory,
+        Usage,
+    )
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=idx,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(raw="HTTP 403: balance", error=PROVIDER_ERROR),
+    )
+    return RunResult(
+        task_id=task,
+        condition_id="c",
+        run_index=idx,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=False, score=0.0, evidence={}, failure_reason=None
+        ),
+    )
+
+
+def _run_ok(task: str, idx: int, passed: bool = True):
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+        run_index=idx,
+        stop_reason="completed_natural",
+    )
+    return RunResult(
+        task_id=task,
+        condition_id="c",
+        run_index=idx,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=passed, score=1.0, evidence={}, failure_reason=None
+        ),
+    )
+
+
+def test_outcomes_from_runs_masks_provider_error_as_env_invalid() -> None:
+    """A provider HTTP rejection (403/429) is env-invalid — excluded from
+    valid_runs and flagged invalid in attempts — never scored as a model fail."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+
+    runs = [_run_ok("A", 0), _run_ok("A", 1), _run_with_provider_error("A", 2)]
+    [o] = _outcomes_from_runs(runs)
+    assert len(o.valid_runs) == 2  # the provider-error run is masked out
+    assert sum(1 for a in o.attempts if not a.valid) == 1
+
+
+def test_outcomes_from_runs_voids_task_without_k_valid_after_provider_errors() -> None:
+    """With k known, a task that could not obtain k clean trials (provider errors)
+    is INCOMPLETE -> VOID -> excluded from pass^k (never scored over <k, D34)."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+
+    # task B: 5 attempts, 3 provider-rejected -> only 2 valid < k=5 -> VOID
+    runs = (
+        [_run_ok("B", i) for i in range(2)]
+        + [_run_with_provider_error("B", i) for i in range(2, 5)]
+        # task A: 5 clean valid -> not void
+        + [_run_ok("A", i) for i in range(5)]
+    )
+    outcomes = _outcomes_from_runs(runs, k=5)
+    by_first = {(o.attempts[0].run.task_id if o.attempts else "?"): o for o in outcomes}
+    assert by_first["A"].void is False and len(by_first["A"].valid_runs) == 5
+    assert by_first["B"].void is True  # 2 valid < k=5, under-powered by provider errors
+    assert len(by_first["B"].valid_runs) == 2
+
+
+def test_outcomes_from_runs_genuine_model_parse_failure_stays_valid() -> None:
+    """A real model parse failure (unusable reply) is a model miss, NOT env-invalid:
+    it stays a valid (failed) trial so pass^k still penalizes the model."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=3, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(
+            raw="{}", error="assistant message has neither content nor tool_calls"
+        ),
+    )
+    run = RunResult(
+        task_id="A",
+        condition_id="c",
+        run_index=0,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=False, score=0.0, evidence={}, failure_reason=None
+        ),
+    )
+    [o] = _outcomes_from_runs([run], k=5)
+    assert len(o.valid_runs) == 1  # model parse failure is a valid (failed) trial
+    assert o.void is True  # but still <k valid -> under-powered -> VOID

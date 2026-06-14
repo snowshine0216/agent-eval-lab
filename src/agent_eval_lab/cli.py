@@ -36,7 +36,7 @@ from agent_eval_lab.experiments.schema import (
 )
 from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
-from agent_eval_lab.records.grade import GradeResult, RunResult
+from agent_eval_lab.records.grade import GradeResult, RunResult, is_env_invalid_run
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 from agent_eval_lab.reports.comparison import build_comparison_report
@@ -861,6 +861,7 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
 
     args.out.mkdir(parents=True, exist_ok=True)
     path = args.out / f"runs-m1-{_slug(cond)}-F.jsonl"
+    void_ids: list[str] = []
     try:
         with path.open("w") as fh:
             for outcome in run_f_candidate(
@@ -871,6 +872,14 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
                 run_fn=run_fn,
             ):
                 _append_runs(fh, outcome.valid_runs)
+                if outcome.void:
+                    tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                    void_ids.append(tid)
+                    print(
+                        f"[void] F task {tid}: fewer than k clean trials — provider "
+                        "errors masked (env-invalid); excluded from pass^k (D34).",
+                        file=sys.stderr,
+                    )
     except httpx.TransportError as exc:
         hint = " — is the server running?" if config.id == "local" else ""
         print(
@@ -882,10 +891,11 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
     finally:
         if http_client is None:
             client.close()
-    # F is env-free: every attempt is valid, so no task ever voids. The empty
-    # sidecar keeps report-m1's replay symmetric with the D/B artifacts.
+    # The node oracle is env-free (a clean trial is always valid), but a provider
+    # HTTP rejection on the model call is env-invalid: such a task voids if it
+    # cannot reach k clean trials. The sidecar records those for report-m1's replay.
     path.with_suffix(".void.json").write_text(
-        json.dumps({"void_task_ids": []}), encoding="utf-8"
+        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
     )
     print(path)
     return 0
@@ -1042,13 +1052,23 @@ def _parse_domain_runs_spec(spec: str) -> tuple[str, str, Path]:
 
 
 def _outcomes_from_runs(
-    results: Sequence[RunResult], void_task_ids: frozenset[str] = frozenset()
+    results: Sequence[RunResult],
+    void_task_ids: frozenset[str] = frozenset(),
+    *,
+    k: int | None = None,
 ) -> tuple[ReplacementOutcome, ...]:
     """One ReplacementOutcome per task_id. The run path writes only valid runs;
     a task listed in the run's `.void.json` sidecar is marked void=True (D34
     INCOMPLETE) with whatever partial valid runs it produced — including the
     zero-valid case (a fully-void task has no JSONL rows but is restored from the
-    sidecar). Without a sidecar (legacy artifacts) every task is non-void (L2)."""
+    sidecar). Without a sidecar (legacy artifacts) every task is non-void (L2).
+
+    Env-validity mask: a PROVIDER-side failure (`is_env_invalid_run` — a rejected
+    /chat/completions or empty choices) is masked out of `valid_runs` and flagged
+    invalid in `attempts`, never scored as a model failure. When `k` is given, a
+    task that could not obtain `k` clean trials is INCOMPLETE -> void (never scored
+    over <k, D34) — this is the F-domain analogue of the D-set health-probe mask
+    for the env-free run path, which has no live probe."""
     by_task: dict[str, list[RunResult]] = {}
     for r in results:
         by_task.setdefault(r.task_id, []).append(r)
@@ -1056,11 +1076,16 @@ def _outcomes_from_runs(
     for tid in sorted(set(by_task) | set(void_task_ids)):
         runs = tuple(by_task.get(tid, ()))
         attempts = tuple(
-            TrialAttempt(attempt_index=i, valid=True, run=r) for i, r in enumerate(runs)
+            TrialAttempt(attempt_index=i, valid=not is_env_invalid_run(r), run=r)
+            for i, r in enumerate(runs)
         )
+        valid_runs = tuple(r for r in runs if not is_env_invalid_run(r))
+        under_powered = bool(runs) and k is not None and len(valid_runs) < k
         outcomes.append(
             ReplacementOutcome(
-                valid_runs=runs, attempts=attempts, void=tid in void_task_ids
+                valid_runs=valid_runs,
+                attempts=attempts,
+                void=(tid in void_task_ids) or under_powered,
             )
         )
     return tuple(outcomes)
@@ -1091,7 +1116,7 @@ def _run_report_m1(args: argparse.Namespace) -> int:
             return 1
         results = _load_run_results(path) if path.exists() else []
         outcomes.setdefault(cond, {})[domain] = _outcomes_from_runs(
-            results, _void_task_ids_for(path)
+            results, _void_task_ids_for(path), k=spec.k
         )
     report = build_m1_report(
         spec=spec,

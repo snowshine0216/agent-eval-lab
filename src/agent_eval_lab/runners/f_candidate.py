@@ -26,7 +26,7 @@ import httpx
 
 from agent_eval_lab.datasets.f3_oracle import F3_TEST_REL, FAILURE_ANALYSIS_DIR
 from agent_eval_lab.graders.dispatch import grade_trajectory
-from agent_eval_lab.records.grade import RunResult
+from agent_eval_lab.records.grade import RunResult, is_env_invalid_run
 from agent_eval_lab.records.trajectory import Trajectory
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.config import ProviderConfig
@@ -187,22 +187,26 @@ def run_f_candidate(
     run_fn: Callable[[Task, int], Trajectory],
 ) -> Iterator[ReplacementOutcome]:
     """Yield one ReplacementOutcome per F task: k independent model attempts, each
-    graded on its OWN produced tree by the held-out node oracle. env-free, so every
-    attempt is valid (no replacement, never VOID). `build_tree_fn`/`run_fn` are
-    injected so unit tests need no provider/network."""
+    graded on its OWN produced tree by the held-out node oracle.
+
+    The node oracle is env-free, so a clean trial is always valid — BUT a provider
+    HTTP rejection (`is_env_invalid_run`: a 403/429/empty-choices on the model call)
+    is an env-invalidity, not a model failure: it is masked out of `valid_runs` and
+    flagged invalid in `attempts`, and a task that lands fewer than k clean trials is
+    VOID (never scored over <k, D34). `build_tree_fn`/`run_fn` are injected so unit
+    tests need no provider/network."""
     for task in tasks:
         base_tree = build_tree_fn(task)
         edit_task = make_edit_task(task, base_tree=base_tree)
         runs = tuple(
-            _grade(
-                task,
-                run_fn(edit_task, i),
-                condition_id=condition_id,
-                run_index=i,
-            )
+            _grade(task, run_fn(edit_task, i), condition_id=condition_id, run_index=i)
             for i in range(k)
         )
         attempts = tuple(
-            TrialAttempt(attempt_index=i, valid=True, run=r) for i, r in enumerate(runs)
+            TrialAttempt(attempt_index=i, valid=not is_env_invalid_run(r), run=r)
+            for i, r in enumerate(runs)
         )
-        yield ReplacementOutcome(valid_runs=runs, attempts=attempts, void=False)
+        valid_runs = tuple(r for r in runs if not is_env_invalid_run(r))
+        yield ReplacementOutcome(
+            valid_runs=valid_runs, attempts=attempts, void=len(valid_runs) < k
+        )

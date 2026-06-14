@@ -4,7 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from agent_eval_lab.records.trajectory import Trajectory
+from agent_eval_lab.records.trajectory import (
+    NO_CHOICES_ERROR,
+    PROVIDER_ERROR,
+    Trajectory,
+)
 
 FailureCategory = Literal[
     "malformed_call",
@@ -38,3 +42,18 @@ class RunResult:
     run_index: int
     trajectory: Trajectory
     grade: GradeResult
+
+
+def is_env_invalid_run(run: "RunResult") -> bool:
+    """True iff the run is a PROVIDER-side failure (the provider rejected the
+    request or returned no completion) — an env-invalidity, never a model failure.
+
+    These are the §18.5/D34 'env-invalid' analogue for any domain that has no live
+    health probe: a `chat_completion` HTTP rejection (PROVIDER_ERROR — e.g. a 403
+    insufficient-balance or 429 rate-limit) or an empty `choices` (NO_CHOICES_ERROR)
+    means the model never got a fair trial, so the run must be masked out of pass^k
+    rather than scored as a failure. A genuine model parse failure (unusable
+    content/tool_calls) is NOT env-invalid — that is a real model miss.
+    """
+    pf = run.trajectory.parse_failure
+    return pf is not None and pf.error in (PROVIDER_ERROR, NO_CHOICES_ERROR)
