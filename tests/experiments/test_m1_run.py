@@ -85,6 +85,89 @@ def test_run_m1_threads_dset_per_condition(monkeypatch):
     assert len(out["deepseek:deepseek-v4-pro"]["D"]) == 2  # two tasks
 
 
+def test_run_m1_f_branch_yields_outcomes(monkeypatch) -> None:
+    from agent_eval_lab.experiments import m1_run
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+    from agent_eval_lab.tasks.schema import (
+        NodeExecutionSpec,
+        Task,
+        TaskInput,
+        TaskMetadata,
+    )
+
+    def _outcome(task):
+        traj = Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed",
+            final_state={"files": {}},
+        )
+        run = RunResult(
+            task_id=task.id,
+            condition_id="c",
+            run_index=0,
+            trajectory=traj,
+            grade=GradeResult(
+                grader_id="node_execution",
+                passed=True,
+                score=1.0,
+                evidence={},
+                failure_reason=None,
+            ),
+        )
+        return ReplacementOutcome(
+            valid_runs=(run,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=run),),
+            void=False,
+        )
+
+    # stub run_f so no node/subprocess is needed in this unit test
+    monkeypatch.setattr(
+        m1_run,
+        "run_f",
+        lambda *, tasks, build_tree_fn, k: iter(_outcome(t) for t in tasks),
+    )
+
+    f_task = Task(
+        id="f-f1",
+        capability="repo_fix",
+        input=TaskInput(messages=(), available_tools=("bash",)),
+        verification=NodeExecutionSpec(held_out_files={}, test_paths=()),
+        metadata=TaskMetadata(split="held_out", version="f-domain-v1", provenance="x"),
+        initial_state={
+            "candidate_base_sha": "5b0c13a6",
+            "target_paths": (),
+            "repo": "web-dossier",
+        },
+    )
+    cfg = ProviderConfig(
+        id="local",
+        base_url="http://x",
+        api_key_env="",
+        model_id="m",
+    )
+    out = m1_run.run_m1(
+        configs=(cfg,),
+        domain_tasks={"F": (f_task,)},
+        http_client=None,
+        k_valid=2,
+        max_invalid_rate=0.5,
+        temperature=0.0,
+        max_tokens=64,
+        health_probe_fn=None,
+        reference_sha256=None,
+        evaluator_store=None,
+        f_repo=__import__("pathlib").Path("/fake/repo"),
+    )
+    [(cond, by_domain)] = out.items()
+    assert "F" in by_domain
+    assert by_domain["F"][0].valid_runs[0].grade.passed is True
+
+
 def test_run_m1_skips_absent_domains_without_crashing(monkeypatch):
     from agent_eval_lab.experiments import m1_run
 

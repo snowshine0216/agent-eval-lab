@@ -1436,3 +1436,25 @@ def test_outcomes_from_runs_honors_void_sidecar(tmp_path):
     )
     assert _void_task_ids_for(runs_path) == frozenset({"B", "C"})
     assert _void_task_ids_for(tmp_path / "nope.jsonl") == frozenset()
+
+
+def test_load_m1_domain_tasks_includes_f(tmp_path, monkeypatch) -> None:
+    from agent_eval_lab import cli
+
+    store_root = Path.home() / "Documents/Repository/agent-eval-lab/evaluator-only"
+    f1_test = store_root / "web-dossier-golden/golden-files/f1.held_out.test.js"
+    if not f1_test.exists():
+        import pytest
+
+        pytest.skip("local web-dossier golden store required")
+
+    class _Store:
+        path = str(store_root)
+
+    class _Cfg:
+        store = _Store()
+
+    domain_tasks = cli._load_m1_domain_tasks(args=None, cfg=_Cfg())
+    assert "D" in domain_tasks
+    assert "F" in domain_tasks
+    assert [t.id for t in domain_tasks["F"]] == ["f-f1", "f-f2", "f-f3"]

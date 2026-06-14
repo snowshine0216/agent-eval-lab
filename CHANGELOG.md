@@ -7,6 +7,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — F-domain repo adapter: F1/F2 env-free oracles + run-m1 wiring (item 009)
+
+- Second M1 macro-composite domain (F) over the `web-dossier` wdio toolchain,
+  reusing the F3 `NodeExecutionSpec`/`node_edge` pattern: held-out node `--test`
+  oracles overlaid on the candidate's produced file tree, graded behaviorally
+  (the changed unit is extracted and executed with injected fakes — not
+  token-grepped), so structural-only solutions are rejected (D24).
+  - **F1** (`datasets/f1_oracle.py`): TC99396_10 must drop the flaky image
+    comparison and assert deterministically on the named-snapshot notification
+    reaching a terminal state. Golden-discriminating: golden ⇒ PASS, pre-fix
+    base ⇒ FAIL, keeps-image-compare / error-path-gutted mutants ⇒ FAIL.
+  - **F2** (`datasets/f2_oracle.py`): the wdio failure-analysis fixture must
+    capture the engine result and emit a terminal diagnose trace of the failed
+    (non-2XX) requests + the engine signal/confidence. Golden-discriminating:
+    surfaces-2xx / omits-signal-line mutants ⇒ FAIL.
+- `datasets/f_tasks.build_f_tasks` attaches the F1/F2/F3 oracles to F-domain
+  tasks; `runners/f_run` + `experiments/m1_run` gain an F branch (candidate
+  attempts the repo task against the frozen pre-fix base → produces a file tree
+  → node oracle grades); `cli._load_m1_domain_tasks` now returns D **and** F.
+- Integrity: candidate base pinned to the frozen pre-fix SHA (never the open
+  PR's moving base, D32); golden source/answers + mutant fixtures live ONLY in
+  gitignored `evaluator-only/` (D19/D33); candidate task prompts withhold
+  localization (§4.1) — no golden-new symbol names or solution mechanics.
+
 ### Added — agentic_v1 runner hardening + provider ladder (item 008)
 
 - Bounded tool-result context fed back to the provider: new pure
