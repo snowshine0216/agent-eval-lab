@@ -7,6 +7,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed — F-domain per-arm `condition_id` attribution (execute-phase pre-req)
+
+- **`run_f` / `run_m1` F branch** (`runners/f_run.py`, `experiments/m1_run.py`):
+  the F-domain runner hard-coded every emitted `RunResult.condition_id` to the
+  stub `"(f-local)"`, so a multi-arm M1 report could not attribute F outcomes to
+  the model under test. `run_f` now takes a required `condition_id` and threads it
+  through `_grade_tree` into every `RunResult`; `run_m1` passes the real per-arm
+  `cond` (D-set parity). This is the `EXECUTE-DEFERRED.md` §2 F-domain pre-req —
+  F is env-free, so with this wired the candidate F arms are runnable. Covered by
+  a new `test_run_f_threads_condition_id_into_runresults`.
+- Doc-sync: the superseded foundation `HANDOFF.md` now banners forward to the
+  `agentic-v1-domains-runs` phase and corrects its stale "designed, not built"
+  rows for F (009) and B/M2 (010), both built + merged.
+
 ### Fixed — D-set bash edge: playwright daemon leak + sub-task liveness signal
 
 - **Daemon leak in `make_bash_executor`'s `close()`** (`runners/bash_edge.py`):

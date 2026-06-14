@@ -40,11 +40,30 @@ def test_run_f_yields_one_outcome_per_task_with_stubbed_tree() -> None:
     def build_tree_fn(task):
         return {"tests/wdio/package.json": '{"type":"module"}\n'}
 
-    outcomes = list(run_f(tasks=tasks, build_tree_fn=build_tree_fn, k=1))
+    outcomes = list(
+        run_f(tasks=tasks, build_tree_fn=build_tree_fn, k=1, condition_id="(f-local)")
+    )
     assert len(outcomes) == len(tasks)
     assert all(isinstance(o, ReplacementOutcome) for o in outcomes)
     # empty candidate tree -> the node oracle cannot pass
     assert all(not o.valid_runs[0].grade.passed for o in outcomes)
+
+
+@requires_store
+def test_run_f_threads_condition_id_into_runresults() -> None:
+    """The per-arm condition_id must reach every RunResult so multi-condition F
+    reports attribute outcomes to the right arm (was stubbed "(f-local)")."""
+    tasks = build_f_tasks(evaluator_store=_STORE)
+
+    def build_tree_fn(task):
+        return {"tests/wdio/package.json": '{"type":"module"}\n'}
+
+    cond = "siliconflow:Qwen/Qwen3.5-397B-A17B"
+    outcomes = list(
+        run_f(tasks=tasks, build_tree_fn=build_tree_fn, k=3, condition_id=cond)
+    )
+    assert outcomes  # at least one task
+    assert all(run.condition_id == cond for o in outcomes for run in o.valid_runs)
 
 
 @requires_node
@@ -63,7 +82,9 @@ def test_run_f_golden_tree_passes_f1() -> None:
         tree["tests/wdio/pageObjects/common/LibraryNotification.js"] = gpage
         return tree
 
-    outcomes = list(run_f(tasks=tasks, build_tree_fn=build_tree_fn, k=1))
+    outcomes = list(
+        run_f(tasks=tasks, build_tree_fn=build_tree_fn, k=1, condition_id="(f-local)")
+    )
     assert outcomes[0].valid_runs[0].grade.passed is True
 
 

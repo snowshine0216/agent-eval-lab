@@ -73,7 +73,12 @@ def run_m1(
                 return prefix_candidate_tree(task, repo=f_repo)
 
             out[cond]["F"] = tuple(
-                run_f(tasks=tuple(f_tasks), build_tree_fn=_build_tree, k=k_valid)
+                run_f(
+                    tasks=tuple(f_tasks),
+                    build_tree_fn=_build_tree,
+                    k=k_valid,
+                    condition_id=cond,
+                )
             )
         b_tasks = domain_tasks.get("B")
         if b_tasks and b_client is not None and b_project_id is not None:

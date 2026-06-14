@@ -43,7 +43,9 @@ def prefix_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     return tree
 
 
-def _grade_tree(task: Task, files: Mapping[str, str]) -> RunResult:
+def _grade_tree(
+    task: Task, files: Mapping[str, str], *, condition_id: str
+) -> RunResult:
     traj = Trajectory(
         turns=(),
         usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
@@ -57,7 +59,7 @@ def _grade_tree(task: Task, files: Mapping[str, str]) -> RunResult:
     )
     return RunResult(
         task_id=task.id,
-        condition_id="(f-local)",
+        condition_id=condition_id,
         run_index=0,
         trajectory=traj,
         grade=grade,
@@ -69,11 +71,15 @@ def run_f(
     tasks: Sequence[Task],
     build_tree_fn: Callable[[Task], Mapping[str, str]],
     k: int,
+    condition_id: str,
 ) -> Iterator[ReplacementOutcome]:
-    """Yield one ReplacementOutcome per F task (env-free → k identical valid runs)."""
+    """Yield one ReplacementOutcome per F task (env-free → k identical valid runs).
+
+    `condition_id` labels every emitted RunResult with the arm under test so
+    multi-condition F reports attribute outcomes correctly (D-set parity)."""
     for task in tasks:
         files = build_tree_fn(task)
-        run = _grade_tree(task, files)
+        run = _grade_tree(task, files, condition_id=condition_id)
         runs = tuple(
             RunResult(
                 task_id=run.task_id,

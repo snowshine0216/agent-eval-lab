@@ -2,6 +2,19 @@
 
 What got built, what the report shows, and exactly what to do next.
 
+> **⚠️ SUPERSEDED (2026-06-14) — read this first.** This handoff is a snapshot of the
+> *foundation* run. Work continued in the **next phase**:
+> [`docs/2026-06-13-agentic-v1-domains-runs/`](../2026-06-13-agentic-v1-domains-runs/)
+> (current handoff: [`HANDOFF-010.md`](../2026-06-13-agentic-v1-domains-runs/HANDOFF-010.md);
+> live-run runbook: [`EXECUTE-DEFERRED.md`](../2026-06-13-agentic-v1-domains-runs/EXECUTE-DEFERRED.md)).
+> The "designed, not built" rows below for **004 — F-domain** and **006 — B-domain + M2** are
+> **now STALE**: both were built, TDD-gated, and **merged to `main`** (F = pkg 009; B/M2 = pkg 010,
+> PR #21 `4e57bc4`). The deterministic machinery + wiring exist with all MSTR/infra I/O stubbed in
+> tests. What remains for **both** is the **live execute phase only** (deliberately deferred per the
+> 2026-06-14 "build code, defer all live runs" decision) — see `EXECUTE-DEFERRED.md` for the exact
+> blocking steps (B needs a live `MstrReadbackClient` + B-2..B-10 task defs; F needs the per-arm
+> `condition_id` wiring, which is in progress in the working tree).
+
 ## TL;DR
 The **measuring instrument is complete and verified** (5 of 7 spec packages, all TDD-gated,
 repo green + ruff-clean, on branch `autodev/agentic-v1-eval-foundation`). A **real scoped M1
