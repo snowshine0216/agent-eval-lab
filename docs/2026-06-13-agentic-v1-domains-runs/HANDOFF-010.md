@@ -5,6 +5,19 @@
 
 ---
 
+> ## ✅ 010 COMPLETE — this handoff is DONE (2026-06-14)
+> Package 010 (B-domain/M2) CODE was built through the full autodev loop and **squash-merged to `main`
+> (PR #21, `4e57bc4`)**. All three packages (008/009/010) are now merged; the run's **CODE phase is
+> complete**. The review→fix loop caught 2 real latent bugs (a D20 save-name collision between the M2
+> arms + an order-sensitive oracle false-negative), both fixed in 1 round. `PROGRESS.md` shows the full
+> ✅ matrix.
+>
+> **A fresh session should NOT redo 010.** The only remaining work is the owner's **DEFERRED live
+> execute** → go to **`EXECUTE-DEFERRED.md`** (now has concrete B/M2 steps in §3). The rest of this
+> file is retained as the build-time record.
+
+---
+
 ## 0. TL;DR — what's done, what's next
 - **008 (runner-harden) ✅ MERGED** to main (PR #18, `d6d5b9e`). **009 (F-domain F1/F2) ✅ MERGED** (PR #19, `331bbe8`). **CI green** (ruff hotfix PR #20, `4b143c2`).
 - **010 (B-domain/M2): NOT STARTED** beyond branch + task-graph + tracker. **Build its CODE** through the full autodev loop, tier-2 PR → squash-merge to `main`. **Live MSTR runs are DEFERRED** (code only).

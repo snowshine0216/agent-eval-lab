@@ -48,10 +48,38 @@ F is env-free (no live infra) — the candidate produces a file tree, the node o
 across the same roster via `run-m1` (it builds D + F domain tasks). Candidate `web-dossier` checkout
 stays pinned at `5b0c13a6` (never `m2021` HEAD — D32).
 
-## 3. B-domain + M2 (after 010 merges) — live MSTR
-Per 010 (B isolation + readback oracle + stripped-skill fork). **M2 is a 1-task contingency** until
-B-2..B-10 + their goldens are provided (only B-1 is staged — see `items/010-b-domain-artifacts.md`).
-Exact commands land in 010's plan/ship docs.
+## 3. B-domain + M2 (010 MERGED — PR #21, `4e57bc4`) — live MSTR
+010 landed the deterministic machinery (injectable `MstrReadbackClient` Protocol, per-run isolation
+D20, readback oracle + `ReadbackSpec`, stripped-skill loader, B-noskill/B-skill arms, `run_b`,
+`run_m1` B branch, cli B wiring). Tests stub all MSTR I/O. The LIVE execute needs these 5 steps
+(canonical list in `items/010-plan.md` → "## Execute-phase follow-ups"):
+
+1. **Implement the live `MstrReadbackClient`** (the Protocol in `src/agent_eval_lab/runners/mstr_client.py`)
+   — an EVALUATOR-credentialed `playwright-cli` readback implementing `name_exists` /
+   `created_object_id` / `readback` / `delete_object` against the live Intelligence Server using the
+   evaluator account (`evaluator.toml [health_probe]` creds), `[oracle.b_set] project_id`, and the
+   run's isolated folder. This is the ONLY piece with live MSTR I/O — no test in 010 needs it.
+2. **Wire the live client into `cli._run_m1_command`** — swap `b_client=None` → the live client and
+   pass the live `b_folder` (the run's isolated folder under the Tutorial Project). With `b_client`
+   set, `run_m1`'s B branch runs the real readback grade. (010 added a stderr diagnostic that fires
+   when B tasks are loaded but the live client is absent — that's your "not yet wired" cue.)
+3. **Drive the candidate arms live** — `b-b1-noskill` and `b-b1-skill` with the CANDIDATE account
+   (`evaluator.toml [candidate]` — least-priv, CANNOT read the golden, D19/D20) clicking through the
+   Library UI; the harness records rounds/tokens/cost/wall-time on the `Trajectory`. The live save
+   name comes from the real `Trajectory.run_uid` (010's `run_b` synthesizes a distinct per-arm
+   save-name from `condition_id`+task index for the deterministic path; the live runner uses the
+   real per-run uid).
+4. **Env-validity mask** — wire the §18.5 health probe + the D34 replacement-trial loop (VOID on
+   env-unhealthy) into the live B runner, mirroring `run_dset`. The live Intelligence Server is not
+   run-to-run reproducible (§6), so B is graded only over the validity mask.
+5. **Report M2 over B-1 HONESTLY** — a **1-task contingency**. NEVER label a 1-task percentile
+   interval a "cluster-bootstrap CI" (D26/§8). B-2..B-10 task defs + their goldens are still NEEDED
+   for the ≥10-task cluster bootstrap — mark them BLOCKED (`items/010-b-domain-artifacts.md`). Both
+   arms are instrumented identically by the harness; the estimand is the bundled stripped-skill
+   effect (D25/D37), not knowledge-only.
+
+Integrity (PUBLIC repo): the candidate account never reaches any golden/oracle/object-id; the golden
+object id / golden grid / project id stay in gitignored `evaluator.toml` + `evaluator-only/` ONLY.
 
 ## 4. Regenerate the M1 report (D + F [+ B]) once runs land
 ```bash
@@ -66,7 +94,9 @@ uv run python -m agent_eval_lab.cli report-m1 \
   --prices evaluator-only/pricing.json --out reports/agentic-v1/M1-final-report.md \
   --seed 20260613 --n-resamples 2000 --alpha 0.05
 ```
-(Add `F:<condition_id>=<path>` mappings once F runs land. Confirm exact slugs by `ls reports/agentic-v1/`.)
+(Add `F:<condition_id>=<path>` mappings once F runs land, and `B:<condition_id>=<path>` once the B/M2
+arms land. Confirm exact slugs by `ls reports/agentic-v1/`. The report engine renders B generically
+(`reports/m1._DOMAINS=("F","D","B")`) and treats a 1-task B as a contingency, never a cluster-bootstrap CI.)
 Partial rosters are fine — map only the arms that completed; the report renders the rest as not-yet-run.
 
 ## Watchdog script body (recreate /tmp/run-d-k5-v2.sh)
