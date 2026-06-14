@@ -7,6 +7,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added — F-domain candidate-edit run (the model actually fixes the repo)
+
+- **`runners/f_candidate.py` + `run-f` CLI command**: the live F-domain eval the
+  owner asked for. The candidate model edits the pinned `web-dossier` checkout
+  through pure code-world file-edit tools and the held-out node oracle grades the
+  model's **produced** tree — preserving the model's real trajectory (tokens /
+  rounds / wall-time / cost), unlike 009's synthetic zero-usage `_grade_tree`.
+  Each F task runs `k` **independent** model attempts (D-set parity); env-free, so
+  every attempt is valid — no validity mask, no VOID. `run-f` is standalone
+  per-arm (run-dset parity) so F runs without re-triggering the live D-set, and
+  writes `runs-m1-<slug>-F.jsonl` (+ an empty `.void.json`) for `report-m1`.
+- **`str_replace` tool** (`tools/code_world.py`): a targeted single-unique-
+  occurrence edit primitive so large files (e.g. the 37 KB `wdio.conf.ts`) are
+  edited in place rather than rewritten whole (measures fixing, not transcription;
+  avoids `max_tokens` truncation). Additive to the code-world registry — used by
+  the F arm, not by `code_repair`.
+- **F3 candidate tree** seeds the full `failure-analysis` causal layer at the
+  pinned base SHA so the held-out guard tests (`correlate`/`signal`/`compose`/
+  `index`) run; the golden grading test is never seeded (D19); `m2021` HEAD is
+  never read (D32). See ADR-0015.
+
 ### Fixed — F-domain per-arm `condition_id` attribution (execute-phase pre-req)
 
 - **`run_f` / `run_m1` F branch** (`runners/f_run.py`, `experiments/m1_run.py`):

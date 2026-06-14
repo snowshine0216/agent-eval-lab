@@ -329,7 +329,10 @@ def test_available_tools_are_exactly_the_code_world_tools() -> None:
     for task in _tasks():
         assert set(task.input.available_tools) == _CODE_TOOLS, task.id
         assert len(task.input.available_tools) == 4, task.id
-        assert set(CODE_WORLD_TOOLS) == _CODE_TOOLS
+    # code_repair tasks use a subset of the code-world registry; str_replace is an
+    # additional editing tool (used by the F-domain repo-fix arm), not by code_repair.
+    assert _CODE_TOOLS <= set(CODE_WORLD_TOOLS)
+    assert set(CODE_WORLD_TOOLS) - _CODE_TOOLS == {"str_replace"}
 
 
 # ---- criterion 3: tier sidecar ----------------------------------------------

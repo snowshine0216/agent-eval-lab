@@ -1571,3 +1571,167 @@ def test_load_m1_domain_tasks_includes_b_when_store_present(tmp_path, monkeypatc
     domain_tasks = cli._load_m1_domain_tasks(args=None, cfg=cfg)
     assert "B" in domain_tasks
     assert {t.id for t in domain_tasks["B"]} == {"b-b1-noskill", "b-b1-skill"}
+
+
+def test_run_f_writes_m1_f_runs_and_void_sidecar(tmp_path: Path, monkeypatch) -> None:
+    """item: run-f drives the F-domain candidate-edit eval for one arm and writes
+    runs-m1-<slug>-F.jsonl (+ empty .void.json — F is env-free, never VOID) so
+    report-m1 consumes it directly, exactly like the D-set artifacts."""
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import f_tasks as f_tasks_mod
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners import f_candidate
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    store = tmp_path / "store"
+    store.mkdir()
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
+        runner=RunnerConfig(safety_cap=200, k_valid=3, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(f_tasks_mod, "build_f_tasks", lambda **_k: ("F1", "F2", "F3"))
+
+    captured: dict = {}
+
+    def _run(tid: str, i: int) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="deepseek:deepseek-v4-pro",
+            run_index=i,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=5, completion_tokens=3, latency_s=0.1),
+                run_index=i,
+                stop_reason="completed_natural",
+                final_state={"files": {}},
+            ),
+            grade=GradeResult(
+                grader_id="node_execution",
+                passed=(tid == "f-f1"),
+                score=1.0,
+                evidence={},
+                failure_reason=None,
+            ),
+        )
+
+    def fake_run_f_candidate(**kwargs):
+        captured.update(kwargs)
+        for tid in ("f-f1", "f-f2"):
+            runs = tuple(_run(tid, i) for i in range(kwargs["k"]))
+            yield ReplacementOutcome(
+                valid_runs=runs,
+                attempts=tuple(
+                    TrialAttempt(attempt_index=i, valid=True, run=r)
+                    for i, r in enumerate(runs)
+                ),
+                void=False,
+            )
+
+    monkeypatch.setattr(f_candidate, "run_f_candidate", fake_run_f_candidate)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-f",
+            "--provider",
+            "deepseek",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    # k flows from cfg.runner.k_valid; condition_id is the provider:model id
+    assert captured["k"] == 3
+    assert captured["condition_id"] == "deepseek:deepseek-v4-pro"
+    runs_path = out / "runs-m1-deepseek-deepseek-v4-pro-F.jsonl"
+    rows = [
+        json.loads(line) for line in runs_path.read_text().splitlines() if line.strip()
+    ]
+    assert {r["task_id"] for r in rows} == {"f-f1", "f-f2"}
+    assert len(rows) == 6  # 2 tasks x k=3 valid runs each
+    sidecar = json.loads(runs_path.with_suffix(".void.json").read_text())
+    assert sidecar["void_task_ids"] == []  # env-free: F never voids
+
+
+def test_run_f_model_override_changes_condition_slug(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import f_tasks as f_tasks_mod
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.runners import f_candidate
+
+    store = tmp_path / "store"
+    store.mkdir()
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="c", password="p"),
+        runner=RunnerConfig(safety_cap=200, k_valid=1, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli", project_id="X", goldens={"B-1": "g"}
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(f_tasks_mod, "build_f_tasks", lambda **_k: ())
+    captured: dict = {}
+
+    def fake_run_f_candidate(**kwargs):
+        captured.update(kwargs)
+        return iter(())
+
+    monkeypatch.setattr(f_candidate, "run_f_candidate", fake_run_f_candidate)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-f",
+            "--provider",
+            "siliconflow",
+            "--model",
+            "Qwen/Qwen3.6-35B-A3B",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    assert captured["condition_id"] == "siliconflow:Qwen/Qwen3.6-35B-A3B"
+    assert (out / "runs-m1-siliconflow-Qwen-Qwen3.6-35B-A3B-F.jsonl").exists()
