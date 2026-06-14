@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,6 +23,7 @@ _REPO = Path.home() / "Documents/Repository/web-dossier"
 _AGENT = Path.home() / "Documents/Repository/agent-eval-lab"
 _STORE = _AGENT / "evaluator-only/web-dossier-golden"
 _GF = _STORE / "golden-files"
+_MUTANTS_FILE = _STORE / "mutants/f1-mutants.json"
 
 requires_node = pytest.mark.skipif(
     not node_supports_junit()
@@ -37,7 +40,9 @@ requires_store = pytest.mark.skipif(
 def _show(sha: str, rel: str) -> str:
     return subprocess.run(
         ["git", "-C", str(_REPO), "show", f"{sha}:{rel}"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
 
 
@@ -63,6 +68,27 @@ def _grade(verification, base) -> bool:
     ).passed
 
 
+def _apply_mutant(spec: str, page: str, mutant: dict) -> tuple[str, str]:
+    """Apply a single mutant spec from evaluator-only JSON; returns (spec, page)."""
+    target = mutant["target"]
+    if "find_regex" in mutant:
+        pattern = mutant["find_regex"]
+        replacement = mutant["replace"]
+        if target == "spec":
+            result = re.sub(pattern, replacement, spec, flags=re.S)
+            return result, page
+        else:
+            result = re.sub(pattern, replacement, page, flags=re.S)
+            return spec, result
+    else:
+        find = mutant["find"]
+        replacement = mutant["replace"]
+        if target == "spec":
+            return spec.replace(find, replacement, 1), page
+        else:
+            return spec, page.replace(find, replacement, 1)
+
+
 @requires_store
 def test_build_f1_does_not_leak_golden_source_into_held_out() -> None:
     v = build_f1_verification(_STORE)
@@ -84,25 +110,14 @@ def test_f1_passes_golden_fails_prefix_and_mutants() -> None:
     assert _grade(v, _base(gspec, gpage)) is True  # golden fix PASSES
     assert _grade(v, _base(pspec, ppage)) is False  # pre-fix base FAILS
 
-    # MUTANT keeps-image-compare: golden page object, but the spec re-adds the
-    # flaky takeScreenshotByElement into TC99396_10 (contradiction).
-    mut_spec = gspec.replace(
-        "await libraryNotification.waitForSnapshotFinalNotificationByName"
-        "(snapshotInfo.largePromptedDocument.name);",
-        "await libraryNotification.waitForSnapshotFinalNotificationByName"
-        "(snapshotInfo.largePromptedDocument.name);\n"
-        "        await takeScreenshotByElement("
-        "libraryNotification.getNotificationSection(), 'TC99396_8', 'x', tolerance);",
-        1,
-    )
-    assert mut_spec != gspec
-    assert _grade(v, _base(mut_spec, gpage)) is False  # keeps-image-compare FAILS
-
-    # MUTANT error-path-gutted: page-object resolves on READY only, not ERROR
-    # (weakens the owner semantics; the behavioral negative catches it).
-    mut_page = gpage.replace(
-        "if (ready.length > 0 || error.length > 0) return;",
-        "if (ready.length > 0) return;",
-    )
-    assert mut_page != gpage
-    assert _grade(v, _base(gspec, mut_page)) is False  # error-path-gutted FAILS
+    # Load mutants from evaluator-only (gitignored); no golden answer strings here.
+    mutants = json.loads(_MUTANTS_FILE.read_text("utf-8"))
+    for m in mutants:
+        mut_spec, mut_page = _apply_mutant(gspec, gpage, m)
+        # Confirm the mutant actually changed something (sanity-guard).
+        assert (mut_spec, mut_page) != (gspec, gpage), (
+            f"mutant '{m['name']}' was a no-op"
+        )
+        assert _grade(v, _base(mut_spec, mut_page)) is False, (
+            f"mutant '{m['name']}' should FAIL but PASSED"
+        )

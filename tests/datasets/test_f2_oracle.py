@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +19,7 @@ _REPO = Path.home() / "Documents/Repository/web-dossier"
 _AGENT = Path.home() / "Documents/Repository/agent-eval-lab"
 _STORE = _AGENT / "evaluator-only/web-dossier-golden"
 _GF = _STORE / "golden-files"
+_MUTANTS_FILE = _STORE / "mutants/f2-mutants.json"
 
 requires_node = pytest.mark.skipif(
     not node_supports_junit()
@@ -33,7 +36,9 @@ requires_store = pytest.mark.skipif(
 def _show(sha: str, rel: str) -> str:
     return subprocess.run(
         ["git", "-C", str(_REPO), "show", f"{sha}:{rel}"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
 
 
@@ -55,6 +60,13 @@ def _grade(verification, base) -> bool:
     ).passed
 
 
+def _apply_mutant(conf: str, mutant: dict) -> str:
+    """Apply a single mutant spec from evaluator-only JSON; returns mutated conf."""
+    if "find_regex" in mutant:
+        return re.sub(mutant["find_regex"], mutant["replace"], conf, flags=re.S)
+    return conf.replace(mutant["find"], mutant["replace"], 1)
+
+
 @requires_store
 def test_build_f2_does_not_leak_golden_source_into_held_out() -> None:
     v = build_f2_verification(_STORE)
@@ -72,27 +84,11 @@ def test_f2_passes_golden_fails_prefix_and_mutants() -> None:
     assert _grade(v, _base(gconf)) is True  # golden fix PASSES
     assert _grade(v, _base(pconf)) is False  # pre-fix base FAILS
 
-    # MUTANT surfaces-2xx: keeps the diag block but drops the non-2XX filter so
-    # ALL requests (incl 200s) are logged (contradicts the owner trace shape).
-    mut_c = gconf.replace(
-        "const failedReqs = (snap?.network ?? []).filter(\n"
-        "                (e) => typeof e.status !== 'number' "
-        "|| e.status < 200 || e.status >= 300\n"
-        "            );",
-        "const failedReqs = (snap?.network ?? []);",
-    )
-    assert mut_c != gconf
-    assert _grade(v, _base(mut_c)) is False  # surfaces-2xx FAILS
-
-    # MUTANT omits-signal-line: removes the [DiagTrace] signal=… log entirely
-    # (wrong trace shape — the engine result is not surfaced).
-    import re
-
-    mut_d = re.sub(
-        r"logger\.log\(\s*`\[DiagTrace\] signal=.*?`\s*\);",
-        "/* omitted */;",
-        gconf,
-        flags=re.S,
-    )
-    assert mut_d != gconf
-    assert _grade(v, _base(mut_d)) is False  # omits-signal-line FAILS
+    # Load mutants from evaluator-only (gitignored); no golden answer strings here.
+    mutants = json.loads(_MUTANTS_FILE.read_text("utf-8"))
+    for m in mutants:
+        mut_conf = _apply_mutant(gconf, m)
+        assert mut_conf != gconf, f"mutant '{m['name']}' was a no-op"
+        assert _grade(v, _base(mut_conf)) is False, (
+            f"mutant '{m['name']}' should FAIL but PASSED"
+        )
