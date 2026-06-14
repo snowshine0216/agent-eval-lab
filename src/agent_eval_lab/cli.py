@@ -157,6 +157,16 @@ def _append_runs(runs_file: TextIO, runs: Sequence[RunResult]) -> None:
     runs_file.flush()
 
 
+def _write_heartbeat(path: Path, session_id: str) -> None:
+    """Operational liveness signal for a stall watchdog: rewritten on every bash
+    command so the file's mtime advances continuously during a task. The per-task
+    runs JSONL is too coarse — a single hard live task outlives any sane stall
+    threshold — so a monitor should watch THIS file (mtime), not the JSONL.
+    Content is the live task id, for debuggability. Carries no wall-clock (the
+    OS-set mtime is the signal), so it stays out of the deterministic records."""
+    path.write_text(session_id, encoding="utf-8")
+
+
 # The canonical judge spec the calibration corpus is scored on (scale 1-5). All
 # CLI calibrate handlers pass this to build_packet so the packet records the scale.
 _CALIBRATION_SPEC = LlmJudgeSpec(
@@ -751,6 +761,11 @@ def _run_dset_command(
     args.out.mkdir(parents=True, exist_ok=True)
     slug = _slug(condition_id(config))
     path = args.out / f"runs-dset-{slug}.jsonl"
+    heartbeat_path = path.with_suffix(".heartbeat")
+
+    def heartbeat_fn(session_id: str) -> None:
+        _write_heartbeat(heartbeat_path, session_id)
+
     void_ids: list[str] = []
     aborted = False
     # run_dset yields per task; write each task's runs immediately (flushed) so a
@@ -769,6 +784,7 @@ def _run_dset_command(
                 max_tokens=args.max_tokens,
                 health_probe_fn=health_probe_fn,
                 reference_sha256=reference_sha256,
+                heartbeat_fn=heartbeat_fn,
             ):
                 _append_runs(fh, outcome.valid_runs)
                 if outcome.void:

@@ -1261,6 +1261,85 @@ def test_run_dset_writes_incrementally_and_records_void_sidecar(
     assert sidecar["void_task_ids"] == ["cmc-q02"]  # the voided task is recorded
 
 
+def test_write_heartbeat_writes_session_id(tmp_path: Path) -> None:
+    from agent_eval_lab.cli import _write_heartbeat
+
+    hb = tmp_path / "runs-dset-x.heartbeat"
+    _write_heartbeat(hb, "cmc-q01")
+    assert hb.read_text() == "cmc-q01"
+    first = hb.stat().st_mtime_ns
+    _write_heartbeat(hb, "cmc-q02")  # rewritten -> content + mtime advance
+    assert hb.read_text() == "cmc-q02"
+    assert hb.stat().st_mtime_ns >= first
+
+
+def test_run_dset_wires_a_heartbeat_sink_writing_the_sidecar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The CLI passes run_dset a heartbeat sink that writes
+    runs-dset-<slug>.heartbeat next to the output jsonl — the canonical sub-task
+    liveness signal (content = live task id, mtime = the watched value)."""
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import cmc_dset
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.runners import dset_run
+
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "cmc-docs-factkeys.json").write_text(json.dumps({"snapshot_sha256": "s"}))
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
+        runner=RunnerConfig(safety_cap=200, k_valid=2, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(cmc_dset, "build_cmc_tasks", lambda **_k: ())
+
+    captured = {}
+
+    def fake_run_dset(**kwargs):
+        captured.update(kwargs)
+        return iter(())  # no tasks
+
+    monkeypatch.setattr(dset_run, "run_dset", fake_run_dset)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-dset",
+            "--provider",
+            "local",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    heartbeat_fn = captured["heartbeat_fn"]
+    heartbeat_fn("cmc-q05")  # simulate the executor firing on a command
+    hb_file = out / "runs-dset-local-Qwen-Qwen3-8B.heartbeat"
+    assert hb_file.read_text() == "cmc-q05"
+
+
 def test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar(
     tmp_path: Path, monkeypatch
 ) -> None:

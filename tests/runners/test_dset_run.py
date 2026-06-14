@@ -144,6 +144,49 @@ def test_run_dset_threads_k_valid_and_records(monkeypatch, tmp_path):
     assert len(outcomes) == 1
 
 
+def test_run_dset_threads_heartbeat_fn_into_every_executor(monkeypatch, tmp_path):
+    # run_dset builds a fresh bash executor per task; the run-level heartbeat sink
+    # must reach each one so every command updates the canonical liveness signal.
+    from agent_eval_lab.runners import dset_run
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    seen_heartbeats = []
+
+    def fake_make_bash_executor(**kwargs):
+        seen_heartbeats.append(kwargs.get("heartbeat_fn"))
+        return (lambda _req: None), (lambda: None)
+
+    def fake_k_valid(**kwargs):
+        r = _run()
+        return ReplacementOutcome(
+            valid_runs=(r,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=r),),
+            void=False,
+        )
+
+    monkeypatch.setattr(dset_run, "make_bash_executor", fake_make_bash_executor)
+    monkeypatch.setattr(dset_run, "run_task_k_valid", fake_k_valid)
+
+    def hb(_session_id: str) -> None:
+        pass
+
+    tuple(
+        run_dset(
+            evaluator_store=tmp_path,
+            tasks=(_make_q02_task(tmp_path), _make_q02_task(tmp_path)),
+            config=_fake_config(),
+            http_client=httpx.Client(),
+            k_valid=1,
+            max_invalid_rate=0.40,
+            temperature=0.0,
+            max_tokens=4096,
+            health_probe_fn=lambda: None,
+            heartbeat_fn=hb,
+        )
+    )
+    assert seen_heartbeats == [hb, hb]  # every per-task executor got the same sink
+
+
 def test_run_dset_yields_incrementally_so_earlier_tasks_survive_a_later_raise(
     monkeypatch, tmp_path
 ):

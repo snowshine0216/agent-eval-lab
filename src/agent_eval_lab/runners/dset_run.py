@@ -56,6 +56,7 @@ def run_dset(
     max_tokens: int,
     health_probe_fn: "Callable | None" = None,
     reference_sha256: str | None = None,
+    heartbeat_fn: "Callable[[str], None] | None" = None,
 ) -> Iterator[ReplacementOutcome]:
     """Run every D-set task k_valid times; YIELD one ReplacementOutcome per task as
     it completes, so the caller can persist incrementally — one bad task can no
@@ -64,7 +65,9 @@ def run_dset(
 
     A fresh bash executor (isolated session + workdir) is built per task and
     closed after; the snapshot-hash validity_fn (when reference_sha256 is given)
-    routes live-docs drift to the validity mask.
+    routes live-docs drift to the validity mask. heartbeat_fn is threaded into
+    every per-task executor as a sub-task liveness signal (the per-task yield is
+    too coarse a progress signal for a stall watchdog — see bash_edge).
     """
     cond = condition_id(config)
     validity_fn = (
@@ -76,7 +79,9 @@ def run_dset(
         workdir = (
             evaluator_store / "dset-work" / f"{_condition_id_slug(cond)}__{task.id}"
         )
-        executor, close = make_bash_executor(session_id=task.id, workdir=workdir)
+        executor, close = make_bash_executor(
+            session_id=task.id, workdir=workdir, heartbeat_fn=heartbeat_fn
+        )
         try:
             outcome = run_task_k_valid(
                 task=task,

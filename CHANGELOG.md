@@ -7,6 +7,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed — D-set bash edge: playwright daemon leak + sub-task liveness signal
+
+- **Daemon leak in `make_bash_executor`'s `close()`** (`runners/bash_edge.py`):
+  `close()` only `rmtree`'d the workdir, never stopping the persistent, detached
+  `cliDaemon.js` (and its Chrome) that each `playwright-cli -s=<name> open`
+  spawns — ~1.6 daemons/min leaked over a live D-set run. The model picks
+  arbitrary session names, so name-targeting is impossible; instead the executor
+  now scopes the daemon registry per-workdir via `PWTEST_DAEMON_SESSION_DIR` and
+  `close()` runs the tool's own `close-all` over that scoped registry (graceful
+  stop, closes Chrome too), reaping exactly this executor's daemons — never the
+  machine's other playwright-cli sessions. Time-bounded and best-effort.
+- **Sub-task liveness heartbeat** (`runners/bash_edge.py`, `runners/dset_run.py`,
+  `cli.py`): the per-task runs JSONL was the run's only progress signal and is
+  too coarse — one hard live task outlives any sane stall threshold, so a
+  watchdog watching only the JSONL false-kills healthy in-task work. The
+  executor (the I/O edge) now emits a per-command heartbeat; `run-dset` writes it
+  to `runs-dset-<slug>.heartbeat` (content = live task id, mtime = the watched
+  signal) so a stall watchdog can use a tight threshold without spelunking
+  playwright internals.
+
 ### Added — B-domain adapter + M2 skill-effect machinery (item 010)
 
 - Third M1 macro-composite domain (B) — long-horizon MicroStrategy Library GUI

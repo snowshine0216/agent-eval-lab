@@ -29,6 +29,14 @@ _TIMEOUT_EXIT_CODE = -9
 ALLOWED_BINS = frozenset({"playwright-cli"})
 _NODE22_BIN = str(Path.home() / ".nvm/versions/node/v22.22.2/bin")
 
+# Per-workdir playwright daemon registry (PWTEST_DAEMON_SESSION_DIR). Scoping the
+# registry under the workdir lets close() reap EXACTLY this executor's daemons
+# (ADR-0008) — the model picks arbitrary session names, so name-targeting is out.
+_DAEMON_SUBDIR = ".pw-daemon"
+# Upper bound on the graceful `close-all` reap so a wedged daemon cannot hang
+# task teardown; survivors (if any) are leaked, not blocked on.
+_REAP_TIMEOUT_S = 30.0
+
 
 def _playwright_cli_dir() -> str:
     return os.environ.get("PLAYWRIGHT_CLI_DIR", _NODE22_BIN)
@@ -69,7 +77,13 @@ def parse_argv(command: str) -> list[str] | None:
 
 
 def _bash_env(workdir: str) -> dict[str, str]:
-    """From-scratch env: never inherits os.environ; PATH pinned to node-22."""
+    """From-scratch env: never inherits os.environ; PATH pinned to node-22.
+
+    PWTEST_DAEMON_SESSION_DIR pins playwright-cli's session registry under the
+    workdir, so every daemon this executor spawns is bookkept per-task and can
+    be reaped at close() without touching the machine's other playwright-cli
+    sessions (the leak fix — see _reap_session_daemons).
+    """
     return {
         "PATH": _playwright_cli_dir() + ":/usr/bin:/bin",
         "HOME": workdir,
@@ -77,6 +91,7 @@ def _bash_env(workdir: str) -> dict[str, str]:
         "LC_ALL": "C.UTF-8",
         "LANG": "C.UTF-8",
         "NO_COLOR": "1",
+        "PWTEST_DAEMON_SESSION_DIR": str(Path(workdir) / _DAEMON_SUBDIR),
     }
 
 
@@ -91,23 +106,77 @@ def _reject(message: str) -> BashResult:
     return BashResult(stdout="", stderr=message, exit_code=127, timed_out=False)
 
 
+def _reap_session_daemons(
+    workdir: Path,
+    *,
+    run: Callable[..., object] = subprocess.run,
+) -> None:
+    """Stop the playwright daemons (and their Chrome) this executor spawned.
+
+    A `playwright-cli -s=<name> open` starts a PERSISTENT, detached `cliDaemon.js`
+    node process (a grandchild we never see) plus its Chrome helpers; rmtree-ing
+    the workdir does not touch them, so they leak across tasks. The model picks
+    arbitrary session names, so we cannot stop them by name. Instead the executor
+    scopes the daemon registry to <workdir>/.pw-daemon (see _bash_env) and we run
+    the tool's own `close-all`, which gracefully stops every daemon in THAT
+    registry — exactly this executor's, never the machine's other sessions.
+
+    Best-effort by construction:
+      * no registry dir -> no daemon was ever spawned -> do nothing (and never
+        spawn a subprocess, so non-browse executors stay hermetic);
+      * playwright-cli not on the pinned PATH (e.g. CI without node) -> nothing
+        we can do;
+      * the call is time-bounded and all subprocess errors are swallowed, so a
+        wedged daemon can neither hang nor abort task teardown.
+    """
+    if not (workdir / _DAEMON_SUBDIR).exists():
+        return
+    env = _bash_env(str(workdir))
+    resolved = shutil.which("playwright-cli", path=env["PATH"])
+    if resolved is None:
+        return
+    with suppress(subprocess.SubprocessError, OSError):
+        run(
+            [resolved, "close-all"],
+            cwd=str(workdir),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_REAP_TIMEOUT_S,
+            check=False,
+        )
+
+
 def make_bash_executor(
     *,
     session_id: str,
     workdir: Path,
     allowed_bins: frozenset[str] = ALLOWED_BINS,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    reap_fn: Callable[[Path], None] = _reap_session_daemons,
+    heartbeat_fn: Callable[[str], None] | None = None,
 ) -> tuple[Callable[[BashRequest], BashResult], Callable[[], None]]:
     """Build a stateful bash executor bound to one workdir + session id.
 
-    Returns (executor, close). `close` removes the workdir (and any
-    playwright-cli session artifacts under it). The session id is the caller's
-    to thread into playwright-cli `-s=` commands (the harness injects it into the
-    task prompt); the workdir isolates `.playwright-cli/` artifacts per run.
+    Returns (executor, close). `close` reaps the playwright daemons this executor
+    spawned (reap_fn, injected for tests) and then removes the workdir. The
+    session id is the caller's to thread into playwright-cli `-s=` commands (the
+    harness injects it into the task prompt); the workdir isolates the
+    playwright daemon registry and other artifacts per run.
+
+    heartbeat_fn (when given) is called with the session id on EVERY command —
+    a sub-task liveness signal for a stall watchdog. The per-task run output is
+    too coarse: one hard live task can outlive any sane stall threshold, so a
+    monitor watching only that output false-kills healthy in-task work. The
+    heartbeat fires at the I/O edge (where progress actually happens) and is
+    strictly best-effort — a heartbeat failure never fails the command.
     """
     workdir.mkdir(parents=True, exist_ok=True)
 
     def executor(request: BashRequest) -> BashResult:
+        if heartbeat_fn is not None:
+            with suppress(OSError):
+                heartbeat_fn(session_id)
         argv = parse_argv(request.command)
         if argv is None:
             return _reject("unparseable or shell-metacharacter command rejected")
@@ -140,6 +209,9 @@ def make_bash_executor(
         )
 
     def close() -> None:
+        # Reap BEFORE rmtree: the reaper reads <workdir>/.pw-daemon, which
+        # rmtree would otherwise destroy first (leaving the daemons orphaned).
+        reap_fn(workdir)
         shutil.rmtree(workdir, ignore_errors=True)
 
     return executor, close
