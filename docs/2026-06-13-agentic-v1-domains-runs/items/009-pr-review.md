@@ -1,20 +1,20 @@
-Verdict: PASS-WITH-NITS
+Verdict: PASS
 
-Source: /code-review on PR #19
-PR comment URL: https://github.com/snowshine0216/agent-eval-lab/pull/19#issuecomment-4700580004
-Findings: 3
-  - evaluator-only/…/f2.held_out.test.js:345 — latent-bug — F2 extractDiagBlock anchors on literal comment 'Print a diagnose trace'; per ECMAScript spec, indexOf(str,-1)=indexOf(str,0) so a candidate omitting that comment silently causes the extractor to fall back to the first try{ in the file (false-negative risk, not false-positive)
-  - src/agent_eval_lab/runners/f_run.py:58 — nit — condition_id="(f-local)" hardcoded in _grade_tree; works for current stub phase but won't reflect the actual model condition in the live execute phase
-  - src/agent_eval_lab/runners/f_run.py:24 + datasets/f_tasks.py:10 — nit — _CANDIDATE_BASE_SHA duplicated verbatim in two modules (both correct and consistent, but DRY violation)
+Source: /code-review on PR #19 (round 2, post-fix e5f7ad3)
+PR comment URL: https://github.com/snowshine0216/agent-eval-lab/pull/19#issuecomment-4700613353
+Round-1 F2 latent bug: gone
+Findings: 0
 
-## Integrity audit result
+## Round-1 findings disposition
 
-CLEAN. git grep -nE "waitForSnapshotFinalNotificationByName|largePromptedDocument|\[DiagTrace\]" -- src/ tests/ returns zero matches. Candidate prompts use behavioral prose only. Mutant fixtures in gitignored evaluator-only/mutants/. Golden sources never in held_out_files. Candidate base pinned to 5b0c13a6 in both f_run.py and f_tasks.py; m2021 HEAD never read.
+- evaluator-only/f2.held_out.test.js — latent-bug — FIXED (e5f7ad3): extractDiagBlock now uses CAPTURE_RE (variable-name-agnostic anchor on `await analyzeFailure(` call pattern); returns {block, capturedVarName}; new test_f2_passes_when_capture_variable_name_is_not_the_golden_name exercises alt-name path; zero golden identifiers in tracked file (git-grep 0).
+- src/agent_eval_lab/runners/f_run.py:58 — nit — DEFERRED/NOTED (b94d24c): plan note added to 009-plan.md §Execute-phase follow-ups; stub correct for current non-execute scope per §Non-goals.
+- src/agent_eval_lab/runners/f_run.py:24 + datasets/f_tasks.py — nit — FIXED (b94d24c): CANDIDATE_BASE_SHA exported from f_run.py; f_tasks.py imports as _CANDIDATE_BASE_SHA; single source of truth.
 
-## Oracle soundness
+## Integrity re-audit (post e5f7ad3)
 
-F1: behavioral (method extraction + injected fakes). Sound. F2: text-regex for diagResult capture (sound) + behavioral diag-block execution. Latent fragility in comment-anchored extractor (latent-bug above) — worst case is false-negative, not false-positive.
+CLEAN. git grep -nE "diagResult|waitForSnapshot|DiagTrace|analyzeFailure" -- tests/ src/ → 0 matches. CAPTURE_RE extraction in Python test reads from gitignored oracle at runtime; no golden identifier in tracked file. CAPTURE_RE Python extraction regex verified correct against actual JS content (no trailing flags; lazy match; captured group compiles as valid Python regex and matches both golden and alt variable names).
 
-## F-domain wiring
+## Round-2 verdict
 
-Correct. cli.py passes store/"web-dossier-golden" to build_f_tasks; all three build_fN_verification calls receive the right path. run_m1 F-branch closure is safe (f_repo is a function param, not a loop variable). k-replication design (env-free → k identical valid runs) is architecturally correct per pass^k spec.
+PASS — all three round-1 findings resolved. No new issues found at HIGH effort. PR is clean.
