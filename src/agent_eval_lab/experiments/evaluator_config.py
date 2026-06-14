@@ -39,9 +39,13 @@ class SkillConfig:
 class CandidateConfig:
     """The least-privilege candidate MSTR account (D20). Distinct from the
     evaluator account used by health_probe / the readback oracle; this account
-    CANNOT read the golden (D19/D33)."""
+    CANNOT read the golden (D19/D33).
 
-    url: str
+    `url` is optional (the Library base URL; if absent, the live client uses
+    the health_probe URL root). Required fields for the execute phase are
+    username + password."""
+
+    url: str | None = None
     username: str
     password: str
 
@@ -165,7 +169,7 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
             ),
         ),
         candidate=CandidateConfig(
-            url=str(_require_key(candidate_sec, "url", "candidate")),
+            url=str(candidate_sec["url"]) if "url" in candidate_sec else None,
             username=str(_require_key(candidate_sec, "username", "candidate")),
             password=str(_require_key(candidate_sec, "password", "candidate")),
         ),

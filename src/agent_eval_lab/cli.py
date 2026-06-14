@@ -807,10 +807,12 @@ def _run_dset_command(
 
 def _load_m1_domain_tasks(args, cfg) -> dict:
     """Build the per-domain task map.
-    D = CMC docs tasks; F = web-dossier repo-fix tasks (009).
-    B returns no tasks until 010.
+    D = CMC docs tasks; F = web-dossier repo-fix tasks (009); B = MSTR readback
+    B-1 (010), present only when the gitignored b-set golden store + stripped
+    skill fork are on disk (B-1 is a 1-task contingency — D26).
     cfg is the loaded EvaluatorConfig (passed so callers can stub this function
     in tests without touching load_evaluator_config)."""
+    from agent_eval_lab.datasets.b_tasks import build_b_tasks
     from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
     from agent_eval_lab.datasets.f_tasks import build_f_tasks
 
@@ -820,7 +822,23 @@ def _load_m1_domain_tasks(args, cfg) -> dict:
         questions_path=Path("examples/datasets/cmc-docs-questions.txt"),
     )
     f_tasks = build_f_tasks(evaluator_store=store / "web-dossier-golden")
-    return {"D": tasks, "F": f_tasks}
+    domain_tasks: dict = {"D": tasks, "F": f_tasks}
+
+    # B is gated on the gitignored golden store + the stripped skill fork. When
+    # either is absent (CI / no evaluator-only), B is simply omitted (mirrors the
+    # absent-domain skip in run_m1). B-1 is a 1-task contingency (D26).
+    golden_dir = Path("evaluator-only/b-set-golden")
+    skill_cfg = getattr(cfg, "skill", None)
+    skill_path = Path(skill_cfg.strategy_test_path) if skill_cfg is not None else None
+    if (
+        skill_path is not None
+        and (golden_dir / "b1-golden.json").exists()
+        and skill_path.exists()
+    ):
+        domain_tasks["B"] = build_b_tasks(
+            golden_dir=golden_dir, strategy_test_path=skill_path
+        )
+    return domain_tasks
 
 
 def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) -> int:
@@ -883,6 +901,9 @@ def _run_m1_command(args: argparse.Namespace, http_client: httpx.Client | None) 
             reference_sha256=reference_sha256,
             evaluator_store=store,
             f_repo=Path.home() / "Documents/Repository/web-dossier",
+            b_client=None,  # DEFERRED: live playwright-cli readback client (EXECUTE-DEFERRED)
+            b_project_id=cfg.oracle_b_set.project_id,
+            b_folder="/runs",
         )
     finally:
         if http_client is None:
