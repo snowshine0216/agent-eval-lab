@@ -5,7 +5,7 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
 | # | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |---|----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 008 | runner-harden | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#18] | ✅ | ✅ | ✅ r1 | ✅ [d6d5b9e] |
-| 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | 🔄 |
+| 009 | f-domain-adapter | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ [PR#19] | ✅ | ✅ | ✅ r1 | ✅ [331bbe8] |
 | 010 | b-domain-m2 | ⏭️ | ⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
 `spec`/`grill` are ⏭️ for all items: the source spec is the brainstorm+grill output (§15/§15a/§15b/§18).
@@ -41,6 +41,19 @@ Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped
   `test_run_dset_transport_error_gives_exit1_and_writes_void_sidecar` (red→green); fresh-dict `_elide`.
   Suite green (42 cli/history pass; only pre-existing oracle-subprocess flakes), ruff clean. Re-running
   review ‖ verify ‖ pr-review against `e297082`.
+- 2026-06-14 — **009 MERGED to main** (PR #19, squash `331bbe8`). Post-ship review+pr-review caught TWO
+  more real issues (1 round to fix): a **residual integrity leak** (`test_f_run.py` embedded the golden
+  string `const diagResult = await analyzeFailure` — missed by the earlier incomplete-token grep) and an
+  **F2 oracle false-negative** (`extractDiagBlock` anchored on an unprompted comment, then on the exact
+  var name → would false-FAIL correct candidates). Fixed `d9a7f9f`/`b94d24c`/`e5f7ad3`: leak removed
+  (complete-token git-grep now clean), anchor made variable-name-agnostic with explicit fail-if-absent.
+  condition_id="(f-local)" stub deferred to plan §"Execute-phase follow-ups" (needed before live F run).
+- 2026-06-14 — **D run RELAUNCHED** after the site restart (user) with a progress-based stall watchdog
+  (`/tmp/run-d-k5-v2.sh`, kills an arm only on 20m of no output-file growth — healthy arms run to
+  completion). deepseek task 1 done ~21m (cold-start after restart); monitoring steady-state pace.
+- 2026-06-14 — **010 (B-domain/M2) branch cut** `feat/agentic-v1-010-b-domain-m2`. Owner artifacts:
+  candidate MSTR acct + stripped strategy-test fork + B-1 task + B-1 golden id all STAGED (see
+  items/010-b-domain-artifacts.md); B-2..B-10 + their goldens STILL NEEDED → M2 is a 1-task contingency.
 - 2026-06-14 — **008 MERGED to main** (PR #18, squash `d6d5b9e`) — all gates green, one real latent
   bug (run-dset TransportError gap) caught by review+pr-review and fixed in 1 round.
 - 2026-06-14 — **008 EXECUTE started:** re-froze M1 spec for `local:Qwen/Qwen3-8B` (spec_hash
