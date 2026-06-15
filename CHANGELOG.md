@@ -5,7 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## v0.2.0 — 2026-06-15
+
+### Added — D-set resume: interrupted runs continue without re-running banked tasks
+
+- **`_completed_dset_task_ids` + `run-dset` resume path** (`cli.py`): a transient
+  failure (network blip, system restart) mid-corpus no longer discards banked
+  tasks. On relaunch, completed task ids are reconstructed from the existing JSONL
+  + void sidecar; remaining tasks are identified and appended; the void sidecar is
+  merged so prior voids survive the second run. Early-exit guard prevents the
+  re-run from calling `run_dset` when every task is already finished. Covered by
+  `tests/test_dset_resume.py` (5 unit tests over the pure helper).
 
 ### Added — F-domain candidate-edit run (the model actually fixes the repo)
 
@@ -27,6 +37,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   pinned base SHA so the held-out guard tests (`correlate`/`signal`/`compose`/
   `index`) run; the golden grading test is never seeded (D19); `m2021` HEAD is
   never read (D32). See ADR-0015.
+
+### Fixed — `run-f` error handling: uncaught subprocess failure + missing void sidecar on abort
+
+- **`subprocess.CalledProcessError` / `FileNotFoundError` now caught** (`cli.py`,
+  `_run_f_command`): a missing `web-dossier` repo or git binary caused an
+  unhandled traceback instead of a clean exit-1 message; the void sidecar and
+  partial JSONL were abandoned. Now caught with an actionable diagnostic.
+- **Void sidecar always written on abort** (`cli.py`, `_run_f_command`): the
+  `.void.json` write was after the `try/except` block and skipped on
+  `httpx.TransportError`, silently dropping void task ids. Moved into `finally`
+  so `report-m1` always finds a sidecar regardless of abort reason.
 
 ### Fixed — F-domain per-arm `condition_id` attribution (execute-phase pre-req)
 
