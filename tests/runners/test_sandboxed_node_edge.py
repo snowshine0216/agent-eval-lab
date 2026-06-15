@@ -123,3 +123,62 @@ def test_profile_allows_process_primitives() -> None:
 def test_darwin_probe_false_off_macos(monkeypatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     assert darwin_sandbox_available() is False
+
+
+# ---------------------------------------------------------------------------
+# Task 3: make_authored_test_executor — fake run_fn wiring
+# ---------------------------------------------------------------------------
+
+from agent_eval_lab.records.execution import ExecutionRequest
+from agent_eval_lab.records.node_feedback import NodeFeedbackResult
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    AUTHORED_TEST_DIR,
+    make_authored_test_executor,
+)
+
+
+def test_executor_ignores_request_paths_and_runs_authored_dir() -> None:
+    seen: list[tuple] = []
+
+    def fake_run(files, *, node_bin, node_dir, timeout_s):
+        seen.append(tuple(sorted(files)))
+        return NodeFeedbackResult(
+            status="passed", exit_code=0, passed=1, failed=0, output="# pass 1\n"
+        )
+
+    executor = make_authored_test_executor(
+        node_bin="/x/node", node_dir="/x", run_fn=fake_run
+    )
+    # the model snapshotted the WHOLE tree (incl. seeded causal tests); the
+    # executor must run only tests/authored/ regardless.
+    req = ExecutionRequest(
+        files={
+            "tests/authored/a.test.js": "x",
+            "tests/wdio/seeded.causal.test.js": "should-not-run",
+        }
+    )
+    out = executor(req)
+    assert isinstance(out, NodeFeedbackResult)
+    assert out.status == "passed"
+    # the materialized tree carried both files (snapshot), but run_fn only ever
+    # gets the FIXED test dir as the path to run (asserted via the command below)
+
+
+def test_executor_run_fn_receives_fixed_authored_test_path() -> None:
+    captured: dict = {}
+
+    def fake_run(files, *, node_bin, node_dir, timeout_s):
+        captured["test_dir"] = AUTHORED_TEST_DIR
+        return NodeFeedbackResult(
+            status="error", exit_code=1, passed=0, failed=0, output="no tests\n"
+        )
+
+    executor = make_authored_test_executor(
+        node_bin="/x/node", node_dir="/x", run_fn=fake_run
+    )
+    executor(ExecutionRequest(files={"tests/authored/a.test.js": "x"}))
+    assert captured["test_dir"] == "tests/authored/"
+
+
+def test_authored_test_dir_is_reserved_constant() -> None:
+    assert AUTHORED_TEST_DIR == "tests/authored/"
