@@ -29,6 +29,7 @@ def _run(
     parse_error=None,
     completion_tokens=5,
     max_tokens=None,
+    safety_cap_bound=False,
 ) -> RunResult:
     """Synthetic RunResult mimicking the JSONL round-trip (plain dicts).
 
@@ -55,6 +56,7 @@ def _run(
             ),
             final_state={"files": {}},
             max_tokens=max_tokens,
+            safety_cap_bound=safety_cap_bound,
         ),
         grade=GradeResult(
             grader_id=grader_id,
@@ -522,3 +524,43 @@ def test_e1_top_level_node_execution_grader_is_found() -> None:
 def test_e1_first_execution_evidence_matches_node_execution() -> None:
     ev = _node_exec_run_evidence("failed")
     assert first_execution_evidence(ev, "node_execution") is ev
+
+
+# fc-v4 Rows E.2 + E.3 — budget-cap override + row-1 guard ──────────────────────
+
+
+def test_e3_passed_but_safety_cap_bound_is_budget_exhausted() -> None:
+    # Row-1 guard: a graded-pass that was budget-capped is NOT "passed".
+    run = _run(passed=True, safety_cap_bound=True)
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e3_passed_but_max_rounds_stop_is_budget_exhausted() -> None:
+    run = _run(passed=True, stop_reason="max_rounds")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_safety_cap_run_is_budget_exhausted() -> None:
+    # A failing run that hit the safety cap outranks its red oracle.
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="safety_cap")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_safety_cap_bound_flag_is_budget_exhausted() -> None:
+    run = _run(evidence=_exec_run_evidence("failed"), safety_cap_bound=True)
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_max_rounds_run_is_budget_exhausted() -> None:
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="max_rounds")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_legacy_max_steps_still_step_exhaustion() -> None:
+    # D2: legacy max_steps keeps its truncation bucket (backward compatible).
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="max_steps")
+    _is(classify_run(run), "agent_failure", "step_exhaustion")
+
+
+def test_e3_passed_uncapped_still_passes() -> None:
+    _is(classify_run(_run(passed=True)), "passed", None)
