@@ -53,7 +53,7 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 ## Run-level (Phase 3)
 | gate | status |
 |------|--------|
-| run-doc-sync | ⏳ |
+| run-doc-sync | ✅ `run-doc-sync.md` PASS |
 | run-final-verify | ⏳ |
 | run-close-out | ⏳ |
 
