@@ -10,7 +10,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 | 002 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-002` | ✅ `7a5e822` | ✅ `items/002-drift.md` | ✅ [#27](https://github.com/snowshine0216/agent-eval-lab/pull/27) | ✅ `items/002-verify.md` | ✅ `items/002-review.md` PASS-WITH-NITS (1 fix round) | ✅ `items/002-pr-review.md` PASS-WITH-NITS | ✅ 1 round | ✅ `420cc69` |
 | 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ✅ 1 round (2 nits) | ✅ `40e4f26` |
 | 004 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-004` | ✅ `a8c1ec5` | ✅ `items/004-drift.md` | ✅ [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29) | ✅ `items/004-verify.md` | ✅ `items/004-review.md` PASS-WITH-NITS (2 fixed pre-push) | ✅ `items/004-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds (2 nits accepted) | ✅ `51a422a` |
-| 005 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 005 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 006 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Column note:** this is a **non-web** run, so the post-ship XOR resolves to **verify** (no `qa`
