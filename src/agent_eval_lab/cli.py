@@ -718,10 +718,44 @@ def _run_check_env(  # noqa: C901
     return 0 if ok else 1
 
 
+def _completed_dset_task_ids(path: Path, void_path: Path) -> tuple[set[str], list[str]]:
+    """Task ids already finished in a prior (interrupted) run-dset, for resume.
+
+    A task's k_valid records are flushed atomically per task (one yield), so a
+    task_id present in the jsonl is fully complete; void task ids (from the sidecar)
+    are likewise done. Returns (done_ids, prior_void_ids) so a resumed run skips the
+    finished tasks and preserves the prior void sidecar. Pure: reads files only.
+    """
+    done: set[str] = set()
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                done.add(json.loads(line)["task_id"])
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+    prior_voids: list[str] = []
+    if void_path.exists():
+        try:
+            payload = json.loads(void_path.read_text(encoding="utf-8"))
+            prior_voids = list(payload.get("void_task_ids", []))
+        except (json.JSONDecodeError, OSError, AttributeError):
+            prior_voids = []
+    done.update(prior_voids)
+    return done, prior_voids
+
+
 def _run_dset_command(
     args: argparse.Namespace, http_client: httpx.Client | None
 ) -> int:
-    """EDGE: run a model over the D-set (CMC docs QA) via playwright-cli."""
+    """EDGE: run a model over the D-set (CMC docs QA) via playwright-cli.
+
+    Resumable: a prior interrupted run's completed tasks (e.g. a network blip aborts
+    mid-corpus over a multi-hour run) are skipped and the jsonl is appended to, so a
+    transient failure never loses banked tasks — the corpus completes across retries.
+    """
     from agent_eval_lab.datasets.cmc_dset import build_cmc_tasks
     from agent_eval_lab.runners.dset_run import run_dset
 
@@ -766,16 +800,29 @@ def _run_dset_command(
     def heartbeat_fn(session_id: str) -> None:
         _write_heartbeat(heartbeat_path, session_id)
 
-    void_ids: list[str] = []
+    void_path = path.with_suffix(".void.json")
+    done_ids, void_ids = _completed_dset_task_ids(path, void_path)
+    remaining = tuple(t for t in tasks if t.id not in done_ids)
+    resuming = bool(done_ids)
+    if resuming:
+        print(
+            f"[resume] {len(done_ids)} D-set task(s) already done; "
+            f"running {len(remaining)} remaining",
+            file=sys.stderr,
+        )
+    if resuming and not remaining:
+        void_path.write_text(json.dumps({"void_task_ids": void_ids}), encoding="utf-8")
+        print(path)
+        return 0
     aborted = False
     # run_dset yields per task; write each task's runs immediately (flushed) so a
     # later bad request can't lose the tasks already completed. The void sidecar is
     # written in both the clean and the aborted path so report-m1 always finds it.
     try:
-        with path.open("w") as fh:
+        with path.open("a" if resuming else "w") as fh:
             for outcome in run_dset(
                 evaluator_store=store,
-                tasks=tasks,
+                tasks=remaining,
                 config=config,
                 http_client=client,
                 k_valid=cfg.runner.k_valid,
@@ -810,9 +857,7 @@ def _run_dset_command(
     finally:
         if http_client is None:
             client.close()
-    path.with_suffix(".void.json").write_text(
-        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
-    )
+    void_path.write_text(json.dumps({"void_task_ids": void_ids}), encoding="utf-8")
     if void_ids:
         print(f"[void] {len(void_ids)} D-set task(s) VOID", file=sys.stderr)
     if aborted:
@@ -862,6 +907,7 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
     args.out.mkdir(parents=True, exist_ok=True)
     path = args.out / f"runs-m1-{_slug(cond)}-F.jsonl"
     void_ids: list[str] = []
+    aborted = False
     try:
         with path.open("w") as fh:
             for outcome in run_f_candidate(
@@ -887,16 +933,20 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
             f"({type(exc).__name__}: {exc}){hint}",
             file=sys.stderr,
         )
-        return 1
+        aborted = True
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(f"error: git command failed building candidate tree: {exc}", file=sys.stderr)
+        aborted = True
     finally:
         if http_client is None:
             client.close()
-    # The node oracle is env-free (a clean trial is always valid), but a provider
-    # HTTP rejection on the model call is env-invalid: such a task voids if it
-    # cannot reach k clean trials. The sidecar records those for report-m1's replay.
-    path.with_suffix(".void.json").write_text(
-        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
-    )
+        # Write the void sidecar unconditionally so report-m1 can find it even when
+        # the run aborts mid-corpus (transport failure or missing repo).
+        path.with_suffix(".void.json").write_text(
+            json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
+        )
+    if aborted:
+        return 1
     print(path)
     return 0
 
