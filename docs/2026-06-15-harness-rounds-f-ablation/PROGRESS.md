@@ -11,7 +11,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 | 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ✅ 1 round (2 nits) | ✅ `40e4f26` |
 | 004 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-004` | ✅ `a8c1ec5` | ✅ `items/004-drift.md` | ✅ [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29) | ✅ `items/004-verify.md` | ✅ `items/004-review.md` PASS-WITH-NITS (2 fixed pre-push) | ✅ `items/004-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds (2 nits accepted) | ✅ `51a422a` |
 | 005 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-005` | ✅ `e6c282e` | ✅ `items/005-drift.md` | ✅ [#30](https://github.com/snowshine0216/agent-eval-lab/pull/30) | ✅ `items/005-verify.md` | ✅ `items/005-review.md` PASS-WITH-NITS (security: 4 fixed pre-push, 0 P0 escape) | ✅ `items/005-pr-review.md` PASS-WITH-NITS (no new security hole) | ✅ 0 rounds (4 nits accepted) | ✅ `c837cde` |
-| 006 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-006` | ✅ `da5c966` | ✅ `items/006-drift.md` | ✅ [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31) | ✅ `items/006-verify.md` | ✅ `items/006-review.md` PASS-WITH-NITS (crash-safety + honesty fixed pre-push, 0 accidental spend) | ✅ `items/006-pr-review.md` PASS-WITH-NITS (reviewed via gh pr diff — no connector) | ✅ 0 rounds (3 nits accepted) | ⏳ |
+| 006 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-006` | ✅ `da5c966` | ✅ `items/006-drift.md` | ✅ [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31) | ✅ `items/006-verify.md` | ✅ `items/006-review.md` PASS-WITH-NITS (crash-safety + honesty fixed pre-push, 0 accidental spend) | ✅ `items/006-pr-review.md` PASS-WITH-NITS (reviewed via gh pr diff — no connector) | ✅ 0 rounds (3 nits accepted) | ✅ `0b83ebf` |
 
 **Column note:** this is a **non-web** run, so the post-ship XOR resolves to **verify** (no `qa`
 column). `grill` is ⏭️ for every item per the user's authoring override (MASTER-PLAN.md). `spec` is
@@ -58,6 +58,16 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 | run-close-out | ⏳ |
 
 ## Log
+- 2026-06-15 — **Item 006 MERGED** (PR [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31)
+  squash → `0b83ebf`). run-f-ablation driver + frozen f_ablation_spec (CODE ONLY): pure seeded
+  `ablation_run_order` (240 units, arms interleaved per block), frozen `f_ablation_spec` + separate
+  `AblationPolicy` hash (M1 untouched), `run-f-ablation` CLI driver (one artifact/condition +
+  realized-order sidecar, --dry-run, injected run_fn). v0.2.6; 1095 green. **No accidental paid
+  execution** (3 reviewers + CLEAN adversarial). Ship review caught a latent defect (driver lost all
+  240 paid results on a mid-run error) → fixed pre-push (`2728c95`): crash-safe streaming +
+  upfront task_id-coverage check + atomic sidecar + honest `correction="none"`. **6/6 items MERGED →
+  proceeding to Phase 3** (run-doc-sync, run-final-verify, close-out, feature→main PR). The paid pilot
+  + full 240-attempt run + the descriptive report stay OUT (SKIPPED.md) — user triggers via this driver.
 - 2026-06-15 — **Item 005 MERGED** (PR [#30](https://github.com/snowshine0216/agent-eval-lab/pull/30)
   squash → `c837cde`). Factor V confined-execution seatbelt sandbox: `runners/sandboxed_node_edge.py`
   (deny-default + enumerated read-allowlist + deny-network + write-in-tree), `make_authored_test_executor`
