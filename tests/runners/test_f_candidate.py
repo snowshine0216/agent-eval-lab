@@ -176,6 +176,82 @@ def test_make_edit_task_offers_run_tests_only_on_v_arms() -> None:
     assert "run_tests" not in non_v_edit.input.available_tools
 
 
+# ---- build_candidate_tree context_paths enrichment (pure, no repo) --------
+
+
+def _task_with_context(context_paths: tuple[str, ...]) -> Task:
+    base = _fake_task()
+    return replace(
+        base,
+        initial_state={
+            "repo": "x",
+            "candidate_base_sha": "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505",
+            "target_paths": ("src/a.js",),
+            "context_paths": context_paths,
+        },
+    )
+
+
+def test_build_candidate_tree_seeds_context_paths(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    # stub the SHA reader used by BOTH the prefix path and the enrichment
+    monkeypatch.setattr(fc, "_git_show", lambda repo, rel: f"// {rel}\n")
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": f"// {a[0][-1].split(':')[-1]}\n"})(),
+    )
+    task = _task_with_context(("sib/One.js", "sib/Two.js"))
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    # target path + both context paths are present; pkg.json still seeded
+    assert "src/a.js" in tree
+    assert tree["sib/One.js"] == "// sib/One.js\n"
+    assert tree["sib/Two.js"] == "// sib/Two.js\n"
+    assert tree["tests/wdio/package.json"] == '{"type":"module"}\n'
+
+
+def test_build_candidate_tree_empty_context_paths_is_minimal(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    monkeypatch.setattr(fc, "_git_show", lambda repo, rel: f"// {rel}\n")
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "x\n"})(),
+    )
+    task = _task_with_context(())
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    # no context paths -> only target + pkg.json (production-shape)
+    assert set(tree) == {"src/a.js", "tests/wdio/package.json"}
+
+
+def test_build_candidate_tree_missing_context_key_defaults_to_none(monkeypatch) -> None:
+    # production build_f_tasks sets NO context_paths key -> must not raise
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    monkeypatch.setattr(fr, "subprocess", fr.subprocess)
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "x\n"})(),
+    )
+    base = _fake_task()
+    task = replace(
+        base,
+        initial_state={
+            "repo": "x",
+            "candidate_base_sha": "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505",
+            "target_paths": ("src/a.js",),
+        },
+    )
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    assert set(tree) == {"src/a.js", "tests/wdio/package.json"}
+
+
 # ---- run_f_candidate (stubbed model) --------------------------------------
 
 

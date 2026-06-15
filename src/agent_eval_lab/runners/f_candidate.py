@@ -120,10 +120,21 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
 
     F1/F2 are self-contained in their target paths; F3 additionally needs the
     failure-analysis causal layer present so the held-out guard tests can run.
+
+    Ablation arms (item 004 §B.5) additionally carry `initial_state['context_paths']`
+    — a curated context set (siblings + readable source) materialized identically
+    across all four arms from the pinned SHA so Factor P's read-the-context directives
+    are non-vacuous. Production `build_f_tasks` sets no context_paths, so its trees
+    stay minimal. The held-out golden grading test is never seeded (D19); the
+    overlay-disjointness invariant (§10.4, seeded_held_out_disjoint) guarantees a
+    context path can never collide with a held-out path.
     """
     if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
-    return dict(prefix_candidate_tree(task, repo=repo))
+    tree = dict(prefix_candidate_tree(task, repo=repo))
+    for rel in (task.initial_state or {}).get("context_paths", ()):
+        tree[rel] = _git_show(repo, rel)
+    return tree
 
 
 def make_edit_task(task: Task, *, base_tree: Mapping[str, str]) -> Task:
