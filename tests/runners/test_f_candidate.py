@@ -233,7 +233,6 @@ def test_build_candidate_tree_missing_context_key_defaults_to_none(monkeypatch) 
     import agent_eval_lab.runners.f_candidate as fc
     import agent_eval_lab.runners.f_run as fr
 
-    monkeypatch.setattr(fr, "subprocess", fr.subprocess)
     monkeypatch.setattr(
         fr.subprocess,
         "run",

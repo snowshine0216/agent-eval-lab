@@ -137,7 +137,11 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
     tree = dict(prefix_candidate_tree(task, repo=repo))
-    for rel in (task.initial_state or {}).get("context_paths", ()):
+    # prefix_candidate_tree already asserted initial_state is not None, so a direct
+    # read here is safe; a future None becomes a loud AttributeError rather than a
+    # silent un-enriched arm (house style — cf. 002 CF2). Production tasks have no
+    # context_paths key, so .get(...) correctly yields the minimal tree.
+    for rel in task.initial_state.get("context_paths", ()):
         tree[rel] = _git_show(repo, rel)
     return tree
 
