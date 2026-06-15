@@ -165,3 +165,39 @@ def _stub_arm_tasks():
         for base in ("f1", "f2", "f3")
         for arm in ("bare", "prompt", "feedback", "both")
     }
+
+
+def test_parser_exposes_run_f_ablation_with_dry_run():
+    from agent_eval_lab.cli import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "run-f-ablation",
+            "--evaluator-config",
+            "evaluator.toml",
+            "--out",
+            "reports",
+            "--dry-run",
+        ]
+    )
+    assert args.command == "run-f-ablation"
+    assert args.dry_run is True
+    assert args.max_tokens == 16384  # F default
+
+
+def test_dispatch_routes_run_f_ablation(tmp_path, monkeypatch):
+    import agent_eval_lab.cli as cli
+
+    seen = {}
+
+    def _spy(args, http_client):
+        seen["called"] = True
+        return 0
+
+    monkeypatch.setattr(cli, "_run_f_ablation_command", _spy)
+    rc = cli.main(
+        ["run-f-ablation", "--evaluator-config", "x.toml", "--dry-run"],
+        http_client=None,
+    )
+    assert rc == 0 and seen["called"]

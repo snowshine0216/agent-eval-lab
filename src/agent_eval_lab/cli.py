@@ -1486,6 +1486,23 @@ def _build_parser() -> argparse.ArgumentParser:
     rf2.add_argument("--temperature", type=float, default=0.0)
     rf2.add_argument("--max-tokens", type=int, default=16384)
 
+    rfa = subparsers.add_parser(
+        "run-f-ablation",
+        help="orchestrate the F-set 2×2 ablation in the frozen seeded order "
+        "(one artifact per condition + realized-order sidecar). --dry-run previews "
+        "the order with NO provider calls.",
+    )
+    rfa.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rfa.add_argument("--out", type=Path, default=Path("reports"))
+    rfa.add_argument("--temperature", type=float, default=0.0)
+    rfa.add_argument("--max-tokens", type=int, default=16384)
+    rfa.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="write the realized run order and exit WITHOUT any provider call "
+        "(network-free preview / audit).",
+    )
+
     rmm = subparsers.add_parser(
         "run-m1", help="orchestrate M1 conditions × domains over the runners"
     )
@@ -1544,6 +1561,8 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_dset_command(args, http_client)
     if args.command == "run-f":
         return _run_f_command(args, http_client)
+    if args.command == "run-f-ablation":
+        return _run_f_ablation_command(args, http_client)
     if args.command == "report-m1":
         return _run_report_m1(args)
     if args.command == "run-m1":
