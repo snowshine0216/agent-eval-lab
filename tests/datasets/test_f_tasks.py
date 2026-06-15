@@ -52,9 +52,7 @@ def test_four_arms_of_a_base_share_verification_and_tree_state() -> None:
                 t.initial_state["candidate_base_sha"]
                 == ref.initial_state["candidate_base_sha"]
             )
-            assert (
-                t.initial_state["target_paths"] == ref.initial_state["target_paths"]
-            )
+            assert t.initial_state["target_paths"] == ref.initial_state["target_paths"]
 
 
 @requires_store

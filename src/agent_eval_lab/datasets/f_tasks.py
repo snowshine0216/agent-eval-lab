@@ -169,12 +169,19 @@ def build_f_task_arms(*, evaluator_store: Path) -> tuple[Task, ...]:
     and Factor V (the declared tool surface, initial_state['factor_v'] +
     available_tools). The arm IS the task_id — no arm_id, no spec change."""
     bases = (
-        ("f1", _F1_USER, build_f1_verification(evaluator_store), (F1_SPEC_REL, F1_PAGE_REL)),
+        (
+            "f1",
+            _F1_USER,
+            build_f1_verification(evaluator_store),
+            (F1_SPEC_REL, F1_PAGE_REL),
+        ),
         ("f2", _F2_USER, build_f2_verification(evaluator_store), (F2_CONF_REL,)),
         ("f3", _F3_USER, build_f3_verification(evaluator_store), (F3_SOURCE_REL,)),
     )
     return tuple(
-        _arm(base=base, arm=arm, user=user, verification=verification, target_paths=paths)
+        _arm(
+            base=base, arm=arm, user=user, verification=verification, target_paths=paths
+        )
         for base, user, verification, paths in bases
         for arm in ("bare", "prompt", "feedback", "both")
     )
