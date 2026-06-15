@@ -201,3 +201,41 @@ def test_dispatch_routes_run_f_ablation(tmp_path, monkeypatch):
         http_client=None,
     )
     assert rc == 0 and seen["called"]
+
+
+def test_per_arm_pass_pow_k_separates_by_task_id_no_report_change():
+    """The arm rides task_id, so pass_pow_k (keyed on task_id) yields one
+    reliability per task-arm — 12 here, partitioning into 4 arms × 3 bases. This
+    asserts the EXISTING reliability.pass_pow_k contract; it changes nothing."""
+    from agent_eval_lab.metrics.reliability import pass_pow_k
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    def _run(task_id: str, passed: bool, idx: int) -> RunResult:
+        return RunResult(
+            task_id=task_id,
+            condition_id="prov:m",
+            run_index=idx,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+                run_index=idx,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(
+                grader_id="node_oracle",
+                passed=passed,
+                score=1.0 if passed else 0.0,
+                evidence={},
+            ),
+        )
+
+    # f1: bare fails, prompt/feedback/both pass (k=2 each, all-pass = reliable).
+    runs = []
+    for arm, ok in (("bare", False), ("prompt", True), ("feedback", True), ("both", True)):
+        for i in range(2):
+            runs.append(_run(f"f-f1-{arm}", ok, i))
+    # pass_pow_k over the 4 task-arms: 3 of 4 are all-pass → 0.75.
+    assert pass_pow_k(runs) == 0.75
+    # grouping is by task_id (the arm) — 4 distinct task-arms seen.
+    assert len({r.task_id for r in runs}) == 4
