@@ -164,7 +164,10 @@ def make_f_run_fn(
     max_rounds: int | None = None,
 ) -> Callable[[Task, int], Trajectory]:
     """Build the per-attempt model driver for one arm: run the code-world edit
-    loop (no executor — the edit tools are pure; run_tests is not offered)."""
+    loop. The edit tools are pure (no executor in item 003); a V arm
+    additionally declares the run_tests tool surface, but its sandboxed
+    executor lands in item 005 — so this driver refuses to drive a live V arm
+    until then (bare/prompt stay fully runnable)."""
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
         # Factor V's executor + sandbox is item 005. A V arm declares run_tests

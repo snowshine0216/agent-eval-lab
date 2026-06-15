@@ -306,8 +306,8 @@ def test_run_uid_is_task_scoped(monkeypatch) -> None:
         _flagged_task(factor_p=True, factor_v=False), base_tree={"a.js": "x\n"}
     )
     run_fn(edit, 3)
-    # {condition_id}__{task_id}__{run_index:04d}
-    assert captured == ["deepseek:deepseek-v4-pro__t1__0003"]
+    # {condition_id}__{task_id}__{run_index:04d} — derive task_id from the arm
+    assert captured == [f"deepseek:deepseek-v4-pro__{edit.id}__0003"]
     assert "__f__" not in captured[0]  # the old literal is gone
 
 
