@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-001` | ✅ `2fd47fb` | ✅ `items/001-drift.md` | ✅ [#26](https://github.com/snowshine0216/agent-eval-lab/pull/26) | ✅ `items/001-verify.md` | ✅ `items/001-review.md` PASS-WITH-NITS | ✅ `items/001-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-001` | ✅ `2fd47fb` | ✅ `items/001-drift.md` | ✅ [#26](https://github.com/snowshine0216/agent-eval-lab/pull/26) | ✅ `items/001-verify.md` | ✅ `items/001-review.md` PASS-WITH-NITS | ✅ `items/001-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds | ✅ `a2a4be1` |
 | 002 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -38,6 +38,11 @@ Goal + Acceptance.
   paid run + report deferred) and authoring (skip brainstorm+grill). Synthesized feature branch
   `autodev/harness-rounds-f-ablation-feature` off `main` (main protected, no opt-in). Design
   artifacts (spec, ADR-0016, ADR-0017, CONTEXT.md glossary, uv.lock version sync) committed as run setup.
+- 2026-06-15 — **Item 001 MERGED** (PR #26 squash → `a2a4be1`). fc-v4 classifier + pass^k censoring;
+  993 tests green; 0 pass^k moves verified; v0.2.1. Review PASS-WITH-NITS, verify PASS, pr-review
+  PASS-WITH-NITS, fix 0 rounds. **Carry-forward to 002:** serialize.py must round-trip
+  `max_rounds_bound` (else capped runs silently deserialize uncapped) + swap defensive `getattr` for a
+  real field (CF1/CF2 in `items/001-review.md`).
 
 ## Final status block (filled at close-out)
 - Feature branch: `autodev/harness-rounds-f-ablation-feature`
