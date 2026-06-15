@@ -83,9 +83,5 @@ def test_f2_arm_tree_carries_analyzeFailure_source() -> None:
     tree = build_candidate_tree(arms["f-f2-bare"], repo=_REPO)
     assert "tests/wdio/utils/failure-analysis/index.js" in tree
     # the two visible tests that ASSERT the signal+confidence split are NOT seeded
-    assert (
-        "tests/wdio/utils/failure-analysis/__tests__/index.test.js" not in tree
-    )
-    assert (
-        "tests/wdio/utils/failure-analysis/__tests__/compose.test.js" not in tree
-    )
+    assert "tests/wdio/utils/failure-analysis/__tests__/index.test.js" not in tree
+    assert "tests/wdio/utils/failure-analysis/__tests__/compose.test.js" not in tree

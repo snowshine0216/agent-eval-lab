@@ -35,9 +35,13 @@ from agent_eval_lab.runners.loop import run_single
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 from agent_eval_lab.tasks.schema import Task, TaskInput
-from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
-from agent_eval_lab.tools.code_world import apply as code_world_apply
-from agent_eval_lab.tools.code_world import prefix_collision
+from agent_eval_lab.tools.code_world import (
+    CODE_WORLD_TOOLS,
+    prefix_collision,
+)
+from agent_eval_lab.tools.code_world import (
+    apply as code_world_apply,
+)
 
 # The edit tools the candidate gets (a subset of code-world): inspect + edit only.
 # run_tests is deliberately EXCLUDED — F grades via the held-out node oracle, not
