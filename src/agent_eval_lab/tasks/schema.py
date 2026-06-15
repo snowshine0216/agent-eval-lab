@@ -201,6 +201,7 @@ class TaskMetadata:
     world_template_id: str | None = None
     difficulty_knob: str | None = None
     max_steps: int | None = None
+    max_rounds: int | None = None
     review: str | None = None
 
 

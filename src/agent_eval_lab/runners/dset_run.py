@@ -13,10 +13,11 @@ from pathlib import Path
 
 import httpx
 
-from agent_eval_lab.records.grade import RunResult
+from agent_eval_lab.records.grade import RunResult, is_env_invalid_run
 from agent_eval_lab.runners.bash_edge import make_bash_executor
 from agent_eval_lab.runners.config import ProviderConfig, condition_id
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, run_task_k_valid
+from agent_eval_lab.runners.round_budget import resolve_max_rounds
 from agent_eval_lab.tasks.schema import Task
 from agent_eval_lab.tools.browse import BROWSE_TOOLS, apply_browse
 
@@ -40,6 +41,31 @@ def make_snapshot_validity_fn(*, reference_sha256: str) -> Callable[[RunResult],
     return validity_fn
 
 
+def make_dset_validity_fn(
+    *, reference_sha256: str | None
+) -> Callable[[RunResult], bool]:
+    """A D-set trial is valid iff (1) it is NOT a provider env-failure — a 403/429
+    or empty-choices on the model call (`is_env_invalid_run`) — AND (2) its page
+    snapshot matches the frozen reference (when given). Provider failures are
+    masked even with no reference: they must be REPLACED under D34, never banked
+    as valid, else report-m1's identical mask voids the task after the fact (the
+    run-dset/report-m1 validity gap that voided deepseek+glm on the first roster).
+    Mirrors the env-invalid masking run_f_candidate already applies on the F path.
+    """
+    snapshot_fn = (
+        make_snapshot_validity_fn(reference_sha256=reference_sha256)
+        if reference_sha256 is not None
+        else None
+    )
+
+    def validity_fn(run: RunResult) -> bool:
+        if is_env_invalid_run(run):
+            return False
+        return snapshot_fn(run) if snapshot_fn is not None else True
+
+    return validity_fn
+
+
 def _condition_id_slug(condition: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", condition)
 
@@ -54,6 +80,7 @@ def run_dset(
     max_invalid_rate: float,
     temperature: float,
     max_tokens: int,
+    safety_cap: int = 200,
     health_probe_fn: "Callable | None" = None,
     reference_sha256: str | None = None,
     heartbeat_fn: "Callable[[str], None] | None" = None,
@@ -70,11 +97,7 @@ def run_dset(
     too coarse a progress signal for a stall watchdog — see bash_edge).
     """
     cond = condition_id(config)
-    validity_fn = (
-        make_snapshot_validity_fn(reference_sha256=reference_sha256)
-        if reference_sha256 is not None
-        else None
-    )
+    validity_fn = make_dset_validity_fn(reference_sha256=reference_sha256)
     for task in tasks:
         workdir = (
             evaluator_store / "dset-work" / f"{_condition_id_slug(cond)}__{task.id}"
@@ -97,6 +120,8 @@ def run_dset(
                 health_probe_fn=health_probe_fn,
                 apply_fn=apply_browse,
                 executor=executor,
+                safety_cap=safety_cap,
+                max_rounds=resolve_max_rounds(domain="D", task=task),
             )
         finally:
             close()

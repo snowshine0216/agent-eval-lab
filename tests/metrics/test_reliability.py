@@ -228,11 +228,48 @@ def test_bootstrap_ci_inherits_the_censor() -> None:
     assert ci.point == 0.0
 
 
-def test_defensive_max_rounds_bound_read_when_field_absent() -> None:
-    # max_rounds_bound does not exist on records yet (item 002). A run lacking
-    # the field must classify exactly as before — an uncapped pass is reliable.
+def test_max_rounds_bound_field_now_present_on_trajectory() -> None:
+    # item 002: max_rounds_bound is now a real Trajectory field (default False).
+    # This replaces the former "field absent" test — the field is always present.
     results = (_run("x", 0, True), _run("x", 1, True))
-    assert not hasattr(results[0].trajectory, "max_rounds_bound")
+    assert hasattr(results[0].trajectory, "max_rounds_bound")
+    assert results[0].trajectory.max_rounds_bound is False
+    assert pass_pow_k(results) == 1.0
+
+
+def _run_with_max_rounds(*, passed: bool, max_rounds_bound: bool) -> RunResult:
+    from agent_eval_lab.records.turns import MessageTurn
+
+    traj = Trajectory(
+        turns=(MessageTurn(role="assistant", content="x"),),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="max_rounds" if max_rounds_bound else "completed_natural",
+        rounds=20,
+        max_rounds_bound=max_rounds_bound,
+    )
+    return RunResult(
+        task_id="t",
+        condition_id="c",
+        run_index=0,
+        trajectory=traj,
+        grade=GradeResult(
+            grader_id="g",
+            passed=passed,
+            score=1.0,
+            evidence={},
+        ),
+    )
+
+
+def test_graded_pass_but_max_rounds_capped_is_censored() -> None:
+    # A graded-correct-but-capped run is NOT a reliable pass^k pass (§D.1).
+    results = [_run_with_max_rounds(passed=True, max_rounds_bound=True)]
+    assert pass_pow_k(results) == 0.0
+
+
+def test_graded_pass_uncapped_passes() -> None:
+    results = [_run_with_max_rounds(passed=True, max_rounds_bound=False)]
     assert pass_pow_k(results) == 1.0
 
 

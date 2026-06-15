@@ -354,3 +354,52 @@ def test_execution_rejects_non_positive_or_non_numeric_timeout(timeout_s) -> Non
                 "timeout_s": timeout_s,
             }
         )
+
+
+def test_parse_task_reads_metadata_max_rounds() -> None:
+    from agent_eval_lab.tasks.parse import parse_task
+
+    task = parse_task(
+        {
+            "id": "t1",
+            "capability": "edit",
+            "input": {
+                "messages": [{"type": "message", "role": "user", "content": "x"}],
+                "available_tools": [],
+            },
+            "verification": {
+                "type": "tool_call_match",
+                "expected_tool_calls": [],
+                "match": "exact_sequence",
+            },
+            "metadata": {
+                "split": "dev",
+                "version": "1",
+                "provenance": "hand",
+                "max_rounds": 40,
+            },
+        }
+    )
+    assert task.metadata.max_rounds == 40
+
+
+def test_parse_task_defaults_metadata_max_rounds_none() -> None:
+    from agent_eval_lab.tasks.parse import parse_task
+
+    task = parse_task(
+        {
+            "id": "t1",
+            "capability": "edit",
+            "input": {
+                "messages": [{"type": "message", "role": "user", "content": "x"}],
+                "available_tools": [],
+            },
+            "verification": {
+                "type": "tool_call_match",
+                "expected_tool_calls": [],
+                "match": "exact_sequence",
+            },
+            "metadata": {"split": "dev", "version": "1", "provenance": "hand"},
+        }
+    )
+    assert task.metadata.max_rounds is None

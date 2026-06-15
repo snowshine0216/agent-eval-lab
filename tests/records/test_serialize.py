@@ -329,3 +329,51 @@ def test_v2_dict_round_trip_is_idempotent_on_disk_keys() -> None:
     }
     assert d["run_uid"] == "local:qwen3-8b__0000"
     assert d["tool_call_counts"] == {}
+
+
+def test_max_rounds_bound_survives_round_trip_cf1() -> None:
+    # CF1 (001 review, P1): without this, a genuinely max-rounds-capped run
+    # silently deserializes to max_rounds_bound=False and is scored as a
+    # reliable pass^k pass instead of budget_exhausted.
+    trajectory = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="max_rounds",
+        rounds=20,
+        tool_call_counts={"str_replace": 20},
+        safety_cap_bound=False,
+        max_rounds=20,
+        safety_cap=200,
+        max_rounds_bound=True,
+    )
+    restored = trajectory_from_dict(trajectory_to_dict(trajectory))
+    assert restored.stop_reason == "max_rounds"
+    assert restored.max_rounds_bound is True
+    assert restored.max_rounds == 20
+    assert restored.safety_cap == 200
+    assert restored == trajectory
+
+
+def test_old_v2_record_without_round_policy_keys_defaults_safely() -> None:
+    # Backward compat: a schema_version="2" dict written before item 002 has
+    # none of the three new keys; it must deserialize with safe defaults.
+    d = {
+        "schema_version": "2",
+        "turns": [],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "latency_s": 0.0},
+        "run_index": 0,
+        "stop_reason": "completed_natural",
+        "parse_failure": None,
+        "final_state": None,
+        "rounds": 3,
+        "wall_time_s": 1.0,
+        "tool_call_counts": {},
+        "safety_cap_bound": False,
+        "env_health": None,
+        "run_uid": None,
+    }
+    t = trajectory_from_dict(d)
+    assert t.max_rounds is None
+    assert t.safety_cap is None
+    assert t.max_rounds_bound is False

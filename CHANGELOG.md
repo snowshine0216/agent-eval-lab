@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.2 — 2026-06-15
+
+### Added — per-domain `max_rounds` turn-bound + recorded policy fields (harness-rounds-f-ablation step 2)
+
+- **`max_rounds` turn-bound** (`runners/loop.py`): `run_single` gains `max_rounds: int | None`
+  (default `None` ⇒ unchanged), checked at the **end** of each iteration beside `safety_cap` so the
+  turn's work is kept; a `max_rounds` stop means the model was still editing at the cap. New
+  `"max_rounds"` `stop_reason` literal. A round-capped run on an unhealthy post-probe now correctly
+  records `env_unhealthy` (validity mask). `safety_cap` is demoted to a backstop; the runner-level
+  `max_steps` argument is superseded (ADR-0017).
+- **Recorded policy on every trajectory** (`records/trajectory.py`, `records/serialize.py`):
+  `Trajectory` gains `max_rounds`, `safety_cap`, `max_rounds_bound`, all round-tripped with safe
+  defaults so any artifact proves whether it ran at 20 or 40.
+- **Per-domain config** (`runners/round_budget.py`): default `max_rounds = {"F": 20, "D": 50}` with a
+  per-task `metadata.max_rounds` override (task > domain; non-positive rejected). Threaded into
+  `make_f_run_fn` and `dset_run` (which now records the configured `safety_cap`); B is config-only.
+- **Aggregation split** (`experiments/aggregate.py`, §D.3): resource use (tokens/cost) summed over
+  all runs incl. capped; time-to-completion (rounds/wall-time) right-censored; `n_censored` now counts
+  `safety_cap_bound OR max_rounds_bound`.
+- Retires the item-001 carry-forwards: serialize round-trips `max_rounds_bound` (CF1) and the censor /
+  classifier now read it via direct attribute access (CF2).
+
 ## v0.2.1 — 2026-06-15
 
 ### Changed — fc-v4 classifier + pass^k censoring (harness-rounds-f-ablation step 1)

@@ -59,6 +59,8 @@ def _run_one(
     apply_fn: ApplyFn,
     executor: Executor | None,
     health_probe_fn: "Callable[[], EnvHealth] | None",
+    safety_cap: int = 200,
+    max_rounds: int | None = None,
 ) -> RunResult:
     trajectory = run_single(
         task=task,
@@ -72,6 +74,8 @@ def _run_one(
         executor=executor,
         run_uid=f"{condition}__{run_index:04d}",
         health_probe_fn=health_probe_fn,
+        safety_cap=safety_cap,
+        max_rounds=max_rounds,
     )
     grade = _grade_one(task=task, registry=registry, trajectory=trajectory)
     return RunResult(
@@ -158,6 +162,8 @@ def run_task_k_valid(
     health_probe_fn: "Callable[[], EnvHealth] | None" = None,
     apply_fn: ApplyFn = workspace_apply,
     executor: Executor | None = None,
+    safety_cap: int = 200,
+    max_rounds: int | None = None,
 ) -> ReplacementOutcome:
     """D34 replacement-trial loop: run until exactly k_valid valid trials.
 
@@ -183,6 +189,8 @@ def run_task_k_valid(
             apply_fn=apply_fn,
             executor=executor,
             health_probe_fn=health_probe_fn,
+            safety_cap=safety_cap,
+            max_rounds=max_rounds,
         )
         invalid = _is_invalid(run, validity_fn)
         attempts.append(

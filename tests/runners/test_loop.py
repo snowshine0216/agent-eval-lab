@@ -566,6 +566,116 @@ def test_loop_records_provider_http_error_as_parse_failure() -> None:
     assert "context length" in trajectory.parse_failure.raw
 
 
+def test_loop_stops_at_max_rounds_keeping_the_turns_work() -> None:
+    # Stub loop (§G2): always returns a tool call, so only max_rounds stops it.
+    # Checked at END of iteration, so the cap-th round's tool call is applied
+    # and kept (the model was still editing — uncommitted/incomplete).
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_always_tool_call_client(),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        max_rounds=3,
+        safety_cap=200,  # backstop far above max_rounds, so max_rounds wins
+    )
+    assert trajectory.stop_reason == "max_rounds"
+    assert trajectory.max_rounds_bound is True
+    assert trajectory.safety_cap_bound is False
+    assert trajectory.rounds == 3  # stopped exactly at the cap
+    # the 3rd round's tool call was applied before the break (turn's work kept)
+    assert sum(trajectory.tool_call_counts.values()) == 3
+
+
+def test_loop_natural_completion_breaks_before_max_rounds() -> None:
+    # A model that finishes in 2 rounds (tool call, then final message) stops
+    # at completed_natural BEFORE the max_rounds=5 cap — so a max_rounds stop
+    # genuinely means "still editing at the cap", never a natural finish.
+    responses = [
+        _tool_call_response("search_docs", {"query": "x"}, "c1"),
+        _final_response("done"),
+    ]
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_scripted_client(responses),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        max_rounds=5,
+    )
+    assert trajectory.stop_reason == "completed_natural"
+    assert trajectory.max_rounds_bound is False
+    assert trajectory.rounds == 2
+
+
+def test_loop_unbounded_when_max_rounds_none_records_policy_none() -> None:
+    responses = [_final_response("hi")]
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_scripted_client(responses),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+    assert trajectory.stop_reason == "completed_natural"
+    assert trajectory.max_rounds is None
+    assert trajectory.max_rounds_bound is False
+    assert trajectory.safety_cap == 200  # default backstop recorded
+
+
+def test_max_rounds_default_is_none() -> None:
+    import inspect
+
+    sig = inspect.signature(run_single)
+    assert sig.parameters["max_rounds"].default is None
+
+
+def test_post_probe_unhealthy_with_max_rounds_sets_env_unhealthy_stop_reason() -> None:
+    # F2: a run that hits the max_rounds cap on an unhealthy env must record
+    # stop_reason="env_unhealthy" (env-invalid), NOT "max_rounds" — otherwise
+    # the validity mask silently misses it (mirrors safety_cap+env_unhealthy).
+    # max_rounds_bound must remain True (the classifier checks it independently).
+    results = iter(
+        [
+            EnvHealth(  # pre: healthy
+                pre_healthy=True, post_healthy=True, pre_status=200, post_status=200
+            ),
+            EnvHealth(  # post: unhealthy
+                pre_healthy=True, post_healthy=False, pre_status=200, post_status=503
+            ),
+        ]
+    )
+
+    def probe():
+        return next(results)
+
+    trajectory = run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=_always_tool_call_client(),
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+        max_rounds=2,  # small cap so the test is fast
+        safety_cap=200,  # backstop well above max_rounds
+        health_probe_fn=probe,
+    )
+    assert trajectory.stop_reason == "env_unhealthy", (
+        f"expected env_unhealthy but got {trajectory.stop_reason!r}; "
+        "a max_rounds stop on an unhealthy env must be marked invalid"
+    )
+    assert trajectory.max_rounds_bound is True, (
+        "max_rounds_bound must remain True so the classifier can distinguish the budget cap"
+    )
+
+
 def test_provider_error_raw_carries_no_auth_header() -> None:
     """The recorded detail is the response body + status only — the API key lives in
     request headers, never the response, so nothing sensitive is captured."""

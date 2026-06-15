@@ -518,6 +518,51 @@ def test_env_unhealthy_run_counts_as_invalid() -> None:
     )
 
 
+def test_run_task_k_valid_forwards_max_rounds(monkeypatch) -> None:
+    import agent_eval_lab.runners.multi_run as mr
+    from agent_eval_lab.records.grade import GradeResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    captured = {}
+    _grade_pass = GradeResult(
+        grader_id="g", passed=True, score=1.0, evidence={}, failure_reason=None
+    )
+
+    def fake_run_single(**kwargs):
+        captured["max_rounds"] = kwargs.get("max_rounds")
+        captured["safety_cap"] = kwargs.get("safety_cap")
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    def fake_grade_one(**kwargs):
+        return _grade_pass
+
+    monkeypatch.setattr(mr, "run_single", fake_run_single)
+    monkeypatch.setattr(mr, "_grade_one", fake_grade_one)
+
+    mr.run_task_k_valid(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+        k_valid=1,
+        max_invalid_rate=0.4,
+        max_steps=0,
+        temperature=0.0,
+        max_tokens=4096,
+        safety_cap=123,
+        max_rounds=50,
+    )
+    assert captured["max_rounds"] == 50
+    assert captured["safety_cap"] == 123
+
+
 def test_run_task_k_threads_code_world_binding_to_run_single() -> None:
     """Criterion 3: a code-world task through run_task_k fulfills run_tests
     via the threaded executor and grades through the oracle edge."""

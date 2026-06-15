@@ -56,6 +56,7 @@ class Trajectory:
         # censoring-contract values emitted by the new runner
         "completed_natural",
         "safety_cap",
+        "max_rounds",
         "env_unhealthy",
     ]
     schema_version: Literal["1", "2"] = "2"
@@ -75,6 +76,12 @@ class Trajectory:
     """Per-tool-name cumulative tool-call counts."""
     safety_cap_bound: bool = False
     """True iff the run stopped because it reached the safety cap (D35)."""
+    max_rounds: int | None = None
+    """The per-run turn budget in effect (model turns); None ⇒ unbounded (§A.2)."""
+    safety_cap: int | None = None
+    """The tool-call backstop in effect; recorded so an artifact proves its policy."""
+    max_rounds_bound: bool = False
+    """True iff the run stopped because it reached max_rounds (§A.2/§D.1)."""
     env_health: EnvHealth | None = None
     """Pre/post health-probe result; None for env-free (F-set) tasks (§18.5)."""
     run_uid: str | None = None
