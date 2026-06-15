@@ -288,7 +288,8 @@ def test_run_dset_threads_configured_safety_cap_not_default(monkeypatch, tmp_pat
         )
     )
     assert captured_safety_caps == [300], (
-        f"expected safety_cap=300 threaded into run_task_k_valid, got {captured_safety_caps}"
+        "expected safety_cap=300 threaded into run_task_k_valid, "
+        f"got {captured_safety_caps}"
     )
 
 

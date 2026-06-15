@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_eval_lab.datasets.f_tasks import build_f_tasks
+from agent_eval_lab.datasets.f_tasks import build_f_task_arms, build_f_tasks
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.f_candidate import (
@@ -170,7 +170,7 @@ def test_make_edit_task_offers_run_tests_only_on_v_arms() -> None:
         _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}
     )
     assert "run_tests" in v_edit.input.available_tools
-    # the edit tools are still all present on the V arm (run_tests is ADDED, not swapped)
+    # edit tools still all present on V arm (run_tests is ADDED, not swapped)
     for name in F_EDIT_TOOL_NAMES:
         assert name in v_edit.input.available_tools
     assert "run_tests" not in non_v_edit.input.available_tools
@@ -269,10 +269,11 @@ def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
 
 
 def test_run_uid_is_task_scoped(monkeypatch) -> None:
+    import httpx
+
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.records.trajectory import Trajectory, Usage
     from agent_eval_lab.runners.config import ProviderConfig
-    import httpx
 
     captured: list[str] = []
 
@@ -311,10 +312,11 @@ def test_run_uid_is_task_scoped(monkeypatch) -> None:
 
 
 def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> None:
+    import httpx
+
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.records.trajectory import Trajectory, Usage
     from agent_eval_lab.runners.config import ProviderConfig
-    import httpx
 
     seen: list[str] = []
 
@@ -365,9 +367,10 @@ def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> Non
 def test_make_f_run_fn_refuses_live_v_arm_until_005(monkeypatch) -> None:
     """A V arm (factor_v=True) declares run_tests but has NO executor in 003.
     Driving it against the live loop must raise, not silently run a no-op V loop."""
+    import httpx
+
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.runners.config import ProviderConfig
-    import httpx
 
     cfg = ProviderConfig(
         id="local", base_url="http://x/v1", api_key_env="", model_id="m"
@@ -393,10 +396,11 @@ def test_make_f_run_fn_refuses_live_v_arm_until_005(monkeypatch) -> None:
 
 def test_make_f_run_fn_runs_bare_and_prompt_arms_today(monkeypatch) -> None:
     """bare/prompt (factor_v=False) stay fully runnable in 003."""
+    import httpx
+
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.records.trajectory import Trajectory, Usage
     from agent_eval_lab.runners.config import ProviderConfig
-    import httpx
 
     def fake_run_single(**kwargs):
         return Trajectory(
@@ -498,6 +502,21 @@ def test_build_candidate_tree_f3_includes_causal_layer_minus_held_out() -> None:
     assert f"{fa}/signal.js" in tree
     assert f"{fa}/__tests__/correlate.test.js" in tree
     # the held-out golden grading test is NEVER seeded into the candidate tree
+    assert f"{fa}/__tests__/report-to-allure.test.js" not in tree
+
+
+@requires_node
+def test_build_candidate_tree_armed_f3_routes_to_f3_tree() -> None:
+    # Regression for B1: armed F3 ids (f-f3-bare, etc.) must route to
+    # _f3_candidate_tree, not fall through to prefix_candidate_tree.
+    # Would FAIL before the "or task.id.startswith('f-f3-')" dispatch fix.
+    [t] = [t for t in build_f_task_arms(evaluator_store=_STORE) if t.id == "f-f3-bare"]
+    tree = build_candidate_tree(t, repo=_REPO)
+    fa = "tests/wdio/utils/failure-analysis"
+    # same causal-layer assertions as the un-armed F3 test above
+    assert f"{fa}/report-to-allure.js" in tree
+    assert f"{fa}/signal.js" in tree
+    assert f"{fa}/__tests__/correlate.test.js" in tree
     assert f"{fa}/__tests__/report-to-allure.test.js" not in tree
 
 

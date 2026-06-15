@@ -121,7 +121,7 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     F1/F2 are self-contained in their target paths; F3 additionally needs the
     failure-analysis causal layer present so the held-out guard tests can run.
     """
-    if task.id == "f-f3":
+    if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
     return dict(prefix_candidate_tree(task, repo=repo))
 

@@ -39,13 +39,13 @@ def test_build_f_task_arms_returns_twelve_arms_with_suffixed_ids() -> None:
 @requires_store
 def test_four_arms_of_a_base_share_verification_and_tree_state() -> None:
     arms = {t.id: t for t in build_f_task_arms(evaluator_store=_STORE)}
-    for base, paths_key in (("f1", None), ("f2", None), ("f3", None)):
+    for base in ("f1", "f2", "f3"):
         suffixes = ("bare", "prompt", "feedback", "both")
         group = [arms[f"f-{base}-{s}"] for s in suffixes]
         ref = group[0]
         for t in group[1:]:
             # SAME held-out oracle object (identity, not just equality)
-            assert t.verification == ref.verification
+            assert t.verification is ref.verification
             # byte-identical tree-driving state: same repo, base SHA, target paths
             assert t.initial_state["repo"] == ref.initial_state["repo"]
             assert (
