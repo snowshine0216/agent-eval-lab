@@ -6,6 +6,7 @@ node-graded integration test (gated on node>=20 + the local golden store + repo)
 proves a golden-fix trajectory passes end to end.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,21 @@ def _traj_with_files(files: dict[str, str], *, run_index: int = 0) -> Trajectory
     )
 
 
+def _flagged_task(*, factor_p: bool, factor_v: bool) -> Task:
+    base = _fake_task()
+    state = {**base.initial_state, "factor_p": factor_p, "factor_v": factor_v}
+    if factor_v:
+        return replace(
+            base,
+            input=TaskInput(
+                messages=base.input.messages,
+                available_tools=("bash", "run_tests"),
+            ),
+            initial_state=state,
+        )
+    return replace(base, initial_state=state)
+
+
 # ---- make_edit_task -------------------------------------------------------
 
 
@@ -113,6 +129,37 @@ def test_make_edit_task_does_not_mutate_source_or_base_tree() -> None:
     make_edit_task(src, base_tree=base)
     assert base == {"a.js": "x\n"}
     assert src.input.available_tools == ("bash",)
+
+
+def test_factor_p_block_present_only_on_prompt_and_both_arms() -> None:
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    def sys_of(task: Task) -> str:
+        edit = make_edit_task(task, base_tree={"a.js": "x\n"})
+        return next(m for m in edit.input.messages if m.role == "system").content
+
+    # P arms: block present
+    assert _FACTOR_P_BLOCK in sys_of(_flagged_task(factor_p=True, factor_v=False))
+    assert _FACTOR_P_BLOCK in sys_of(_flagged_task(factor_p=True, factor_v=True))
+    # non-P arms: block absent, base _EDIT_SYSTEM unmodified
+    assert _FACTOR_P_BLOCK not in sys_of(_flagged_task(factor_p=False, factor_v=False))
+    assert _FACTOR_P_BLOCK not in sys_of(_flagged_task(factor_p=False, factor_v=True))
+
+
+def test_factor_p_block_uses_visible_tests_vocabulary() -> None:
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    assert "visible tests" in _FACTOR_P_BLOCK
+    assert "public tests" not in _FACTOR_P_BLOCK
+
+
+def test_make_edit_task_without_flag_keeps_unmodified_edit_system() -> None:
+    # a task with NO factor_p key (e.g. an un-armed task) gets the bare _EDIT_SYSTEM
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    edit = make_edit_task(_fake_task(), base_tree={"a.js": "x\n"})
+    sys = next(m for m in edit.input.messages if m.role == "system").content
+    assert _FACTOR_P_BLOCK not in sys
 
 
 # ---- run_f_candidate (stubbed model) --------------------------------------
