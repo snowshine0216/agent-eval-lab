@@ -150,6 +150,112 @@ def test_darwin_probe_false_off_macos(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# B1: file-read-metadata is scoped (not global)
+# ---------------------------------------------------------------------------
+
+
+def test_profile_metadata_is_scoped_not_global() -> None:
+    """(allow file-read-metadata) must be scoped to the same subpaths as file-read*."""
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    # The bare global form must not appear.
+    assert "(allow file-read-metadata)" not in prof
+    # The scoped form must appear with our tree and node_dir.
+    assert "(allow file-read-metadata" in prof
+    for line in prof.splitlines():
+        if "file-read-metadata" in line:
+            assert "(subpath " in line, f"unscoped file-read-metadata: {line!r}"
+    # Must cover temp_tree and node_dir.
+    meta_line = next(ln for ln in prof.splitlines() if "file-read-metadata" in ln)
+    assert f'(subpath "{_TREE}")' in meta_line
+    assert f'(subpath "{_NODE_DIR}")' in meta_line
+
+
+@requires_seatbelt
+def test_sandbox_blocks_stat_of_evaluator_only_golden(tmp_path) -> None:
+    """B1 empirical: fs.statSync on the golden must raise EPERM under the profile."""
+    assert _EVALUATOR_GOLDEN.exists(), "test precondition: golden present"
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    golden_str = str(_EVALUATOR_GOLDEN).replace("'", "\\'")
+    js = (
+        f"try {{ require('fs').statSync('{golden_str}');"
+        " console.log('STAT-SUCCEEDED'); process.exit(0); }"
+        " catch(e) { console.error('STAT-BLOCKED:'+e.code); process.exit(1); }"
+    )
+    res = _run_under_profile(node_bin, node_dir, tree, ["-e", js])
+    assert res.returncode != 0, "stat of evaluator-only golden must be blocked"
+    assert "STAT-SUCCEEDED" not in res.stdout
+    assert "EPERM" in res.stderr or "EPERM" in res.stdout
+
+
+# ---------------------------------------------------------------------------
+# B2: NODE_BIN install-dir disjointness assertion
+# ---------------------------------------------------------------------------
+
+
+def test_node_install_paths_raises_if_install_dir_contains_evaluator_only(
+    monkeypatch,
+) -> None:
+    """B2: if install_dir would be an ancestor of evaluator-only/, RuntimeError."""
+    import agent_eval_lab.runners.sandboxed_node_edge as mod
+
+    # Resolve the real evaluator-only path the same way the module does.
+    module_path = Path(mod.__file__).resolve()
+    # Walk up to repo root: module is src/agent_eval_lab/runners/sandboxed_node_edge.py
+    # so parent^4 = repo root.
+    repo_root = module_path.parent.parent.parent.parent
+    evaluator_only = (repo_root / "evaluator-only").resolve()
+
+    # Fake node binary that lives INSIDE evaluator-only (worst case: exact parent).
+    fake_node = str(evaluator_only / "bin" / "node")
+
+    def fake_which(_name):
+        return fake_node
+
+    def fake_resolve(self):
+        # Return the path unchanged (it's already "absolute" for our purposes).
+        return Path(str(self))
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    # Patch Path.resolve so the fake path resolves to itself even if it doesn't exist.
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+
+    with pytest.raises(RuntimeError, match="trust-boundary violation"):
+        node_install_paths()
+
+
+# ---------------------------------------------------------------------------
+# B3: sandbox-infra OSError returns error-status, does not propagate
+# ---------------------------------------------------------------------------
+
+
+def test_run_authored_tests_sandboxed_returns_error_on_popen_oserror(
+    tmp_path, monkeypatch
+) -> None:
+    """B3: if Popen raises OSError, get an error-status result, not an exception."""
+    node_bin, node_dir = (
+        node_install_paths() if _NODE else ("/usr/local/bin/node", "/usr/local")
+    )
+
+    def boom(*_args, **_kwargs):
+        raise OSError("injected: sandbox-exec disappeared")
+
+    monkeypatch.setattr(subprocess, "Popen", boom)
+
+    result = run_authored_tests_sandboxed(
+        {"tests/authored/x.test.js": "// empty"},
+        node_bin=node_bin,
+        node_dir=node_dir,
+    )
+    assert result.status == "error"
+    assert result.exit_code != 0
+    assert "sandbox infrastructure error" in result.output
+    assert result.passed == 0
+    assert result.failed == 0
+
+
+# ---------------------------------------------------------------------------
 # Task 3: make_authored_test_executor — fake run_fn wiring
 # ---------------------------------------------------------------------------
 
@@ -283,10 +389,9 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
 
 
 def _run_under_profile(node_bin: str, node_dir: str, tree: Path, args: list[str]):
-    profile = tree / ".profile.sb"
-    profile.write_text(seatbelt_profile(str(tree), node_dir), encoding="utf-8")
+    profile_str = seatbelt_profile(str(tree), node_dir)
     return subprocess.run(
-        [SANDBOX_EXEC, "-f", str(profile), node_bin, *args],
+        [SANDBOX_EXEC, "-p", profile_str, node_bin, *args],
         cwd=tree,
         capture_output=True,
         text=True,

@@ -16,6 +16,17 @@ ESCALATION (ADR-0016): if this seatbelt allowlist cannot both start node AND
 block an evaluator-only/ read on a given host, escalate to Docker --network none
 with only the temp tree mounted. As of 2026-06-15 the seatbelt path is verified
 working on macOS 26.5.1 + node v16.20.2, so Docker is NOT built.
+
+Security design note — ``(import "system.sb")``:
+  Node will not start under a fully hand-rolled mach/sysctl set (verified: the
+  process aborts at startup without it).  ``system.sb`` is therefore required.
+  Critically, it does NOT grant broad file-read: the file-read policy in this
+  module is fully enumerated/deny-default (every ``allow file-read*`` and
+  ``allow file-read-metadata`` is scoped to an explicit subpath list).
+  ``system.sb`` only covers non-file process primitives (mach IPC, sysctl,
+  signal delivery).  The integration test ``test_sandbox_blocks_evaluator_only_read``
+  guards the actual golden-read threat and would catch any future macOS change
+  that broadened system.sb to include file-read grants.
 """
 
 import os
@@ -45,6 +56,15 @@ DEFAULT_SYSTEM_READ_SUBPATHS: tuple[str, ...] = (
     "/System",
     "/private/var/db/dyld",
 )
+# Extra paths required for file-read-metadata ONLY (not file-read*).
+# Node's module loader calls realpathSync on every ancestor directory of the
+# temp tree (e.g. /private, /var) to canonicalise paths at startup; these must
+# be stat-able but must NOT be readable (no file content).  The goldens live
+# under /Users/..., which is disjoint from both of these paths.
+_METADATA_ONLY_SUBPATHS: tuple[str, ...] = (
+    "/private",
+    "/var",
+)
 
 AUTHORED_TEST_DIR = "tests/authored/"
 DEFAULT_TIMEOUT_S = 30.0
@@ -59,14 +79,23 @@ def seatbelt_profile(
     node_dir: str,
     *,
     extra_read_subpaths: tuple[str, ...] = DEFAULT_SYSTEM_READ_SUBPATHS,
+    metadata_only_subpaths: tuple[str, ...] = _METADATA_ONLY_SUBPATHS,
 ) -> str:
     """Build the deny-default seatbelt profile (SBPL). Pure.
 
     temp_tree and node_dir MUST be resolved absolute paths with no trailing
     slash. Reads are enumerated (deny-default everywhere else); there is NO broad
     (allow file-read*). Writes are scoped to temp_tree; network is denied.
+
+    file-read-metadata is scoped to the read subpaths PLUS metadata_only_subpaths
+    (e.g. /private, /var). Node's module loader calls realpathSync on ancestor
+    directories of the temp tree to canonicalise paths; those dirs must be
+    stat-able but must NOT have file-read* permission. The golden files live
+    under /Users/... which is disjoint from metadata_only_subpaths.
     """
     read_subpaths = (temp_tree, node_dir, *extra_read_subpaths)
+    all_meta_subpaths = (*read_subpaths, *metadata_only_subpaths)
+    meta_subpath_args = " ".join(f'(subpath "{p}")' for p in all_meta_subpaths)
     read_lines = "\n".join(f'(allow file-read* (subpath "{p}"))' for p in read_subpaths)
     return (
         "(version 1)\n"
@@ -74,7 +103,7 @@ def seatbelt_profile(
         '(import "system.sb")\n'
         "(allow process-exec)\n"
         "(allow process-fork)\n"
-        "(allow file-read-metadata)\n"
+        f"(allow file-read-metadata {meta_subpath_args})\n"
         f"{read_lines}\n"
         "(deny network*)\n"
         f'(allow file-write* (subpath "{temp_tree}"))\n'
@@ -97,6 +126,10 @@ def node_install_paths() -> tuple[str, str]:
     a real path). The install dir is the binary's parent's parent (nvm layout:
     <ver>/bin/node -> allow subpath <ver>); falls back to the bin dir if the
     layout is flat.
+
+    Raises RuntimeError if install_dir is a path-prefix of (or equal to) the
+    repo's evaluator-only/ directory, which would make the golden readable via
+    the sandbox read-allowlist (trust-boundary violation).
     """
     resolved = shutil.which(os.environ.get("NODE_BIN", "node"))
     if resolved is None:
@@ -104,6 +137,20 @@ def node_install_paths() -> tuple[str, str]:
     node_bin = str(Path(resolved).resolve())
     bin_dir = Path(node_bin).parent
     install_dir = bin_dir.parent if bin_dir.name == "bin" else bin_dir
+    install_dir_resolved = Path(install_dir).resolve()
+    evaluator_only = (
+        Path(__file__).resolve().parent.parent.parent.parent / "evaluator-only"
+    ).resolve()
+    # install_dir must NOT be an ancestor of (or equal to) evaluator-only/
+    try:
+        evaluator_only.relative_to(install_dir_resolved)
+        raise RuntimeError(
+            f"NODE_BIN trust-boundary violation: install_dir={install_dir_resolved!s} "
+            f"is an ancestor of evaluator-only={evaluator_only!s}. "
+            "Set NODE_BIN to a node binary outside the repository."
+        )
+    except ValueError:
+        pass  # not a prefix — disjoint, safe to proceed
     return node_bin, str(install_dir)
 
 
@@ -148,29 +195,42 @@ def run_authored_tests_sandboxed(
     timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> NodeFeedbackResult:
     """Materialize the tree, run `node --test tests/authored/` UNDER the seatbelt
-    profile, render tail-aware feedback. Edge (subprocess/FS). Deterministic out.
+    profile (inline via -p, no .profile.sb written into the tree), render
+    tail-aware feedback. Edge (subprocess/FS). Deterministic out.
+
+    Infrastructure errors (OSError/FileNotFoundError from Popen or profile
+    generation) are caught and returned as an error-status NodeFeedbackResult
+    rather than propagated; the temp dir is always cleaned.
     """
     root = Path(tempfile.mkdtemp(prefix="agent-eval-vsbx-")).resolve()
     try:
         materialize_tree(files, root)
-        profile_path = root / ".profile.sb"
-        profile_path.write_text(seatbelt_profile(str(root), node_dir), encoding="utf-8")
+        profile_str = seatbelt_profile(str(root), node_dir)
         command = [
             SANDBOX_EXEC,
-            "-f",
-            str(profile_path),
+            "-p",
+            profile_str,
             node_bin,
             "--test",
             AUTHORED_TEST_DIR,
         ]
-        process = subprocess.Popen(
-            command,
-            cwd=root,
-            env=_node_env(str(root), node_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=root,
+                env=_node_env(str(root), node_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except (OSError, FileNotFoundError) as exc:
+            return NodeFeedbackResult(
+                status="error",
+                exit_code=1,
+                passed=0,
+                failed=0,
+                output=f"sandbox infrastructure error: {exc}",
+            )
         try:
             stdout, stderr = process.communicate(timeout=timeout_s)
         except subprocess.TimeoutExpired:
