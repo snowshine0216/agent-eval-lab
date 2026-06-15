@@ -5,7 +5,10 @@ from agent_eval_lab.metrics.reliability import (
     mean_latency_s,
     pass_at_1,
     pass_pow_k,
+    task_reliability,
     token_totals,
+    pass_pow_k_bootstrap_ci,
+    paired_pass_pow_k_diff_ci,
 )
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage
@@ -16,6 +19,7 @@ def _run(
     run_index: int,
     passed: bool,
     failure_reason: str | None = None,
+    safety_cap_bound: bool = False,
 ) -> RunResult:
     return RunResult(
         task_id=task_id,
@@ -26,6 +30,7 @@ def _run(
             usage=Usage(prompt_tokens=100, completion_tokens=20, latency_s=0.5),
             run_index=run_index,
             stop_reason="completed",
+            safety_cap_bound=safety_cap_bound,
         ),
         grade=GradeResult(
             grader_id="ast_tool_match",
@@ -190,3 +195,52 @@ def test_pass_pow_k_by_tier_filters_results() -> None:
     assert by_tier["T1"] == pytest.approx(1.0)
     assert by_tier["T3"] == pytest.approx(0.5)
     assert "T2" not in by_tier  # tiers with no results are omitted
+
+
+def test_pass_pow_k_censors_a_capped_pass() -> None:
+    # Task X: both runs grade-passed, but one is safety_cap_bound → NOT reliable.
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    assert pass_pow_k(results) == 0.0
+
+
+def test_task_reliability_censors_a_capped_pass() -> None:
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    assert task_reliability(results) == {"x": False}
+
+
+def test_pass_pow_k_uncapped_all_pass_is_reliable() -> None:
+    results = (_run("x", 0, True), _run("x", 1, True))
+    assert pass_pow_k(results) == 1.0
+
+
+def test_bootstrap_ci_inherits_the_censor() -> None:
+    # A capped pass drags the point estimate to 0.0 through task_reliability.
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    ci = pass_pow_k_bootstrap_ci(results, n_resamples=200, seed=1, alpha=0.05)
+    assert ci.point == 0.0
+
+
+def test_defensive_max_rounds_bound_read_when_field_absent() -> None:
+    # max_rounds_bound does not exist on records yet (item 002). A run lacking
+    # the field must classify exactly as before — an uncapped pass is reliable.
+    results = (_run("x", 0, True), _run("x", 1, True))
+    assert not hasattr(results[0].trajectory, "max_rounds_bound")
+    assert pass_pow_k(results) == 1.0
+
+
+def test_comparisons_fisher_path_inherits_censor() -> None:
+    # comparisons.run_planned_comparisons computes the F (Fisher) success count
+    # from task_reliability — a capped pass must drop the success count to 0.
+    from agent_eval_lab.metrics.reliability import task_reliability as tr
+
+    capped = (_run("x", 0, True), _run("x", 1, True, safety_cap_bound=True))
+    assert sum(tr(capped).values()) == 0

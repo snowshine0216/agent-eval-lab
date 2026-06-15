@@ -18,6 +18,21 @@ def _require_results(results: Sequence[RunResult]) -> None:
         raise ValueError("no results to aggregate")
 
 
+def _run_passes(run: RunResult) -> bool:
+    """A run counts as a pass iff it graded-passed AND was not budget-capped.
+
+    Enforces the pass_pow_k MetricDef's declared censoring_policy="failure"
+    (§D.1). safety_cap_bound already exists on the trajectory; max_rounds_bound
+    arrives in item 002, so it is read DEFENSIVELY (default False) — every
+    existing record (which lacks the field) is unaffected. The censor is GLOBAL
+    by design (§10.6): D/B inherit it through this shared module and the Fisher-F
+    path in comparisons.py, which both route through task_reliability.
+    """
+    traj = run.trajectory
+    capped = traj.safety_cap_bound or getattr(traj, "max_rounds_bound", False)
+    return run.grade.passed and not capped
+
+
 def pass_at_1(results: Sequence[RunResult]) -> float:
     _require_results(results)
     return sum(1 for run in results if run.grade.passed) / len(results)
@@ -27,7 +42,7 @@ def pass_pow_k(results: Sequence[RunResult]) -> float:
     _require_results(results)
     by_task: dict[str, list[bool]] = {}
     for run in results:
-        by_task.setdefault(run.task_id, []).append(run.grade.passed)
+        by_task.setdefault(run.task_id, []).append(_run_passes(run))
     reliable = sum(1 for passes in by_task.values() if all(passes))
     return reliable / len(by_task)
 
@@ -54,10 +69,11 @@ def mean_latency_s(results: Sequence[RunResult]) -> float:
 
 
 def task_reliability(results: Sequence[RunResult]) -> dict[str, bool]:
-    """Map each task id to whether ALL its runs passed (its pass^k indicator)."""
+    """Map each task id to whether ALL its runs passed-uncensored (its pass^k
+    indicator). A run passes iff grade.passed AND not budget-capped (§D.1)."""
     by_task: dict[str, list[bool]] = {}
     for run in results:
-        by_task.setdefault(run.task_id, []).append(run.grade.passed)
+        by_task.setdefault(run.task_id, []).append(_run_passes(run))
     return {tid: all(passes) for tid, passes in by_task.items()}
 
 
