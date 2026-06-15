@@ -690,3 +690,16 @@ def test_provider_error_raw_carries_no_auth_header() -> None:
     raw = _provider_error_raw(exc)
     assert "SECRET" not in raw
     assert "429" in raw and "rate limited" in raw
+
+
+def test_serialize_effect_result_handles_node_feedback() -> None:
+    from agent_eval_lab.records.node_feedback import NodeFeedbackResult
+    from agent_eval_lab.runners.loop import _serialize_effect_result
+
+    rec = NodeFeedbackResult(
+        status="failed", exit_code=1, passed=0, failed=1, output="not ok 1\n"
+    )
+    d = _serialize_effect_result(rec)
+    assert d["record"] == "node_feedback"
+    assert d["status"] == "failed"
+    assert d["schema_version"] == 1

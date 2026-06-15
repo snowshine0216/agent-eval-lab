@@ -21,6 +21,10 @@ from agent_eval_lab.records.execution import (
     ExecutionResult,
     execution_result_to_dict,
 )
+from agent_eval_lab.records.node_feedback import (
+    NodeFeedbackResult,
+    node_feedback_result_to_dict,
+)
 from agent_eval_lab.records.trajectory import (
     NO_CHOICES_ERROR,
     PROVIDER_ERROR,
@@ -45,12 +49,16 @@ from agent_eval_lab.tools.workspace import ToolDef, apply
 
 Effect = ExecutionRequest | BashRequest
 ApplyFn = Callable[..., tuple[Mapping[str, Any], "ToolOutcome | Effect"]]
-Executor = Callable[["Effect"], "ExecutionResult | BashResult"]
+Executor = Callable[["Effect"], "ExecutionResult | BashResult | NodeFeedbackResult"]
 
 
-def _serialize_effect_result(result: "ExecutionResult | BashResult") -> dict:
+def _serialize_effect_result(
+    result: "ExecutionResult | BashResult | NodeFeedbackResult",
+) -> dict:
     if isinstance(result, BashResult):
         return bash_result_to_dict(result)
+    if isinstance(result, NodeFeedbackResult):
+        return node_feedback_result_to_dict(result)
     return execution_result_to_dict(result)
 
 
