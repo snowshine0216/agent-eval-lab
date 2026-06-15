@@ -491,6 +491,18 @@ verdict stays the verdict.
 _Avoid_: "shadowed" (suggests the file is merely hidden), "overwritten"
 (suggests mutation; the overlay is pure).
 
+**out-of-scope edit**:
+An agent-written path that lies outside the task's declared `target_paths`
+(e.g. an F-domain candidate edit that touches `index.ts` when only
+`wdio.conf.ts` was in scope). A *descriptive* signal derived from the
+trajectory's edit-tool targets — **not** a graded verdict: the F-domain oracle
+is `AllOf[node_execution]` with no `OnlyModifies` leg, so an out-of-scope edit
+is *reported* (per-domain subreport), never auto-failed; the oracle's verdict
+stays the verdict.
+_Avoid_: "displaced path" (the oracle-overlay collision — a different thing; an
+out-of-scope edit need never touch an oracle path); "policy violation" /
+"forbidden_action" (no `OnlyModifies` policy runs in F).
+
 **execution hash**:
 The sha256 over the canonical-JSON rendering of an `ExecutionSpec`'s oracle
 tests and raw timeout plus the final file tree — a pure function of
@@ -523,21 +535,21 @@ _Avoid_: "execution edge" (taken — that is `pytest_edge`'s sandbox boundary),
 ### Failure classification & final report
 
 **RunClassification (failure classification)**:
-The derived, versioned (`fc-v2`) interpretation layer mapping every graded
-`RunResult` to exactly one of `passed | task_failure | agent_failure |
-harness_failure` plus one closed subcategory, computed at report time from the
-mechanical discriminators already on the record (suite **status (execution)**,
-execution-error kind, stop reason, parse failure, `failure_reason`,
-`max_tokens`). Derived, never stored: it is an interpretation *over* grades,
-not a grade — `GradeResult` and `FailureCategory` are untouched, and a
-classifier-version bump is a pure re-render of committed runs, never a re-run.
-Current version is `fc-v2`, which adds the `token_budget_exhausted` subcategory
-(parse_failure runs where `completion_tokens >= trajectory.max_tokens` indicate
-the reasoning channel was truncated, not a malformed reply) and a None-guard
-for `stop_reason == "parse_failure"` with `parse_failure is None` (harness
-wiring defect → `harness_failure/sandbox_fault`). Artifacts captured before
-`fc-v2` (`trajectory.max_tokens is None`) classify with the pre-budget-check
-path unchanged.
+The derived, versioned interpretation layer (current **`fc-v4`**) mapping every
+graded `RunResult` to exactly one of `passed | task_failure | agent_failure |
+harness_failure | environment_failure` plus one closed subcategory, computed at
+report time from the mechanical discriminators already on the record (suite
+**status (execution)**, execution-error kind, stop reason, parse failure,
+`failure_reason`, budget caps). Derived, never stored: it is an interpretation
+*over* grades, not a grade — `GradeResult` and `FailureCategory` are untouched,
+and a classifier-version bump is a pure re-render of committed runs, never a
+re-run. Lineage: `fc-v2` added `token_budget_exhausted` + a `parse_failure`
+None-guard; `fc-v3` added the `environment_failure` category (env-validity,
+D21); `fc-v4` (current — ADR-0013 + F-ablation spec PART E) classifies failing
+`node_execution` runs as `agent_failure/oracle_red` (not catch-all
+`other_miss`), reconciles budget overrides on `max_steps` + `safety_cap` +
+`max_rounds`, and guards row-1 so a cap-bound run is `budget_exhausted`, not
+`passed`. The full per-row changelog lives in `reports/classify.py`.
 _Avoid_: "failure taxonomy" (that is `FailureCategory`, the grade-level
 vocabulary); "error class"; storing the classification on `RunResult`.
 
@@ -562,6 +574,28 @@ post-conformance task-defect signal is an empty oracle at grading time
 _Avoid_: "broken task" (presumes the adjudication); "task failure" unqualified
 (that is the classifier category, which the queue deliberately does not
 assign).
+
+**M1 overview**:
+The cross-domain top of the M1 model-characterization report (file
+`M1-final-report.md`): per-domain `pass_pow_k` + macro composite, Pareto
+frontiers, planned comparisons, the efficiency & cost rollup, and links to the
+per-domain **M1 subreports**. The at-a-glance view; per-task depth lives in the
+subreports.
+_Avoid_: "summary" (overloaded); conflating it with the v1 **final report**
+(`reports/final.py`, Weeks 3-4) — a distinct artifact that shares the word
+"final" only via the `M1-final-report.md` filename, disambiguated by the `M1-`
+prefix.
+
+**M1 subreport**:
+An auto-generated per-domain companion to the **M1 overview** (file
+`M1-<domain>-report.md`, one per domain with runs): task quick-reference,
+task×condition pass matrices, grader-aware failure gaps, **task-defect
+candidates**, edit signals (**displaced path** / **out-of-scope edit**), and the
+per-condition efficiency rollup. Deterministic, regenerated on every
+`report-m1`; coexists with the hand-authored prose companions
+(`M1-F-failure-analysis.md`, `-NOTES.md`), which it never overwrites.
+_Avoid_: "domain report" / "per-domain final report"; treating the hand
+companions as subreports (they are curated prose, not generated output).
 
 ## Example dialogue
 
