@@ -252,6 +252,38 @@ def test_build_candidate_tree_missing_context_key_defaults_to_none(monkeypatch) 
     assert set(tree) == {"src/a.js", "tests/wdio/package.json"}
 
 
+# ---- seeded_held_out_disjoint predicate (pure, §10.4) ---------------------
+
+
+def test_seeded_held_out_disjoint_true_for_disjoint_paths() -> None:
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/utils/failure-analysis/report-to-allure.js",)
+    held_out = {
+        "tests/wdio/utils/failure-analysis/__tests__/report-to-allure.test.js": "x"
+    }
+    assert seeded_held_out_disjoint(seeded, held_out) is True
+
+
+def test_seeded_held_out_disjoint_allows_identical_displaced_path() -> None:
+    # identical spelling (e.g. tests/wdio/package.json in both) is a DISPLACEMENT,
+    # not a prefix_collision -> disjoint=True (the overlay overwrites, no error).
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/package.json", "src/a.js")
+    held_out = {"tests/wdio/package.json": "{}", "a.test.js": "x"}
+    assert seeded_held_out_disjoint(seeded, held_out) is True
+
+
+def test_seeded_held_out_disjoint_false_on_canonical_prefix_collision() -> None:
+    # same canonical prefix, different spelling (case) -> collision -> not disjoint
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/Foo.js",)
+    held_out = {"tests/wdio/foo.js/held.test.js": "x"}
+    assert seeded_held_out_disjoint(seeded, held_out) is False
+
+
 # ---- run_f_candidate (stubbed model) --------------------------------------
 
 

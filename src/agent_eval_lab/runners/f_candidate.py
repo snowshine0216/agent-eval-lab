@@ -37,6 +37,7 @@ from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 from agent_eval_lab.tasks.schema import Task, TaskInput
 from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
 from agent_eval_lab.tools.code_world import apply as code_world_apply
+from agent_eval_lab.tools.code_world import prefix_collision
 
 # The edit tools the candidate gets (a subset of code-world): inspect + edit only.
 # run_tests is deliberately EXCLUDED — F grades via the held-out node oracle, not
@@ -135,6 +136,25 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     for rel in (task.initial_state or {}).get("context_paths", ()):
         tree[rel] = _git_show(repo, rel)
     return tree
+
+
+def seeded_held_out_disjoint(
+    seeded_paths: Sequence[str], held_out_files: Mapping[str, str]
+) -> bool:
+    """True iff no seeded (candidate-visible) path collides with any held-out
+    oracle path under `prefix_collision` (§10.4).
+
+    Pure. The held-out node oracle overlays `held_out_files` over the candidate
+    base tree at grade time; `overlay_node_oracle` raises NodeOverlayCollision ->
+    `tree_collision` error if a seeded path canonically prefix-collides with a
+    held-out path. Identical spellings are DISPLACEMENTS (overwrite allowed), not
+    collisions, so they are disjoint. Reuses the project's single collision
+    predicate (tools/code_world.prefix_collision) — never reimplemented."""
+    return not any(
+        prefix_collision(seeded, oracle)
+        for seeded in seeded_paths
+        for oracle in held_out_files
+    )
 
 
 def make_edit_task(task: Task, *, base_tree: Mapping[str, str]) -> Task:
