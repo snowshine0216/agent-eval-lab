@@ -935,7 +935,10 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
         )
         aborted = True
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        print(f"error: git command failed building candidate tree: {exc}", file=sys.stderr)
+        print(
+            f"error: git command failed building candidate tree: {exc}",
+            file=sys.stderr,
+        )
         aborted = True
     finally:
         if http_client is None:
