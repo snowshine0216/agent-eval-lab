@@ -34,6 +34,11 @@ from agent_eval_lab.experiments.schema import (
     MultiplicityFamily,
     PlannedComparison,
 )
+from agent_eval_lab.experiments.ablation_order import RunUnit, ablation_run_order
+from agent_eval_lab.experiments.f_ablation_spec import (
+    ABLATION_SEED,
+    build_f_ablation_spec,
+)
 from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
 from agent_eval_lab.records.grade import GradeResult, RunResult, is_env_invalid_run
@@ -61,7 +66,13 @@ from agent_eval_lab.runners.multi_run import (
 from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
-from agent_eval_lab.tasks.schema import LlmJudgeSpec
+from agent_eval_lab.runners.f_candidate import (
+    build_candidate_tree,
+    grade_f_attempt,
+    make_edit_task,
+    make_f_run_fn,
+)
+from agent_eval_lab.tasks.schema import LlmJudgeSpec, Task
 
 
 def run_baseline(
@@ -1185,6 +1196,139 @@ def _run_report_m1(args: argparse.Namespace) -> int:
         alpha=args.alpha,
     )
     _atomic_write(args.out, render_m1(report))
+    print(args.out)
+    return 0
+
+
+def _ablation_arm_tasks(store: Path) -> dict[str, Task]:
+    """The 12 F task-arms indexed by task_id (the arm rides task_id, §B.2)."""
+    from agent_eval_lab.datasets.f_tasks import build_f_task_arms
+
+    return {t.id: t for t in build_f_task_arms(evaluator_store=store)}
+
+
+def _default_run_fn_factory(
+    *, http_client: httpx.Client | None, temperature: float, max_tokens: int
+):
+    """Production factory: per condition_id, build the REAL make_f_run_fn driver.
+    Called ONLY on a non-dry user invocation — this is the sole provider-call path
+    (V arms route through the 005 sandbox on macOS via make_f_run_fn). Tests inject
+    a fake factory instead, so no test/CI path ever reaches a network client."""
+
+    def factory(*, condition_id: str, safety_cap: int):
+        provider = condition_id.split(":", 1)[0]
+        config = PROVIDERS[provider]
+        model = condition_id.split(":", 1)[1]
+        config = replace(config, model_id=model)
+        client = http_client or httpx.Client(
+            timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+        )
+        return make_f_run_fn(
+            config=config,
+            http_client=client,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            condition_id=condition_id,
+            safety_cap=safety_cap,
+            max_rounds=40,  # the frozen uniform ablation cap (§B.1)
+        )
+
+    return factory
+
+
+def _write_realized_order(out: Path, order: Sequence[RunUnit]) -> None:
+    """Persist the realized execution / API-call order for audit (§10.7). Pure
+    projection of RunUnits to plain dicts; the on-disk record order in the JSONL is
+    NOT this — this sidecar is the authoritative drift-control record."""
+    payload = {
+        "seed": ABLATION_SEED,
+        "realized_order": [
+            {
+                "model": u.model,
+                "task_id": u.task_id,
+                "base_task": u.base_task,
+                "arm": u.arm,
+                "repetition": u.repetition,
+            }
+            for u in order
+        ],
+    }
+    (out / "f-ablation.realized-order.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
+def _run_f_ablation_command(  # noqa: C901
+    args: argparse.Namespace,
+    http_client: httpx.Client | None,
+    *,
+    run_fn_factory=None,
+) -> int:
+    """EDGE: orchestrate the F-set ablation in the FROZEN seeded ablation_run_order
+    across (model × task-arm × rep). The arm rides each run's task_id (§B.2). Writes
+    one artifact per condition (runs-ablation-{slug}-F.jsonl, all 12 task-arms
+    inside) + a realized-order sidecar (the API-call order controls drift, not the
+    on-disk record order — §10.7).
+
+    Provider calls happen ONLY when the user invokes this WITHOUT --dry-run and with
+    no injected run_fn_factory. --dry-run writes the realized order and makes ZERO
+    run_fn calls (a network-free preview + the unit-test seam)."""
+    spec = build_f_ablation_spec(dataset_snapshot_hash="", pricing_snapshot_hash="")
+    models = tuple(c.condition_id for c in spec.conditions)
+    base_tasks = ("f1", "f2", "f3")
+    order = ablation_run_order(
+        seed=ABLATION_SEED, models=models, base_tasks=base_tasks, k=spec.k
+    )
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    realized: list[RunUnit] = []
+
+    if args.dry_run:
+        # Preview ONLY: record the realized order, make NO run_fn call (no network).
+        _write_realized_order(args.out, order)
+        print(args.out / "f-ablation.realized-order.json")
+        return 0
+
+    f_repo = Path.home() / "Documents/Repository/web-dossier"
+    if run_fn_factory is not None:
+        # Injected factory (test path): skip config I/O; use a sentinel store.
+        arm_tasks = _ablation_arm_tasks(Path("/nonexistent"))
+        factory = run_fn_factory
+        safety_cap = 200  # spec default; irrelevant on the test path
+    else:
+        cfg = load_evaluator_config(args.evaluator_config)
+        store = Path(cfg.store.path) / "web-dossier-golden"
+        arm_tasks = _ablation_arm_tasks(store)
+        factory = _default_run_fn_factory(
+            http_client=http_client,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+        safety_cap = cfg.runner.safety_cap
+
+    run_fns: dict[str, object] = {}
+    buffers: dict[str, list[RunResult]] = {cond: [] for cond in models}
+    for unit in order:
+        run_fn = run_fns.get(unit.model)
+        if run_fn is None:
+            run_fn = factory(condition_id=unit.model, safety_cap=safety_cap)
+            run_fns[unit.model] = run_fn
+        task = arm_tasks[unit.task_id]
+        base_tree = build_candidate_tree(task, repo=f_repo)
+        edit_task = make_edit_task(task, base_tree=base_tree)
+        traj = run_fn(edit_task, unit.repetition)
+        buffers[unit.model].append(
+            grade_f_attempt(
+                task, traj, condition_id=unit.model, run_index=unit.repetition
+            )
+        )
+        realized.append(unit)
+
+    for cond, runs in buffers.items():
+        path = args.out / f"runs-ablation-{_slug(cond)}-F.jsonl"
+        with path.open("w") as fh:
+            _append_runs(fh, runs)
+    _write_realized_order(args.out, tuple(realized))
     print(args.out)
     return 0
 
