@@ -85,7 +85,9 @@ class Trajectory:
     env_health: EnvHealth | None = None
     """Pre/post health-probe result; None for env-free (F-set) tasks (§18.5)."""
     run_uid: str | None = None
-    """Per-run unique id: f"{condition_id}__{run_index:04d}" (§18.1)."""
+    """Per-run unique id. B/D: f"{condition_id}__{run_index:04d}" (§18.1); F is
+    task-scoped f"{condition_id}__{task_id}__{run_index:04d}" so 12 task-arms
+    sharing a condition's run space cannot collide (item 003 §B.2/§11.8)."""
 
     @classmethod
     def v1_compat(cls, mapping: Mapping[str, Any]) -> "Trajectory":

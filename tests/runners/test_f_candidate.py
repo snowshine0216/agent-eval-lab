@@ -268,6 +268,100 @@ def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
     assert o.void is True  # only 2 < k=5 clean trials -> INCOMPLETE
 
 
+def test_run_uid_is_task_scoped(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    import httpx
+
+    captured: list[str] = []
+
+    def fake_run_single(**kwargs):
+        captured.append(kwargs["run_uid"])
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="deepseek:deepseek-v4-pro",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    edit = make_edit_task(
+        _flagged_task(factor_p=True, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    run_fn(edit, 3)
+    # {condition_id}__{task_id}__{run_index:04d}
+    assert captured == ["deepseek:deepseek-v4-pro__t1__0003"]
+    assert "__f__" not in captured[0]  # the old literal is gone
+
+
+def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    import httpx
+
+    seen: list[str] = []
+
+    def fake_run_single(**kwargs):
+        seen.append(kwargs["run_uid"])
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    # simulate the 12 task-arms (3 bases x 4 arms) x k=5 in one condition's space
+    arm_ids = [
+        f"f-{b}-{a}"
+        for b in ("f1", "f2", "f3")
+        for a in ("bare", "prompt", "feedback", "both")
+    ]
+    for aid in arm_ids:
+        # a minimal edit-task carrying the arm id; tree/flags irrelevant to the uid
+        edit = replace(
+            _fake_task(),
+            id=aid,
+            initial_state={**_fake_task().initial_state, "files": {}},
+        )
+        for k in range(5):
+            run_fn(edit, k)
+    assert len(seen) == 60  # 12 arms x k=5
+    assert len(set(seen)) == 60  # all distinct -> no collision in the run space
+
+
 def test_make_f_run_fn_forwards_max_rounds(monkeypatch) -> None:
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.records.trajectory import Trajectory, Usage

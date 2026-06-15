@@ -177,7 +177,7 @@ def make_f_run_fn(
             max_tokens=max_tokens,
             apply_fn=code_world_apply,
             executor=None,
-            run_uid=f"{condition_id}__f__{run_index:04d}",
+            run_uid=f"{condition_id}__{edit_task.id}__{run_index:04d}",
             safety_cap=safety_cap,
             max_rounds=max_rounds,
         )
