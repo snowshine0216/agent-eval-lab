@@ -172,11 +172,28 @@ _Avoid_: "world id", "scenario id" (it names the *template*, not an instance).
 **max_steps (task hint)**:
 The optional `metadata.max_steps` a task declares as the loop-iteration budget its
 intended dependent chain needs, floored at `dependent_calls + 2` (headroom for the
-model's read/confirm turns). It is *data*; threading it through the runner is item
-004's contract. Distinct from the runner's run-level `max_steps` argument (today a
-global CLI default of 6).
+model's read/confirm turns). It is *data*. **The runner's run-level `max_steps`
+argument (ADR-0004's `for _ in range(max_steps)`, a global CLI default of 6) is
+SUPERSEDED**: the live loop is `while True`, bounded by `safety_cap` (tool calls)
+and `max_rounds` (turns), and never emits a `max_steps` stop reason.
 _Avoid_: "step limit", "max turns" (`step_limit_exceeded` is the policy
-`FailureCategory`; `max_steps` here is the per-task budget hint).
+`FailureCategory`; `max_steps` here is the per-task budget hint); using the
+runner-level `max_steps` as a live bound (superseded by `max_rounds`).
+
+**max_rounds**:
+The live per-turn loop budget: a cap on `Trajectory.rounds` (model API turns),
+enforced end-of-iteration in `runners/loop.py`. Hitting it sets
+`stop_reason="max_rounds"` and `max_rounds_bound=True`, and the run is **censored**
+(task failure for success metrics; right-censored for efficiency — see
+`censoring`). It is the user-facing turn budget; `safety_cap` (tool calls) is the
+higher backstop. Resurrects the turn-budget role the dormant runner-level
+`max_steps` once held (ADR-0004), renamed to match the `rounds` field. Resolved
+per-task (`metadata.max_rounds`) over a per-domain experiment-spec default
+(`{F:20, D:50}`); the F-ablation pins `{F:40}` at the experiment level so all
+arms share one budget.
+_Avoid_: "max_steps", "max turns", "step limit" (the first is superseded and
+overloaded; `step_limit_exceeded`/`MaxToolCalls` count tool calls, a different
+axis).
 
 **condition_id**:
 The `provider:model` identity (`runners/config.condition_id`) stamped on every
@@ -198,6 +215,18 @@ apart (ADR-0007).
 _Avoid_: "config id", "variant id" (the tag rides the *filename*, not the frozen
 `RunResult` schema, which keeps `condition_id = provider:model`).
 
+**arm**:
+A distinct agent-configuration variant of a task — sharing that task's held-out
+`VerificationSpec` and differing only in injected system prompt and/or
+`available_tools` — identified by its **own `task_id`** (`b-b1-noskill`/
+`b-b1-skill`; `f-f1-bare`/`f-f1-prompt`/`f-f1-feedback`/`f-f1-both`). An arm is
+**not** a condition: `condition_id` stays `provider:model` across an arm set, so
+an arm comparison is within-condition, cross-task. Because the arm rides
+`task_id`, `pass_pow_k` (computed per task) separates arms for free.
+_Avoid_: "treatment", "sub-condition" (an arm is not a `condition_id`); a new
+`arm_id` record field or an `@arm`-suffixed `condition_id` (the `task_id` already
+carries it; the latter also breaks the `provider:model` pricing key).
+
 **review (task)**:
 The `metadata.review` field (`"passed:<rubric-version>"`) that rides each
 append-only row as its *machine-checkable, frozen* proof the task passed the
@@ -218,14 +247,25 @@ _Avoid_: "metadata file" (`TaskMetadata` is the in-row contract; sidecars are
 deliberately outside it), "fixture dataset" (sidecars are not task sets).
 
 **visible tests**:
-The test files present in the agent-visible file tree — basename matching
-`test_*.py`; `*_test.py` basenames are banned so the naming convention equals
-pytest collection. Collected mid-trajectory by `run_tests` and again at the oracle
-run via the combined tree; they prove nothing about the **oracle tests**, whose
-paths are disjoint by policy (ADR-0012). A *prose-only* task has none — its
-initial-tree suite status is `no_tests`.
+The test files present in the agent-visible file tree — basename `test_*.py`
+under the pytest interpreter, or `*.test.js` under the **node** interpreter
+(`node --test`); the naming convention equals the interpreter's collection rule.
+Collected mid-trajectory by `run_tests` and again at the oracle run via the
+combined tree; they prove nothing about the **oracle tests**, whose paths are
+disjoint by policy (ADR-0012). A *prose-only* task has none — its initial-tree
+suite status is `no_tests`.
 _Avoid_: "public tests", "agent tests" (the agent may also *write* tests; visible
 names tree membership, not authorship).
+
+**authored tests**:
+The subset of **visible tests** the *agent itself writes* during a run, under a
+reserved path (`tests/authored/`). They are the model's own self-verification
+signal in the F-ablation feedback **arm**: a V-arm `run_tests` runs **only**
+authored tests (never the seeded visible tests, never the **oracle tests**), so
+the feedback channel is provably the model's own. Distinguished from other
+visible tests by *authorship + reserved path*, not by membership.
+_Avoid_: "agent tests" (banned alias of visible tests); conflating authored
+tests with the seeded visible tests or the held-out oracle.
 
 **distractor file**:
 code-world's analog of the **distractor tool**: a correct file in the initial tree
@@ -337,7 +377,8 @@ treating LLM-LLM κ as a reliability verdict.
 The second world (after workspace-world): its state is a **file tree** and its
 tools are `read_file`, `write_file`, `list_files`, `run_tests`. Same pure
 `apply` contract as workspace-world; only `run_tests` reaches the **execution
-edge**, via an **effect-request**.
+edge**, via an **effect-request**. The execution interpreter is parametric —
+pytest (Python) or `node --test` (the F-domain web-dossier world).
 _Avoid_: "code workspace" (collides with workspace-world), "repo world",
 "sandbox world" (the sandbox is the edge's temp dir, not the world).
 
@@ -385,18 +426,34 @@ verification*).
 
 **execution edge**:
 The single place subprocess/filesystem I/O happens for code-world: materialize
-the file tree into a fresh temp dir, run pinned-interpreter pytest in a
-scrubbed from-scratch environment under a hard timeout, parse the JUnit XML,
-canonicalize the output, clean up in a `finally`. Distinct from the **oracle
-edge**, the grading-side precompute boundary that calls it.
+the file tree into a fresh temp dir, run the pinned interpreter (pytest, or
+`node --test` for the node world) in a scrubbed from-scratch environment under a
+hard timeout, parse the JUnit XML, canonicalize the output, clean up in a
+`finally`. Distinct from the **oracle edge**, the grading-side precompute
+boundary that calls it.
 _Avoid_: "sandbox runner", "test harness" (overloaded).
 
 **sandbox**:
 The throwaway execution environment the edge builds per run: fresh temp dir +
 from-scratch env (no inherited secrets or proxy vars) + process-group kill on
 timeout. Isolation is temp-dir-and-convention level, not kernel level — a
-documented limitation; no containers.
-_Avoid_: "container", "jail" (over-claim kernel isolation).
+documented limitation; no containers. This suffices because the edge runs
+**trusted** code (the held-out **oracle tests** / evaluator tests); **untrusted**
+model-authored code uses **confined execution** instead.
+_Avoid_: "container", "jail" (over-claim kernel isolation for the *trusted*
+sandbox; the untrusted tier is `confined execution`).
+
+**confined execution**:
+The kernel-enforced isolation tier for running **untrusted** code — the
+F-ablation's **authored tests**. On macOS a `sandbox-exec` (seatbelt) profile
+wraps `node --test` with a deny-read-by-default **read-allowlist** (temp tree +
+node + system libs only), `(deny network*)`, and write-deny outside the tree, so
+model-authored JS can neither read the held-out **oracle tests** /
+`evaluator-only` store nor exfiltrate. Distinct from **sandbox** by *trust
+model*: sandbox = trusted code, convention-level; confined execution = untrusted
+code, kernel-level. Falls back to a no-network container if the allowlist proves
+unportable (ADR-0016).
+_Avoid_: "sandbox" (that is the trusted tier — do not conflate), "jail".
 
 **canonicalized output**:
 The recorded form of a sandbox run's stdout/stderr: the random temp-dir root
@@ -626,15 +683,17 @@ assign).
 ### Experiments & reliability metrics
 
 **run_uid**:
-The per-run unique identifier stamped on every `Trajectory` and `ExperimentRunRef`:
-`f"{condition_id}__{run_index:04d}"` (e.g. `deepseek:deepseek-v4-pro__0003`).
-Deterministic and human-readable; used as the B-set save-name discriminator
-(`<model>-<condition>-<run_uid>`) and as the join key from `ExperimentRunRef` back
-to the `RunResult` artifact. Distinct from `condition_id` (identifies the model, not
-a specific trial) and `run_index` (an integer within a condition; `run_uid` encodes
-both).
-_Avoid_: "run id" (ambiguous with `run_index`), UUID (the slug is deterministic and
-reproducible from existing fields).
+The per-run unique identifier stamped on every `Trajectory` and `ExperimentRunRef`,
+**task-scoped**: `f"{condition_id}__{task_id}__{run_index:04d}"` (e.g.
+`deepseek:deepseek-v4-pro__f-f1-bare__0003`). Task-scoping is *required* for
+uniqueness — a `(condition_id, run_index)`-only uid collides across tasks (latent
+in any multi-task set; acute once **arms** are task_ids). Deterministic and
+human-readable; the B-set save-name discriminator and the join key from
+`ExperimentRunRef` back to the `RunResult` artifact. Distinct from `condition_id`
+(the model, not a trial) and `run_index` (an integer within a (condition, task)).
+Existing pre-change artifacts keep their old uid (it is stored data).
+_Avoid_: "run id" (ambiguous with `run_index`), UUID (the slug is deterministic);
+a non-task-scoped uid (collides across tasks — not a valid join key).
 
 **pass_pow_k**:
 The task-level reliability estimate: the fraction of k *valid* independent trials on
@@ -659,15 +718,18 @@ _Avoid_: "filtering" (implies post-hoc; replacement trials are live), "exclusion
 criterion" (the mask is structural, not selective post-processing).
 
 **censoring** / **right-censored observation**:
-The dual role of `stop_reason="safety_cap"` (D35): for **success metrics**
-(`pass_pow_k`, task success rate) a safety-cap run is a *task failure* — the model
-did not complete within the operational budget. For **completion-time / efficiency
-distributions** it is a *right-censored observation*: actual duration ≥ cap, true
-value unknown. Both roles are explicit in every `MetricDef`
-(`censoring_policy: "failure" | "right_censored"`). Censored runs are never silently
-dropped or silently counted as successes.
-_Avoid_: "truncation" (the prior framing, retracted; it implied the run was cut off
-by the harness, obscuring the success/efficiency distinction).
+The dual role of a **budget-capped** run — `stop_reason="safety_cap"` (D35, tool
+calls) *or* `stop_reason="max_rounds"` (turns). For **success metrics**
+(`pass_pow_k`, task success rate) a capped run is a *task failure* — the model did
+not complete within the operational budget. For **time-to-completion**
+distributions (rounds, wall-time) it is a *right-censored observation*: the true
+value is ≥ the cap, unknown. **Resource consumption (tokens, cost) is NOT
+censored** — it is fully observed up to the cap and summed over all valid runs
+including capped ones (a capped run really did spend those tokens). Both roles are
+explicit in every `MetricDef` (`censoring_policy: "failure" | "right_censored"`).
+Censored runs are never silently dropped or silently counted as successes.
+_Avoid_: "truncation" (the prior framing, retracted); treating tokens/cost as
+censored (they are observed — only time-to-completion is censored).
 
 **attempt_index**:
 The zero-based count of raw run attempts for a given (task, condition, repeat_index)
