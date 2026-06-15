@@ -771,3 +771,15 @@ def test_run_f_candidate_unedited_base_fails_f1() -> None:
         )
     )
     assert outcomes[0].valid_runs[0].grade.passed is False
+
+
+def test_grade_f_attempt_wraps_grade_into_a_run_result():
+    from agent_eval_lab.runners.f_candidate import grade_f_attempt
+
+    task = _fake_task()
+    traj = _traj_with_files({"a.js": "// edited"}, run_index=2)
+    result = grade_f_attempt(task, traj, condition_id="prov:m", run_index=2)
+    assert result.task_id == "t1"
+    assert result.condition_id == "prov:m"
+    assert result.run_index == 2
+    assert result.trajectory is traj
