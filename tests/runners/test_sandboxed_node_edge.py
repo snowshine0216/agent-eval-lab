@@ -255,3 +255,100 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
     assert isinstance(results[0].outcome, ToolSuccess)
     assert results[0].outcome.result["record"] == "node_feedback"
     assert results[0].outcome.result["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Task 8: macOS-only integration test — ACTUALLY blocks the leak + network
+# ---------------------------------------------------------------------------
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    SANDBOX_EXEC,
+    darwin_sandbox_available,
+    node_install_paths,
+    run_authored_tests_sandboxed,
+    seatbelt_profile,
+)
+
+_NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
+
+# Gate ONLY on Darwin + sandbox-exec + node present — NOT on junit support.
+requires_seatbelt = pytest.mark.skipif(
+    not (darwin_sandbox_available() and _NODE is not None),
+    reason="macOS + sandbox-exec + node required for the confined-execution test",
+)
+
+_EVALUATOR_GOLDEN = (
+    Path("evaluator-only/web-dossier-golden/golden-files/report-to-allure.js.golden")
+    .resolve()
+)
+
+
+def _run_under_profile(node_bin: str, node_dir: str, tree: Path, args: list[str]):
+    profile = tree / ".profile.sb"
+    profile.write_text(seatbelt_profile(str(tree), node_dir), encoding="utf-8")
+    return subprocess.run(
+        [SANDBOX_EXEC, "-f", str(profile), node_bin, *args],
+        cwd=tree, capture_output=True, text=True, timeout=30,
+    )
+
+
+@requires_seatbelt
+def test_sandbox_blocks_evaluator_only_read(tmp_path) -> None:
+    assert _EVALUATOR_GOLDEN.exists(), "test precondition: golden present"
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    res = _run_under_profile(
+        node_bin, node_dir, tree,
+        ["-e", f"require('fs').readFileSync({str(_EVALUATOR_GOLDEN)!r},'utf8');"
+               "console.log('LEAK-SUCCEEDED')"],
+    )
+    assert res.returncode != 0, "evaluator-only read MUST be blocked"
+    assert "LEAK-SUCCEEDED" not in res.stdout
+    assert "EPERM" in res.stderr  # sandbox denial, not ENOENT
+
+
+@requires_seatbelt
+def test_sandbox_blocks_network(tmp_path) -> None:
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    res = _run_under_profile(
+        node_bin, node_dir, tree,
+        ["-e",
+         "const net=require('net');"
+         "const s=net.connect(80,'93.184.216.34',()=>{console.log('NET-OK');process.exit(0)});"
+         "s.on('error',e=>{console.log('NET-BLOCKED:'+e.code);process.exit(3)});"
+         "setTimeout(()=>{console.log('NET-TIMEOUT');process.exit(4)},3000)"],
+    )
+    assert "NET-OK" not in res.stdout, "network connect MUST be blocked"
+    assert res.returncode != 0
+
+
+@requires_seatbelt
+def test_sandbox_starts_node_and_runs_benign_authored_test() -> None:
+    """The boundary still permits the legitimate workflow: node starts, runs an
+    authored test that reads/writes IN-TREE, and reports pass."""
+    node_bin, node_dir = node_install_paths()
+    files = {
+        "package.json": '{"type":"module"}\n',
+        "tests/authored/x.test.js": (
+            "import test from 'node:test';\n"
+            "import assert from 'node:assert/strict';\n"
+            "import fs from 'node:fs';\n"
+            "test('benign in-tree', () => {\n"
+            "  const c = fs.readFileSync('package.json','utf8');\n"
+            "  assert.ok(c.includes('module'));\n"
+            "  fs.writeFileSync('tests/authored/scratch.txt','ok');\n"
+            "});\n"
+        ),
+    }
+    out = run_authored_tests_sandboxed(files, node_bin=node_bin, node_dir=node_dir)
+    assert out.status == "passed", out.output
+    assert out.exit_code == 0
+    assert out.passed == 1
