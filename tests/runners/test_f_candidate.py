@@ -496,11 +496,20 @@ def test_make_f_run_fn_routes_v_arm_to_sandboxed_executor_on_macos(monkeypatch) 
         )
 
     monkeypatch.setattr(fc, "run_single", fake_run_single)
-    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
-    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
     run_fn = fc.make_f_run_fn(
-        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
-        condition_id="c", safety_cap=200, max_rounds=40,
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
     )
     v_edit = make_edit_task(
         _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
@@ -520,11 +529,20 @@ def test_make_f_run_fn_skips_v_arm_off_macos(monkeypatch) -> None:
     from agent_eval_lab.runners.config import ProviderConfig
 
     monkeypatch.setattr(fc, "darwin_sandbox_available", lambda: False)
-    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
-    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
     run_fn = fc.make_f_run_fn(
-        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
-        condition_id="c", safety_cap=200, max_rounds=40,
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
     )
     v_edit = make_edit_task(
         _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
@@ -555,11 +573,20 @@ def test_make_f_run_fn_bare_arm_stays_executor_none(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(fc, "run_single", fake_run_single)
-    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
-    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
     run_fn = fc.make_f_run_fn(
-        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
-        condition_id="c", safety_cap=200, max_rounds=40,
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
     )
     bare_edit = make_edit_task(
         _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}

@@ -30,7 +30,10 @@ from contextlib import suppress
 from pathlib import Path
 
 from agent_eval_lab.records.execution import ExecutionRequest
-from agent_eval_lab.records.node_feedback import NodeFeedbackResult, render_feedback_tail
+from agent_eval_lab.records.node_feedback import (
+    NodeFeedbackResult,
+    render_feedback_tail,
+)
 from agent_eval_lab.runners.node_edge import canonicalize_node_output
 from agent_eval_lab.runners.pytest_edge import materialize_tree
 
@@ -64,9 +67,7 @@ def seatbelt_profile(
     (allow file-read*). Writes are scoped to temp_tree; network is denied.
     """
     read_subpaths = (temp_tree, node_dir, *extra_read_subpaths)
-    read_lines = "\n".join(
-        f'(allow file-read* (subpath "{p}"))' for p in read_subpaths
-    )
+    read_lines = "\n".join(f'(allow file-read* (subpath "{p}"))' for p in read_subpaths)
     return (
         "(version 1)\n"
         "(deny default)\n"
@@ -153,9 +154,7 @@ def run_authored_tests_sandboxed(
     try:
         materialize_tree(files, root)
         profile_path = root / ".profile.sb"
-        profile_path.write_text(
-            seatbelt_profile(str(root), node_dir), encoding="utf-8"
-        )
+        profile_path.write_text(seatbelt_profile(str(root), node_dir), encoding="utf-8")
         command = [
             SANDBOX_EXEC,
             "-f",

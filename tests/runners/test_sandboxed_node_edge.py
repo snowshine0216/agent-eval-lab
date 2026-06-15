@@ -8,10 +8,15 @@ Sections (in order):
   5. macOS-only integration test — ACTUALLY blocks the leak (Task 8)
 """
 
-# ---------------------------------------------------------------------------
-# Task 1: NodeFeedbackResult + tail-aware renderer
-# ---------------------------------------------------------------------------
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
+import pytest
+
+from agent_eval_lab.records.execution import ExecutionRequest
 from agent_eval_lab.records.node_feedback import (
     FEEDBACK_SCHEMA_VERSION,
     NodeFeedbackResult,
@@ -19,6 +24,39 @@ from agent_eval_lab.records.node_feedback import (
     node_feedback_result_to_dict,
     render_feedback_tail,
 )
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    AUTHORED_TEST_DIR,
+    DEFAULT_SYSTEM_READ_SUBPATHS,
+    SANDBOX_EXEC,
+    darwin_sandbox_available,
+    make_authored_test_executor,
+    node_install_paths,
+    run_authored_tests_sandboxed,
+    seatbelt_profile,
+)
+
+# ---------------------------------------------------------------------------
+# Task 8 setup: gate marker + constants (module-level, used by decorators)
+# ---------------------------------------------------------------------------
+
+_NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
+
+# Gate ONLY on Darwin + sandbox-exec + node present — NOT on junit support.
+requires_seatbelt = pytest.mark.skipif(
+    not (darwin_sandbox_available() and _NODE is not None),
+    reason="macOS + sandbox-exec + node required for the confined-execution test",
+)
+
+_EVALUATOR_GOLDEN = Path(
+    "evaluator-only/web-dossier-golden/golden-files/report-to-allure.js.golden"
+).resolve()
+
+# ---------------------------------------------------------------------------
+# Task 1: NodeFeedbackResult + tail-aware renderer
+# ---------------------------------------------------------------------------
+
+_TREE = "/private/var/folders/x/agent-eval-vsbx-abc"
+_NODE_DIR = "/Users/who/.nvm/versions/node/v16.20.2"
 
 
 def test_node_feedback_result_round_trips() -> None:
@@ -67,20 +105,6 @@ def test_render_feedback_tail_never_splits_a_multibyte_char() -> None:
 # Task 2: Pure seatbelt profile builder + Darwin/sandbox-exec probe
 # ---------------------------------------------------------------------------
 
-import sys
-
-import pytest
-
-from agent_eval_lab.runners.sandboxed_node_edge import (
-    DEFAULT_SYSTEM_READ_SUBPATHS,
-    SANDBOX_EXEC,
-    darwin_sandbox_available,
-    seatbelt_profile,
-)
-
-_TREE = "/private/var/folders/x/agent-eval-vsbx-abc"
-_NODE_DIR = "/Users/who/.nvm/versions/node/v16.20.2"
-
 
 def test_profile_is_deny_default_with_system_baseline() -> None:
     prof = seatbelt_profile(_TREE, _NODE_DIR)
@@ -128,13 +152,6 @@ def test_darwin_probe_false_off_macos(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Task 3: make_authored_test_executor — fake run_fn wiring
 # ---------------------------------------------------------------------------
-
-from agent_eval_lab.records.execution import ExecutionRequest
-from agent_eval_lab.records.node_feedback import NodeFeedbackResult
-from agent_eval_lab.runners.sandboxed_node_edge import (
-    AUTHORED_TEST_DIR,
-    make_authored_test_executor,
-)
 
 
 def test_executor_ignores_request_paths_and_runs_authored_dir() -> None:
@@ -193,18 +210,10 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
     """run_tests -> ExecutionRequest -> fake executor -> ToolSuccess(node_feedback)."""
     import httpx
 
-    from agent_eval_lab.records.node_feedback import NodeFeedbackResult
-    from agent_eval_lab.records.turns import ToolResultTurn, ToolSuccess
+    from agent_eval_lab.records.turns import MessageTurn, ToolResultTurn, ToolSuccess
     from agent_eval_lab.runners.config import ProviderConfig
     from agent_eval_lab.runners.loop import run_single
-    from agent_eval_lab.tasks.schema import (
-        AllOf,
-        Task,
-        TaskInput,
-        TaskMetadata,
-        ToolCallMatchSpec,
-    )
-    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.tasks.schema import AllOf, Task, TaskInput, TaskMetadata
     from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
     from agent_eval_lab.tools.code_world import apply as cw_apply
 
@@ -217,8 +226,11 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
             msg = {
                 "role": "assistant",
                 "tool_calls": [
-                    {"id": "c1", "type": "function",
-                     "function": {"name": "run_tests", "arguments": "{}"}}
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "run_tests", "arguments": "{}"},
+                    }
                 ],
             }
         else:
@@ -243,11 +255,19 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
         ),
         initial_state={"files": {"tests/authored/a.test.js": "x"}, "factor_v": True},
     )
-    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
     client = httpx.Client(transport=httpx.MockTransport(handler))
     traj = run_single(
-        task=task, registry=CODE_WORLD_TOOLS_V, config=cfg, http_client=client,
-        run_index=0, temperature=0.0, max_tokens=64, apply_fn=cw_apply,
+        task=task,
+        registry=CODE_WORLD_TOOLS_V,
+        config=cfg,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=64,
+        apply_fn=cw_apply,
         executor=fake_executor,
     )
     results = [t for t in traj.turns if isinstance(t, ToolResultTurn)]
@@ -261,39 +281,16 @@ def test_v_loop_records_node_feedback_via_fake_executor() -> None:
 # Task 8: macOS-only integration test — ACTUALLY blocks the leak + network
 # ---------------------------------------------------------------------------
 
-import os
-import shutil
-import subprocess
-from pathlib import Path
-
-from agent_eval_lab.runners.sandboxed_node_edge import (
-    SANDBOX_EXEC,
-    darwin_sandbox_available,
-    node_install_paths,
-    run_authored_tests_sandboxed,
-    seatbelt_profile,
-)
-
-_NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
-
-# Gate ONLY on Darwin + sandbox-exec + node present — NOT on junit support.
-requires_seatbelt = pytest.mark.skipif(
-    not (darwin_sandbox_available() and _NODE is not None),
-    reason="macOS + sandbox-exec + node required for the confined-execution test",
-)
-
-_EVALUATOR_GOLDEN = (
-    Path("evaluator-only/web-dossier-golden/golden-files/report-to-allure.js.golden")
-    .resolve()
-)
-
 
 def _run_under_profile(node_bin: str, node_dir: str, tree: Path, args: list[str]):
     profile = tree / ".profile.sb"
     profile.write_text(seatbelt_profile(str(tree), node_dir), encoding="utf-8")
     return subprocess.run(
         [SANDBOX_EXEC, "-f", str(profile), node_bin, *args],
-        cwd=tree, capture_output=True, text=True, timeout=30,
+        cwd=tree,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
 
 
@@ -304,9 +301,14 @@ def test_sandbox_blocks_evaluator_only_read(tmp_path) -> None:
     tree = (tmp_path / "t").resolve()
     tree.mkdir()
     res = _run_under_profile(
-        node_bin, node_dir, tree,
-        ["-e", f"require('fs').readFileSync({str(_EVALUATOR_GOLDEN)!r},'utf8');"
-               "console.log('LEAK-SUCCEEDED')"],
+        node_bin,
+        node_dir,
+        tree,
+        [
+            "-e",
+            f"require('fs').readFileSync({str(_EVALUATOR_GOLDEN)!r},'utf8');"
+            "console.log('LEAK-SUCCEEDED')",
+        ],
     )
     assert res.returncode != 0, "evaluator-only read MUST be blocked"
     assert "LEAK-SUCCEEDED" not in res.stdout
@@ -319,12 +321,17 @@ def test_sandbox_blocks_network(tmp_path) -> None:
     tree = (tmp_path / "t").resolve()
     tree.mkdir()
     res = _run_under_profile(
-        node_bin, node_dir, tree,
-        ["-e",
-         "const net=require('net');"
-         "const s=net.connect(80,'93.184.216.34',()=>{console.log('NET-OK');process.exit(0)});"
-         "s.on('error',e=>{console.log('NET-BLOCKED:'+e.code);process.exit(3)});"
-         "setTimeout(()=>{console.log('NET-TIMEOUT');process.exit(4)},3000)"],
+        node_bin,
+        node_dir,
+        tree,
+        [
+            "-e",
+            "const net=require('net');"
+            "const s=net.connect(80,'93.184.216.34',"
+            "()=>{console.log('NET-OK');process.exit(0)});"
+            "s.on('error',e=>{console.log('NET-BLOCKED:'+e.code);process.exit(3)});"
+            "setTimeout(()=>{console.log('NET-TIMEOUT');process.exit(4)},3000)",
+        ],
     )
     assert "NET-OK" not in res.stdout, "network connect MUST be blocked"
     assert res.returncode != 0
