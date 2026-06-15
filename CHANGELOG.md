@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.4 — 2026-06-15
+
+### Added — F candidate-tree enrichment + overlay-disjointness (harness-rounds-f-ablation step 4)
+
+- **Curated `context_paths` on the 12 F ablation arms** (`datasets/f_tasks.py`): each base seeds a
+  curated context set — materialized **byte-identically across all four arms** from the pinned base
+  SHA (`5b0c13a6`; m2021 never read) — so Factor P's "read the siblings / read the source" directives
+  are non-vacuous. F1: `Alert.js`/`SearchBox.js`/`Panel.js` (the `waitFor*({timeout,timeoutMsg})`
+  convention); F2: `failure-analysis/index.js` (the `{signal, confidence}` return shape readable from
+  source); F3: none (its causal layer is already broad). The held-out golden tests (D19) and any
+  visible test asserting the discriminating behavior are excluded (§11.6). Production `build_f_tasks`
+  carries no `context_paths` — its trees stay minimal.
+- **`build_candidate_tree` seeds `context_paths`** (`runners/f_candidate.py`) from the pinned SHA on
+  top of the existing target-path / F3-causal-layer logic.
+- **Overlay-disjointness invariant** (`runners/f_candidate.py`, `tests/runners/test_f_overlay_disjoint.py`):
+  new pure predicate `seeded_held_out_disjoint` (reuses `tools/code_world.prefix_collision`, not
+  reimplemented) + a §10.4 unit test asserting, for every F task's `NodeExecutionSpec(s)`, that
+  seeded (candidate-visible) paths are disjoint from held-out oracle paths — so enrichment can never
+  silently turn an arm's runs into `tree_collision`.
+
 ## v0.2.3 — 2026-06-15
 
 ### Added — F harness-factor ablation: arm-as-task + Factor P (harness-rounds-f-ablation step 3)
