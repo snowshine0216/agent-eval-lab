@@ -471,34 +471,102 @@ def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> Non
     assert len(set(seen)) == 60  # all distinct -> no collision in the run space
 
 
-def test_make_f_run_fn_refuses_live_v_arm_until_005(monkeypatch) -> None:
-    """A V arm (factor_v=True) declares run_tests but has NO executor in 003.
-    Driving it against the live loop must raise, not silently run a no-op V loop."""
+def test_make_f_run_fn_routes_v_arm_to_sandboxed_executor_on_macos(monkeypatch) -> None:
+    """On macOS+sandbox-exec a V arm runs the loop with a sandboxed executor and
+    the V (node-accurate) registry — NOT executor=None, NOT NotImplementedError."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
+
+    monkeypatch.setattr(fc, "darwin_sandbox_available", lambda: True)
+    monkeypatch.setattr(fc, "node_install_paths", lambda: ("/x/node", "/x"))
+    captured: dict = {}
+
+    def fake_run_single(**kwargs):
+        captured["executor"] = kwargs["executor"]
+        captured["registry"] = kwargs["registry"]
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    run_fn = fc.make_f_run_fn(
+        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
+        condition_id="c", safety_cap=200, max_rounds=40,
+    )
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    run_fn(v_edit, 0)
+    assert captured["executor"] is not None  # routed to the sandboxed executor
+    assert captured["registry"] is CODE_WORLD_TOOLS_V  # node-accurate V registry
+
+
+def test_make_f_run_fn_skips_v_arm_off_macos(monkeypatch) -> None:
+    """Off macOS (CI), real V execution skips — make_f_run_fn raises the skip
+    guard (executor cannot be the real sandbox; fake executor is injected in
+    unit tests, not here)."""
     import httpx
 
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.runners.config import ProviderConfig
 
-    cfg = ProviderConfig(
-        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
-    )
-    client = httpx.Client(
-        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
-    )
+    monkeypatch.setattr(fc, "darwin_sandbox_available", lambda: False)
+    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
     run_fn = fc.make_f_run_fn(
-        config=cfg,
-        http_client=client,
-        temperature=0.0,
-        max_tokens=64,
-        condition_id="c",
-        safety_cap=200,
-        max_rounds=40,
+        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
+        condition_id="c", safety_cap=200, max_rounds=40,
     )
     v_edit = make_edit_task(
         _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
     )
-    with pytest.raises(NotImplementedError, match="Factor V"):
+    with pytest.raises(NotImplementedError, match="macOS"):
         run_fn(v_edit, 0)
+
+
+def test_make_f_run_fn_bare_arm_stays_executor_none(monkeypatch) -> None:
+    """bare/prompt (factor_v falsey) always run executor=None + the base registry."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
+
+    captured: dict = {}
+
+    def fake_run_single(**kwargs):
+        captured["executor"] = kwargs["executor"]
+        captured["registry"] = kwargs["registry"]
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    run_fn = fc.make_f_run_fn(
+        config=cfg, http_client=client, temperature=0.0, max_tokens=64,
+        condition_id="c", safety_cap=200, max_rounds=40,
+    )
+    bare_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    run_fn(bare_edit, 0)
+    assert captured["executor"] is None
+    assert captured["registry"] is CODE_WORLD_TOOLS
 
 
 def test_make_f_run_fn_runs_bare_and_prompt_arms_today(monkeypatch) -> None:

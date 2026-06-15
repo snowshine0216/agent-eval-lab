@@ -35,8 +35,14 @@ from agent_eval_lab.runners.loop import run_single
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 from agent_eval_lab.tasks.schema import Task, TaskInput
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    darwin_sandbox_available,
+    make_authored_test_executor,
+    node_install_paths,
+)
 from agent_eval_lab.tools.code_world import (
     CODE_WORLD_TOOLS,
+    CODE_WORLD_TOOLS_V,
     prefix_collision,
 )
 from agent_eval_lab.tools.code_world import (
@@ -203,31 +209,38 @@ def make_f_run_fn(
     max_rounds: int | None = None,
 ) -> Callable[[Task, int], Trajectory]:
     """Build the per-attempt model driver for one arm: run the code-world edit
-    loop. The edit tools are pure (no executor in item 003); a V arm
-    additionally declares the run_tests tool surface, but its sandboxed
-    executor lands in item 005 — so this driver refuses to drive a live V arm
-    until then (bare/prompt stay fully runnable)."""
+    loop. A V arm is routed to the sandboxed `make_authored_test_executor` on
+    macOS; off-macOS real V execution is refused (macOS-local-only, §B.4).
+    bare/prompt stay executor=None + CODE_WORLD_TOOLS."""
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
-        # Factor V's executor + sandbox is item 005. A V arm declares run_tests
-        # (its tool SURFACE) but has no executor here; driving it against the live
-        # loop would silently run a no-op V loop, so refuse explicitly. bare/prompt
-        # (factor_v falsey) stay fully runnable today.
-        if (edit_task.initial_state or {}).get("factor_v"):
+        is_v = bool((edit_task.initial_state or {}).get("factor_v"))
+        if is_v and not darwin_sandbox_available():
+            # Real Factor V execution is macOS-local-only by design (§B.4): the
+            # seatbelt confined-execution boundary is Darwin-only. On a non-macOS
+            # host (CI) we cannot run a real V arm; unit tests inject a fake
+            # executor instead. Refuse rather than silently run a no-op V loop.
             raise NotImplementedError(
-                "Factor V executor is item 005; cannot drive a V arm "
-                f"({edit_task.id!r}) against a live provider in 003"
+                "Factor V real execution requires macOS + sandbox-exec "
+                f"(arm {edit_task.id!r}); CI injects a fake executor"
             )
+        if is_v:
+            node_bin, node_dir = node_install_paths()
+            executor = make_authored_test_executor(node_bin=node_bin, node_dir=node_dir)
+            registry = CODE_WORLD_TOOLS_V
+        else:
+            executor = None
+            registry = CODE_WORLD_TOOLS
         return run_single(
             task=edit_task,
-            registry=CODE_WORLD_TOOLS,
+            registry=registry,
             config=config,
             http_client=http_client,
             run_index=run_index,
             temperature=temperature,
             max_tokens=max_tokens,
             apply_fn=code_world_apply,
-            executor=None,
+            executor=executor,
             run_uid=f"{condition_id}__{edit_task.id}__{run_index:04d}",
             safety_cap=safety_cap,
             max_rounds=max_rounds,
