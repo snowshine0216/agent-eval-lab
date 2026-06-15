@@ -54,8 +54,8 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 | gate | status |
 |------|--------|
 | run-doc-sync | ✅ `run-doc-sync.md` PASS |
-| run-final-verify | ⏳ |
-| run-close-out | ⏳ |
+| run-final-verify | ✅ `run-final-verify.md` PASS |
+| run-close-out | 🔄 |
 
 ## Log
 - 2026-06-15 — **Item 006 MERGED** (PR [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31)
