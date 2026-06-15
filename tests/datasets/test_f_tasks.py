@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_eval_lab.datasets.f_tasks import build_f_tasks
+from agent_eval_lab.datasets.f_tasks import build_f_task_arms, build_f_tasks
 from agent_eval_lab.tasks.schema import AllOf
 
 _STORE = (
@@ -14,6 +14,26 @@ requires_store = pytest.mark.skipif(
     not (_STORE / "golden-files" / "f1.held_out.test.js").exists(),
     reason="local web-dossier golden store required",
 )
+
+
+def _arm_ids() -> list[str]:
+    return [
+        f"f-{base}-{arm}"
+        for base in ("f1", "f2", "f3")
+        for arm in ("bare", "prompt", "feedback", "both")
+    ]
+
+
+@requires_store
+def test_build_f_task_arms_returns_twelve_arms_with_suffixed_ids() -> None:
+    arms = build_f_task_arms(evaluator_store=_STORE)
+    assert sorted(t.id for t in arms) == sorted(_arm_ids())
+    assert len(arms) == 12
+    for t in arms:
+        assert t.capability == "repo_fix"
+        assert t.metadata.split == "held_out"
+        assert t.initial_state is not None
+        assert t.initial_state["candidate_base_sha"].startswith("5b0c13a6")
 
 
 @requires_store
