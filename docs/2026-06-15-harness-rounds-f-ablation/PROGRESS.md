@@ -9,7 +9,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 | 001 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-001` | ✅ `2fd47fb` | ✅ `items/001-drift.md` | ✅ [#26](https://github.com/snowshine0216/agent-eval-lab/pull/26) | ✅ `items/001-verify.md` | ✅ `items/001-review.md` PASS-WITH-NITS | ✅ `items/001-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds | ✅ `a2a4be1` |
 | 002 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-002` | ✅ `7a5e822` | ✅ `items/002-drift.md` | ✅ [#27](https://github.com/snowshine0216/agent-eval-lab/pull/27) | ✅ `items/002-verify.md` | ✅ `items/002-review.md` PASS-WITH-NITS (1 fix round) | ✅ `items/002-pr-review.md` PASS-WITH-NITS | ✅ 1 round | ✅ `420cc69` |
 | 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ✅ 1 round (2 nits) | ✅ `40e4f26` |
-| 004 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-004` | ✅ `a8c1ec5` | ✅ `items/004-drift.md` | ✅ [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29) | ✅ `items/004-verify.md` | ✅ `items/004-review.md` PASS-WITH-NITS (2 fixed pre-push) | ✅ `items/004-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds (2 nits accepted) | ⏳ |
+| 004 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-004` | ✅ `a8c1ec5` | ✅ `items/004-drift.md` | ✅ [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29) | ✅ `items/004-verify.md` | ✅ `items/004-review.md` PASS-WITH-NITS (2 fixed pre-push) | ✅ `items/004-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds (2 nits accepted) | ✅ `51a422a` |
 | 005 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 006 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -58,6 +58,15 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 | run-close-out | ⏳ |
 
 ## Log
+- 2026-06-15 — **Item 004 MERGED** (PR [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29)
+  squash → `51a422a`). Candidate-tree enrichment + overlay-disjointness: curated `context_paths` on
+  the 12 ablation arms (F1 waitFor* siblings, F2 analyzeFailure source, F3 none — held-out goldens +
+  split-asserting tests excluded), `build_candidate_tree` seeds them, pure `seeded_held_out_disjoint`
+  (reuses `prefix_collision`) + §10.4 invariant test over every F NodeExecutionSpec. v0.2.4; 1046
+  green; repo-gated tree tests pass locally (all 15 F tasks disjoint). Ship review: 0 P0, 2 P1 fixed
+  pre-push; F2-source-readable + CI-skip-of-repo-test accepted by design. pr-review PASS-WITH-NITS
+  (2 cosmetic, accepted). **Resume next = item 005** (Factor V confined-execution sandbox — macOS-only,
+  security-sensitive, ADR-0016).
 - 2026-06-15 — **Item 003 MERGED** (PR [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28)
   squash → `40e4f26`). Arm-as-task + Factor P: 12 F task-arms (3×4) as distinct `task_id`s (M2
   pattern), Factor-P prompt block in `make_edit_task` (gated by `initial_state["factor_p"]`),
