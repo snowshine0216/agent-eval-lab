@@ -10,7 +10,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _iter_records():
-    for path in sorted(glob.glob(str(_REPO_ROOT / "reports/**/*.jsonl"), recursive=True)):
+    pattern = str(_REPO_ROOT / "reports/**/*.jsonl")
+    for path in sorted(glob.glob(pattern, recursive=True)):
         for line in Path(path).read_text().splitlines():
             line = line.strip()
             if not line:

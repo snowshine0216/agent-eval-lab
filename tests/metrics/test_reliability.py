@@ -5,10 +5,9 @@ from agent_eval_lab.metrics.reliability import (
     mean_latency_s,
     pass_at_1,
     pass_pow_k,
+    pass_pow_k_bootstrap_ci,
     task_reliability,
     token_totals,
-    pass_pow_k_bootstrap_ci,
-    paired_pass_pow_k_diff_ci,
 )
 from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import Trajectory, Usage

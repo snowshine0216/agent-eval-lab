@@ -169,7 +169,7 @@ def first_execution_evidence(
 def classify_run(run: RunResult) -> RunClassification:
     """fc-v4: priority-ordered, first-match-wins, total — never raises."""
     cap_bound = _cap_bound(run)
-    if run.grade.passed and not cap_bound:  # row 1; fc-v4 E.3: cap-bound is not "passed"
+    if run.grade.passed and not cap_bound:  # row 1; fc-v4 E.3: capped ≠ "passed"
         return _classification("passed", None, "grade.passed")
     parse_failure = run.trajectory.parse_failure
     if run.trajectory.stop_reason == "parse_failure" and parse_failure is None:
