@@ -68,9 +68,7 @@ class AblationPolicy:
 
 def ablation_policy() -> AblationPolicy:
     """The (unfrozen) ablation policy: 40 rounds, seed, 12 task-arms, 4 arms."""
-    task_arm_ids = tuple(
-        f"f-{base}-{arm}" for base in _BASE_TASKS for arm in ARMS
-    )
+    task_arm_ids = tuple(f"f-{base}-{arm}" for base in _BASE_TASKS for arm in ARMS)
     return AblationPolicy(
         max_rounds=_ABLATION_MAX_ROUNDS,
         seed=ABLATION_SEED,

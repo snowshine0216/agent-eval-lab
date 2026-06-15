@@ -86,7 +86,9 @@ def test_real_path_with_fake_run_fn_writes_one_artifact_per_condition(
     artifacts = sorted(tmp_path.glob("runs-ablation-*-F.jsonl"))
     assert len(artifacts) == 4
     for art in artifacts:
-        rows = [json.loads(line) for line in art.read_text().splitlines() if line.strip()]
+        rows = [
+            json.loads(line) for line in art.read_text().splitlines() if line.strip()
+        ]
         task_ids = {r["task_id"] for r in rows}
         assert len(task_ids) == 12  # all 12 task-arms in this condition's single file
         assert len(rows) == 12 * 5  # 12 arms × k=5
@@ -123,9 +125,9 @@ def test_realized_order_matches_the_frozen_pure_order(tmp_path, monkeypatch):
         base_tasks=("f1", "f2", "f3"),
         k=5,
     )
-    assert [
-        (u["model"], u["task_id"], u["repetition"]) for u in realized
-    ] == [(u.model, u.task_id, u.repetition) for u in expected]
+    assert [(u["model"], u["task_id"], u["repetition"]) for u in realized] == [
+        (u.model, u.task_id, u.repetition) for u in expected
+    ]
 
 
 # --- shared stub: 12 arm-tasks with ids matching the dataset builder ----------
@@ -232,7 +234,12 @@ def test_per_arm_pass_pow_k_separates_by_task_id_no_report_change():
 
     # f1: bare fails, prompt/feedback/both pass (k=2 each, all-pass = reliable).
     runs = []
-    for arm, ok in (("bare", False), ("prompt", True), ("feedback", True), ("both", True)):
+    for arm, ok in (
+        ("bare", False),
+        ("prompt", True),
+        ("feedback", True),
+        ("both", True),
+    ):
         for i in range(2):
             runs.append(_run(f"f-f1-{arm}", ok, i))
     # pass_pow_k over the 4 task-arms: 3 of 4 are all-pass → 0.75.

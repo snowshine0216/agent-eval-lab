@@ -20,9 +20,14 @@ from agent_eval_lab.calibrate.packet import (
     packet_to_jsonl,
     render_agreement_report,
 )
+from agent_eval_lab.experiments.ablation_order import RunUnit, ablation_run_order
 from agent_eval_lab.experiments.evaluator_config import (
     health_probe,
     load_evaluator_config,
+)
+from agent_eval_lab.experiments.f_ablation_spec import (
+    ABLATION_SEED,
+    build_f_ablation_spec,
 )
 from agent_eval_lab.experiments.m1_run import run_m1
 from agent_eval_lab.experiments.pricing import load_pricing
@@ -33,11 +38,6 @@ from agent_eval_lab.experiments.schema import (
     MetricDef,
     MultiplicityFamily,
     PlannedComparison,
-)
-from agent_eval_lab.experiments.ablation_order import RunUnit, ablation_run_order
-from agent_eval_lab.experiments.f_ablation_spec import (
-    ABLATION_SEED,
-    build_f_ablation_spec,
 )
 from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
@@ -58,6 +58,12 @@ from agent_eval_lab.runners.config import (
     condition_id,
     resolve_proxy,
 )
+from agent_eval_lab.runners.f_candidate import (
+    build_candidate_tree,
+    grade_f_attempt,
+    make_edit_task,
+    make_f_run_fn,
+)
 from agent_eval_lab.runners.multi_run import (
     ReplacementOutcome,
     TrialAttempt,
@@ -66,12 +72,6 @@ from agent_eval_lab.runners.multi_run import (
 from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
-from agent_eval_lab.runners.f_candidate import (
-    build_candidate_tree,
-    grade_f_attempt,
-    make_edit_task,
-    make_f_run_fn,
-)
 from agent_eval_lab.tasks.schema import LlmJudgeSpec, Task
 
 

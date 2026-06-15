@@ -18,11 +18,7 @@ def test_total_coverage_each_unit_exactly_once_at_k5():
     assert all(c == 1 for c in counts.values())  # no dup
     # exactly each (model × base × arm × rep) present once
     expected = {
-        (m, b, a, r)
-        for m in _MODELS
-        for b in _BASES
-        for a in ARMS
-        for r in range(5)
+        (m, b, a, r) for m in _MODELS for b in _BASES for a in ARMS for r in range(5)
     }
     assert set(counts) == expected
 

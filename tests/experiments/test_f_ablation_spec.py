@@ -93,7 +93,9 @@ def test_freeze_ablation_policy_is_deterministic_and_hashes_the_seed():
 
 def test_building_the_ablation_spec_does_not_touch_m1():
     # m1's frozen spec still verifies after we build/freeze the ablation spec.
-    m1 = freeze_spec(build_m1_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr"))
+    m1 = freeze_spec(
+        build_m1_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
+    )
     _ = freeze_spec(
         build_f_ablation_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
     )
