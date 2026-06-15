@@ -162,6 +162,20 @@ def test_make_edit_task_without_flag_keeps_unmodified_edit_system() -> None:
     assert _FACTOR_P_BLOCK not in sys
 
 
+def test_make_edit_task_offers_run_tests_only_on_v_arms() -> None:
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    non_v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    assert "run_tests" in v_edit.input.available_tools
+    # the edit tools are still all present on the V arm (run_tests is ADDED, not swapped)
+    for name in F_EDIT_TOOL_NAMES:
+        assert name in v_edit.input.available_tools
+    assert "run_tests" not in non_v_edit.input.available_tools
+
+
 # ---- run_f_candidate (stubbed model) --------------------------------------
 
 
