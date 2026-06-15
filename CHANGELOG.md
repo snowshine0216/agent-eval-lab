@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.5 — 2026-06-15
+
+### Added — Factor V confined-execution sandbox (harness-rounds-f-ablation step 5)
+
+- **Confined `node --test` execution** (`runners/sandboxed_node_edge.py`): a new edge runs the model's
+  own authored tests (`tests/authored/`) under a macOS `sandbox-exec` seatbelt profile that is
+  **deny-default with an explicit read-allowlist** (candidate temp tree + node install dir + enumerated
+  system paths only), `(deny network*)`, and write-only-in-tree — so model JS cannot read the held-out
+  oracle (`evaluator-only/`) and exfiltrate it (the in-trajectory stdout-leak channel). The read
+  allowlist (not a broad allow) is the boundary; `file-read-metadata` is scoped (no golden size/mtime
+  oracle); the node install dir is asserted disjoint from `evaluator-only/`. The trusted oracle path
+  (`runners/node_edge.py`) and the frozen `truncate_output` contract are untouched. macOS-only by
+  design (Darwin + sandbox-exec probe); CI injects a fake executor.
+- **`make_authored_test_executor`** runs the fixed `node --test tests/authored/` (model-supplied
+  commands rejected; reserved-path provenance + sandbox security boundary), wired into `make_f_run_fn`
+  so V arms route to it on macOS (off-macOS raises; `bare`/`prompt` keep `executor=None`).
+- **Versioned V feedback record** (`records/node_feedback.py`): distinct `NodeFeedbackResult` +
+  **tail-aware** rendering (node failure summary prints at the end), leaving the oracle's head-truncated
+  `ExecutionResult` byte-stable. V-specific node-accurate `run_tests` ToolDef (`CODE_WORLD_TOOLS_V`);
+  the shared pytest-worded ToolDef is unchanged.
+- A macOS integration test asserts the sandbox **blocks** an `evaluator-only/` read + a network call and
+  still runs a benign in-tree authored test. ADR-0016.
+
 ## v0.2.4 — 2026-06-15
 
 ### Added — F candidate-tree enrichment + overlay-disjointness (harness-rounds-f-ablation step 4)
