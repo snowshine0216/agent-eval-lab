@@ -55,7 +55,7 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 |------|--------|
 | run-doc-sync | ✅ `run-doc-sync.md` PASS |
 | run-final-verify | ✅ `run-final-verify.md` PASS |
-| run-close-out | 🔄 |
+| run-close-out | ✅ feature→main PR [#32](https://github.com/snowshine0216/agent-eval-lab/pull/32) opened (not merged) |
 
 ## Log
 - 2026-06-15 — **Item 006 MERGED** (PR [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31)
@@ -128,5 +128,28 @@ protection blocked it; never reached GitHub, but it was committed locally then p
   real field (CF1/CF2 in `items/001-review.md`).
 
 ## Final status block (filled at close-out)
+- **Run complete: 6/6 IN items MERGED** into the feature branch (Part G steps 1–6, infra/code).
+  001 #26 `a2a4be1` · 002 #27 `420cc69` · 003 #28 `40e4f26` · 004 #29 `51a422a` · 005 #30 `c837cde` ·
+  006 #31 `0b83ebf`. Final feature head: `1eca397` (+ this close-out commit). v0.2.6.
 - Feature branch: `autodev/harness-rounds-f-ablation-feature`
-- Merged into protected branch: no (left open for user review)
+- **Feature-branch PR: [#32](https://github.com/snowshine0216/agent-eval-lab/pull/32)** (feature→`main`, **opened, NOT merged** — review surface)
+- Merged into protected branch: **no** (PR left open for user review; `main` protected, no opt-in)
+- **Phase 3:** workflow-completeness audit PASS (6/6 ship+drift+verify+review+pr-review; grill ⏭️ per
+  user authoring override; qa=0 non-web XOR; all verdict markers valid) · doc-sync PASS · final-verify
+  PASS · cross-branch diff additive-only (no deletions) · suite 1095 passed / 18 skipped / 0 failed ·
+  ruff clean.
+- **SKIPPED (OUT-scope, deferred — see SKIPPED.md):** step-6 *execution* (pilot ≈24 + full 240-attempt
+  paid run; trigger via `run-f-ablation`), step-7 descriptive report, Part F held-out F4–F6.
+- **Notable in-flow fixes:** 003 latent-P0 F3 dispatch + CI-red ruff; 005 sandbox metadata-oracle +
+  NODE_BIN injection (15 adversarial escape vectors all blocked); 006 paid-run driver crash-safety.
+
+### ⚠️ User action items
+- **Rotate the OpenRouter API key** that was in `.env.bak.1781491343` (item-002 incident; push
+  protection blocked it — never reached GitHub, but committed locally then purged).
+- **Your parallel worktree edits during this run** were preserved, never staged into any autodev PR:
+  - `docs/superpowers/specs/2026-06-15-m1-report-enhancement-design.md` (your draft; rebased off the
+    005 branch, left untracked on disk; backup `/tmp/m1-report-enhancement-design.md`).
+  - `src/agent_eval_lab/reports/validation.py` + `tests/reports/test_validation.py` (uncommitted,
+    self-consistent — restored after each merge-sync via stash; commit them where you intend).
+  - A CONTEXT.md "out-of-scope edit" glossary diff backup at `/tmp/context-out-of-scope-edit-glossary.diff`
+    (if your committed CONTEXT.md already has it, ignore).
