@@ -40,13 +40,30 @@ Each run is incremental (per-task flush) + writes a `<runs>.void.json` sidecar (
 crashed/killed arm keeps its completed tasks; just re-run that arm (it truncates + restarts cleanly).
 `gpt-5.5` stays SKIPPED (region/ToS — see SKIPPED.md).
 
-## 2. F-domain candidate runs (after the condition_id wiring)
-⚠️ **Pre-req:** wire the real per-arm condition_id through `run_m1`'s F branch — see
-`items/009-plan.md` → "## Execute-phase follow-ups" (`f_run._grade_tree` currently stubs
-`condition_id="(f-local)"`). Until then F outcomes can't be attributed per arm.
-F is env-free (no live infra) — the candidate produces a file tree, the node oracle grades it. Run F
-across the same roster via `run-m1` (it builds D + F domain tasks). Candidate `web-dossier` checkout
-stays pinned at `5b0c13a6` (never `m2021` HEAD — D32).
+## 2. F-domain candidate runs — BUILT + RUNNABLE via `run-f` (no longer deferred)
+✅ **Pre-req done** (#24): per-arm condition_id is threaded through `run_f`/`run_m1`.
+✅ **Execute path built** (`runners/f_candidate.py` + `run-f` CLI, ADR-0015): the candidate
+model **actually edits** the pinned `web-dossier` checkout via pure code-world file-edit tools
+(`read_file`/`list_files`/`str_replace`/`write_file`), and the held-out node oracle grades the
+model's PRODUCED tree, preserving real tokens/rounds/cost. (009's `run_m1` F branch only graded the
+deterministic base tree — a stub; do NOT use `run-m1` for the real F eval, and it also re-runs the
+live D-set.) F is env-free (no live infra); each F task runs k INDEPENDENT model attempts, every
+attempt valid (no VOID). Base pinned at `5b0c13a6` (never `m2021` HEAD — D32); the golden grading
+test is never seeded into the candidate tree (D19).
+
+Run all 5 non-local arms (parallel; each writes `runs-m1-<slug>-F.jsonl` + empty `.void.json`):
+```bash
+for spec in "deepseek|--provider deepseek" \
+            "glm|--provider glm" \
+            "minimax|--provider minimax" \
+            "qwen35-397b|--provider siliconflow --model Qwen/Qwen3.5-397B-A17B" \
+            "qwen36-35b|--provider siliconflow --model Qwen/Qwen3.6-35B-A3B"; do
+  flags="${spec#*|}"
+  uv run python -m agent_eval_lab.cli run-f $flags \
+    --evaluator-config evaluator.toml --out reports/agentic-v1 &
+done; wait
+```
+`local:Qwen/Qwen3-8B` would just add `--provider local` (needs ollama up). `gpt-5.5` stays SKIPPED.
 
 ## 3. B-domain + M2 (010 MERGED — PR #21, `4e57bc4`) — live MSTR
 010 landed the deterministic machinery (injectable `MstrReadbackClient` Protocol, per-run isolation

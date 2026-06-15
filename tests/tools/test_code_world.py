@@ -29,11 +29,12 @@ BAD_PATHS = [
 ]
 
 
-def test_registry_is_exactly_the_four_tools_with_closed_schemas() -> None:
+def test_registry_is_exactly_the_five_tools_with_closed_schemas() -> None:
     assert sorted(CODE_WORLD_TOOLS) == [
         "list_files",
         "read_file",
         "run_tests",
+        "str_replace",
         "write_file",
     ]
     for name, tool in CODE_WORLD_TOOLS.items():
@@ -443,3 +444,71 @@ def test_prefix_collision_is_the_public_shared_predicate() -> None:
     assert prefix_collision("Tests/test_app.py", "tests/test_app.py") is True
     assert prefix_collision("tests/test_app.py", "tests/test_app.py") is False
     assert prefix_collision("tests/a.py", "tests/b.py") is False
+
+
+# --- str_replace: targeted single-occurrence edit (F-domain repo fixes) ---
+
+
+def test_str_replace_replaces_unique_occurrence_without_mutating_input() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="str_replace",
+        arguments={
+            "path": "calc.py",
+            "old_str": "return a - b",
+            "new_str": "return a + b",
+        },
+        state=STATE,
+    )
+    assert outcome == ToolSuccess(result={"path": "calc.py", "replaced": True})
+    assert state["files"]["calc.py"] == "def add(a, b):\n    return a + b\n"
+    # input state is never mutated (immutability contract)
+    assert STATE["files"]["calc.py"] == "def add(a, b):\n    return a - b\n"
+
+
+def test_str_replace_missing_file_is_tool_failure() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="str_replace",
+        arguments={"path": "nope.py", "old_str": "a", "new_str": "b"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert outcome == ToolFailure(error="no such file: nope.py")
+
+
+def test_str_replace_absent_old_str_is_tool_failure() -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="str_replace",
+        arguments={"path": "calc.py", "old_str": "not present", "new_str": "x"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)
+    assert "not found" in outcome.error
+
+
+def test_str_replace_ambiguous_old_str_is_tool_failure() -> None:
+    multi = {"files": {"d.py": "x = 1\nx = 1\n"}}
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="str_replace",
+        arguments={"path": "d.py", "old_str": "x = 1", "new_str": "x = 2"},
+        state=multi,
+    )
+    assert state == multi
+    assert isinstance(outcome, ToolFailure)
+    assert "not unique" in outcome.error
+
+
+@pytest.mark.parametrize("path", BAD_PATHS)
+def test_str_replace_rejects_non_canonical_paths(path: str) -> None:
+    state, outcome = apply(
+        registry=CODE_WORLD_TOOLS,
+        name="str_replace",
+        arguments={"path": path, "old_str": "a", "new_str": "b"},
+        state=STATE,
+    )
+    assert state == STATE
+    assert isinstance(outcome, ToolFailure)

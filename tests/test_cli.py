@@ -1571,3 +1571,275 @@ def test_load_m1_domain_tasks_includes_b_when_store_present(tmp_path, monkeypatc
     domain_tasks = cli._load_m1_domain_tasks(args=None, cfg=cfg)
     assert "B" in domain_tasks
     assert {t.id for t in domain_tasks["B"]} == {"b-b1-noskill", "b-b1-skill"}
+
+
+def test_run_f_writes_m1_f_runs_and_void_sidecar(tmp_path: Path, monkeypatch) -> None:
+    """item: run-f drives the F-domain candidate-edit eval for one arm and writes
+    runs-m1-<slug>-F.jsonl (+ empty .void.json — F is env-free, never VOID) so
+    report-m1 consumes it directly, exactly like the D-set artifacts."""
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import f_tasks as f_tasks_mod
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners import f_candidate
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    store = tmp_path / "store"
+    store.mkdir()
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
+        runner=RunnerConfig(safety_cap=200, k_valid=3, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(f_tasks_mod, "build_f_tasks", lambda **_k: ("F1", "F2", "F3"))
+
+    captured: dict = {}
+
+    def _run(tid: str, i: int) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="deepseek:deepseek-v4-pro",
+            run_index=i,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=5, completion_tokens=3, latency_s=0.1),
+                run_index=i,
+                stop_reason="completed_natural",
+                final_state={"files": {}},
+            ),
+            grade=GradeResult(
+                grader_id="node_execution",
+                passed=(tid == "f-f1"),
+                score=1.0,
+                evidence={},
+                failure_reason=None,
+            ),
+        )
+
+    def fake_run_f_candidate(**kwargs):
+        captured.update(kwargs)
+        for tid in ("f-f1", "f-f2"):
+            runs = tuple(_run(tid, i) for i in range(kwargs["k"]))
+            yield ReplacementOutcome(
+                valid_runs=runs,
+                attempts=tuple(
+                    TrialAttempt(attempt_index=i, valid=True, run=r)
+                    for i, r in enumerate(runs)
+                ),
+                void=False,
+            )
+
+    monkeypatch.setattr(f_candidate, "run_f_candidate", fake_run_f_candidate)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-f",
+            "--provider",
+            "deepseek",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    # k flows from cfg.runner.k_valid; condition_id is the provider:model id
+    assert captured["k"] == 3
+    assert captured["condition_id"] == "deepseek:deepseek-v4-pro"
+    runs_path = out / "runs-m1-deepseek-deepseek-v4-pro-F.jsonl"
+    rows = [
+        json.loads(line) for line in runs_path.read_text().splitlines() if line.strip()
+    ]
+    assert {r["task_id"] for r in rows} == {"f-f1", "f-f2"}
+    assert len(rows) == 6  # 2 tasks x k=3 valid runs each
+    sidecar = json.loads(runs_path.with_suffix(".void.json").read_text())
+    assert sidecar["void_task_ids"] == []  # env-free: F never voids
+
+
+def test_run_f_model_override_changes_condition_slug(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import f_tasks as f_tasks_mod
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.runners import f_candidate
+
+    store = tmp_path / "store"
+    store.mkdir()
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="c", password="p"),
+        runner=RunnerConfig(safety_cap=200, k_valid=1, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli", project_id="X", goldens={"B-1": "g"}
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(f_tasks_mod, "build_f_tasks", lambda **_k: ())
+    captured: dict = {}
+
+    def fake_run_f_candidate(**kwargs):
+        captured.update(kwargs)
+        return iter(())
+
+    monkeypatch.setattr(f_candidate, "run_f_candidate", fake_run_f_candidate)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-f",
+            "--provider",
+            "siliconflow",
+            "--model",
+            "Qwen/Qwen3.6-35B-A3B",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 0
+    assert captured["condition_id"] == "siliconflow:Qwen/Qwen3.6-35B-A3B"
+    assert (out / "runs-m1-siliconflow-Qwen-Qwen3.6-35B-A3B-F.jsonl").exists()
+
+
+def _run_with_provider_error(task: str, idx: int):
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import (
+        PROVIDER_ERROR,
+        ParseFailure,
+        Trajectory,
+        Usage,
+    )
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=idx,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(raw="HTTP 403: balance", error=PROVIDER_ERROR),
+    )
+    return RunResult(
+        task_id=task,
+        condition_id="c",
+        run_index=idx,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=False, score=0.0, evidence={}, failure_reason=None
+        ),
+    )
+
+
+def _run_ok(task: str, idx: int, passed: bool = True):
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+        run_index=idx,
+        stop_reason="completed_natural",
+    )
+    return RunResult(
+        task_id=task,
+        condition_id="c",
+        run_index=idx,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=passed, score=1.0, evidence={}, failure_reason=None
+        ),
+    )
+
+
+def test_outcomes_from_runs_masks_provider_error_as_env_invalid() -> None:
+    """A provider HTTP rejection (403/429) is env-invalid — excluded from
+    valid_runs and flagged invalid in attempts — never scored as a model fail."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+
+    runs = [_run_ok("A", 0), _run_ok("A", 1), _run_with_provider_error("A", 2)]
+    [o] = _outcomes_from_runs(runs)
+    assert len(o.valid_runs) == 2  # the provider-error run is masked out
+    assert sum(1 for a in o.attempts if not a.valid) == 1
+
+
+def test_outcomes_from_runs_voids_task_without_k_valid_after_provider_errors() -> None:
+    """With k known, a task that could not obtain k clean trials (provider errors)
+    is INCOMPLETE -> VOID -> excluded from pass^k (never scored over <k, D34)."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+
+    # task B: 5 attempts, 3 provider-rejected -> only 2 valid < k=5 -> VOID
+    runs = (
+        [_run_ok("B", i) for i in range(2)]
+        + [_run_with_provider_error("B", i) for i in range(2, 5)]
+        # task A: 5 clean valid -> not void
+        + [_run_ok("A", i) for i in range(5)]
+    )
+    outcomes = _outcomes_from_runs(runs, k=5)
+    by_first = {(o.attempts[0].run.task_id if o.attempts else "?"): o for o in outcomes}
+    assert by_first["A"].void is False and len(by_first["A"].valid_runs) == 5
+    assert by_first["B"].void is True  # 2 valid < k=5, under-powered by provider errors
+    assert len(by_first["B"].valid_runs) == 2
+
+
+def test_outcomes_from_runs_genuine_model_parse_failure_stays_valid() -> None:
+    """A real model parse failure (unusable reply) is a model miss, NOT env-invalid:
+    it stays a valid (failed) trial so pass^k still penalizes the model."""
+    from agent_eval_lab.cli import _outcomes_from_runs
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import ParseFailure, Trajectory, Usage
+
+    t = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=3, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(
+            raw="{}", error="assistant message has neither content nor tool_calls"
+        ),
+    )
+    run = RunResult(
+        task_id="A",
+        condition_id="c",
+        run_index=0,
+        trajectory=t,
+        grade=GradeResult(
+            grader_id="g", passed=False, score=0.0, evidence={}, failure_reason=None
+        ),
+    )
+    [o] = _outcomes_from_runs([run], k=5)
+    assert len(o.valid_runs) == 1  # model parse failure is a valid (failed) trial
+    assert o.void is True  # but still <k valid -> under-powered -> VOID

@@ -36,7 +36,7 @@ from agent_eval_lab.experiments.schema import (
 )
 from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
-from agent_eval_lab.records.grade import GradeResult, RunResult
+from agent_eval_lab.records.grade import GradeResult, RunResult, is_env_invalid_run
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
 from agent_eval_lab.reports.comparison import build_comparison_report
@@ -821,6 +821,86 @@ def _run_dset_command(
     return 0
 
 
+def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -> int:
+    """EDGE: run ONE arm over the F-domain (web-dossier repo fixes) via the
+    candidate-edit loop + held-out node oracle.
+
+    Standalone per-arm (run-dset parity) so F can be run without re-triggering the
+    live D-set. env-free: no live infra, no health probe, no VOID. Writes
+    runs-m1-<slug>-F.jsonl (+ an empty .void.json) so report-m1 consumes it like
+    any other domain artifact."""
+    from agent_eval_lab.datasets.f_tasks import build_f_tasks
+    from agent_eval_lab.runners.f_candidate import (
+        build_candidate_tree,
+        make_f_run_fn,
+        run_f_candidate,
+    )
+
+    cfg = load_evaluator_config(args.evaluator_config)
+    store = Path(cfg.store.path)
+
+    config = PROVIDERS[args.provider]
+    if args.model:
+        config = replace(config, model_id=args.model)
+    cond = condition_id(config)
+
+    tasks = build_f_tasks(evaluator_store=store / "web-dossier-golden")
+    f_repo = Path.home() / "Documents/Repository/web-dossier"
+    client = http_client or httpx.Client(
+        timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+    )
+
+    run_fn = make_f_run_fn(
+        config=config,
+        http_client=client,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        condition_id=cond,
+        safety_cap=cfg.runner.safety_cap,
+    )
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / f"runs-m1-{_slug(cond)}-F.jsonl"
+    void_ids: list[str] = []
+    try:
+        with path.open("w") as fh:
+            for outcome in run_f_candidate(
+                tasks=tasks,
+                k=cfg.runner.k_valid,
+                condition_id=cond,
+                build_tree_fn=lambda task: build_candidate_tree(task, repo=f_repo),
+                run_fn=run_fn,
+            ):
+                _append_runs(fh, outcome.valid_runs)
+                if outcome.void:
+                    tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                    void_ids.append(tid)
+                    print(
+                        f"[void] F task {tid}: fewer than k clean trials — provider "
+                        "errors masked (env-invalid); excluded from pass^k (D34).",
+                        file=sys.stderr,
+                    )
+    except httpx.TransportError as exc:
+        hint = " — is the server running?" if config.id == "local" else ""
+        print(
+            f"error: cannot reach provider {config.id!r} at {config.base_url} "
+            f"({type(exc).__name__}: {exc}){hint}",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        if http_client is None:
+            client.close()
+    # The node oracle is env-free (a clean trial is always valid), but a provider
+    # HTTP rejection on the model call is env-invalid: such a task voids if it
+    # cannot reach k clean trials. The sidecar records those for report-m1's replay.
+    path.with_suffix(".void.json").write_text(
+        json.dumps({"void_task_ids": void_ids}), encoding="utf-8"
+    )
+    print(path)
+    return 0
+
+
 def _load_m1_domain_tasks(args, cfg) -> dict:
     """Build the per-domain task map.
     D = CMC docs tasks; F = web-dossier repo-fix tasks (009); B = MSTR readback
@@ -972,13 +1052,23 @@ def _parse_domain_runs_spec(spec: str) -> tuple[str, str, Path]:
 
 
 def _outcomes_from_runs(
-    results: Sequence[RunResult], void_task_ids: frozenset[str] = frozenset()
+    results: Sequence[RunResult],
+    void_task_ids: frozenset[str] = frozenset(),
+    *,
+    k: int | None = None,
 ) -> tuple[ReplacementOutcome, ...]:
     """One ReplacementOutcome per task_id. The run path writes only valid runs;
     a task listed in the run's `.void.json` sidecar is marked void=True (D34
     INCOMPLETE) with whatever partial valid runs it produced — including the
     zero-valid case (a fully-void task has no JSONL rows but is restored from the
-    sidecar). Without a sidecar (legacy artifacts) every task is non-void (L2)."""
+    sidecar). Without a sidecar (legacy artifacts) every task is non-void (L2).
+
+    Env-validity mask: a PROVIDER-side failure (`is_env_invalid_run` — a rejected
+    /chat/completions or empty choices) is masked out of `valid_runs` and flagged
+    invalid in `attempts`, never scored as a model failure. When `k` is given, a
+    task that could not obtain `k` clean trials is INCOMPLETE -> void (never scored
+    over <k, D34) — this is the F-domain analogue of the D-set health-probe mask
+    for the env-free run path, which has no live probe."""
     by_task: dict[str, list[RunResult]] = {}
     for r in results:
         by_task.setdefault(r.task_id, []).append(r)
@@ -986,11 +1076,16 @@ def _outcomes_from_runs(
     for tid in sorted(set(by_task) | set(void_task_ids)):
         runs = tuple(by_task.get(tid, ()))
         attempts = tuple(
-            TrialAttempt(attempt_index=i, valid=True, run=r) for i, r in enumerate(runs)
+            TrialAttempt(attempt_index=i, valid=not is_env_invalid_run(r), run=r)
+            for i, r in enumerate(runs)
         )
+        valid_runs = tuple(r for r in runs if not is_env_invalid_run(r))
+        under_powered = bool(runs) and k is not None and len(valid_runs) < k
         outcomes.append(
             ReplacementOutcome(
-                valid_runs=runs, attempts=attempts, void=tid in void_task_ids
+                valid_runs=valid_runs,
+                attempts=attempts,
+                void=(tid in void_task_ids) or under_powered,
             )
         )
     return tuple(outcomes)
@@ -1021,7 +1116,7 @@ def _run_report_m1(args: argparse.Namespace) -> int:
             return 1
         results = _load_run_results(path) if path.exists() else []
         outcomes.setdefault(cond, {})[domain] = _outcomes_from_runs(
-            results, _void_task_ids_for(path)
+            results, _void_task_ids_for(path), k=spec.k
         )
     report = build_m1_report(
         spec=spec,
@@ -1178,6 +1273,17 @@ def _build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--temperature", type=float, default=0.0)
     rd.add_argument("--max-tokens", type=int, default=4096)
 
+    rf2 = subparsers.add_parser(
+        "run-f",
+        help="run one arm over the F-domain (web-dossier repo fixes) — env-free",
+    )
+    rf2.add_argument("--provider", required=True, choices=sorted(PROVIDERS))
+    rf2.add_argument("--model", help="override the provider's default model id")
+    rf2.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rf2.add_argument("--out", type=Path, default=Path("reports"))
+    rf2.add_argument("--temperature", type=float, default=0.0)
+    rf2.add_argument("--max-tokens", type=int, default=16384)
+
     rmm = subparsers.add_parser(
         "run-m1", help="orchestrate M1 conditions × domains over the runners"
     )
@@ -1234,6 +1340,8 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_compare_configs(args)
     if args.command == "run-dset":
         return _run_dset_command(args, http_client)
+    if args.command == "run-f":
+        return _run_f_command(args, http_client)
     if args.command == "report-m1":
         return _run_report_m1(args)
     if args.command == "run-m1":

@@ -53,6 +53,25 @@ CODE_WORLD_TOOLS: Mapping[str, ToolDef] = {
             "additionalProperties": False,
         },
     ),
+    "str_replace": ToolDef(
+        name="str_replace",
+        description=(
+            "Replace the single, unique occurrence of old_str with new_str in an "
+            "existing file. Fails if the file is absent, old_str is missing, or "
+            "old_str appears more than once (include surrounding context to make "
+            "it unique). Preferred over write_file for edits to large files."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": _PATH_SCHEMA,
+                "old_str": {"type": "string"},
+                "new_str": {"type": "string"},
+            },
+            "required": ["path", "old_str", "new_str"],
+            "additionalProperties": False,
+        },
+    ),
     "list_files": ToolDef(
         name="list_files",
         description="List every file path in the tree, sorted.",
@@ -187,6 +206,34 @@ def _write_file(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutco
     return new_state, ToolSuccess(result={"path": path, "created": created})
 
 
+def _str_replace(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
+    """Replace the unique occurrence of old_str with new_str in an existing file.
+
+    A targeted edit primitive for large files where a full write_file rewrite is
+    wasteful and truncation-prone. Uniqueness is required so the edit is never
+    ambiguous; same immutability contract as write_file (returns new state).
+    """
+    path = args["path"]
+    error = path_error(path)
+    if error is not None:
+        return state, ToolFailure(error=error)
+    files = _files(state)
+    content = files.get(path)
+    if content is None:
+        return state, ToolFailure(error=f"no such file: {path}")
+    old_str = args["old_str"]
+    count = content.count(old_str)
+    if count == 0:
+        return state, ToolFailure(error=f"str_replace: old_str not found in {path}")
+    if count > 1:
+        return state, ToolFailure(
+            error=f"str_replace: old_str not unique in {path} ({count} occurrences)"
+        )
+    new_content = content.replace(old_str, args["new_str"], 1)
+    new_state = {**state, "files": {**files, path: new_content}}
+    return new_state, ToolSuccess(result={"path": path, "replaced": True})
+
+
 def _list_files(args: Mapping[str, Any], state: State) -> tuple[State, ToolOutcome]:
     return state, ToolSuccess(result={"paths": sorted(_files(state))})
 
@@ -203,6 +250,7 @@ ToolImpl = Callable[
 _IMPLS: Mapping[str, ToolImpl] = {
     "read_file": _read_file,
     "write_file": _write_file,
+    "str_replace": _str_replace,
     "list_files": _list_files,
     "run_tests": _run_tests,
 }
