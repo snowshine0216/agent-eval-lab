@@ -512,3 +512,36 @@ def test_str_replace_rejects_non_canonical_paths(path: str) -> None:
     )
     assert state == STATE
     assert isinstance(outcome, ToolFailure)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: V-specific node-accurate run_tests ToolDef + CODE_WORLD_TOOLS_V
+# Consumer audit: the shared CODE_WORLD_TOOLS (pytest-worded run_tests) is
+# consumed by worlds.py/code_repair/loop_effects; V path needs a separate
+# node-accurate ToolDef — do NOT mutate the shared one.
+# ---------------------------------------------------------------------------
+
+
+def test_v_run_tests_tooldef_is_node_accurate() -> None:
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
+
+    desc = CODE_WORLD_TOOLS_V["run_tests"].description
+    assert "pytest" not in desc.lower()
+    assert "authored" in desc.lower()
+    assert "node" in desc.lower()
+
+
+def test_shared_run_tests_tooldef_is_unchanged_pytest_wording() -> None:
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
+
+    # the python/D-set path keeps its pytest wording — V must not have mutated it
+    assert "pytest" in CODE_WORLD_TOOLS["run_tests"].description.lower()
+
+
+def test_v_registry_shares_edit_tools_with_base() -> None:
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS, CODE_WORLD_TOOLS_V
+
+    for name in ("read_file", "write_file", "str_replace", "list_files"):
+        assert CODE_WORLD_TOOLS_V[name] is CODE_WORLD_TOOLS[name]
+    # only run_tests differs
+    assert CODE_WORLD_TOOLS_V["run_tests"] is not CODE_WORLD_TOOLS["run_tests"]
