@@ -18,6 +18,30 @@ column). `grill` is ⏭️ for every item per the user's authoring override (MAS
 authored by extraction (brainstorming subagent skipped) — ✅ means the extract exists with
 Goal + Acceptance.
 
+## ⏸ PAUSED at 2/6 — resume guide (next session)
+
+**Status:** items 001 + 002 merged into the feature branch; items **003–006 not started**. Paused at
+the user's request (2026-06-15) to resume in a fresh session. Feature branch is clean, green
+(1021 passed / 17 skipped), pushed; no leftover (secret + stray `learning/` removed & gitignored).
+
+**To resume** (the run is resumable from disk — `.autodev-current` points here):
+1. `git switch autodev/harness-rounds-f-ablation-feature && git pull` (head was `b69e403`).
+2. Re-invoke `/autodev docs/2026-06-15-harness-rounds-f-ablation` (or continue manually). Mode=backlog,
+   non-web, PR shape A, skip brainstorm+grill per the original user override (see MASTER-PLAN.md).
+3. Next item = **003** (Arm-as-task + Factor P). Then 004 (tree enrichment), 005 (V seatbelt sandbox —
+   security-sensitive, macOS-only), 006 (run-f-ablation driver + frozen f_ablation_spec). Item order
+   is locked in MASTER-PLAN.md from design Part G. Step-6 paid execution + step-7 report stay OUT
+   (SKIPPED.md).
+4. Per-item loop: extract spec → Opus plan → branch `claude/harness-rounds-f-ablation-00N` → Sonnet
+   impl → drift → /ship (base=feature, **stage only own files — no broad `git add`**) → /verify +
+   /code-review → fix → squash-merge → sync local feature.
+5. **Carry-forward into item 003+ planning:** none open from 002 (CF1/CF2 retired). Watch the F
+   resolver-bypass note (002-review.md) — item 003 introduces F task-arms, so revisit whether per-task
+   F `max_rounds` should route through `resolve_max_rounds`.
+
+**⚠️ Action for the user:** rotate the OpenRouter API key that was in `.env.bak.1781491343` (push
+protection blocked it; never reached GitHub, but it was committed locally then purged).
+
 ## Item titles
 - **001** — fc-v4 classifier + pass^k censoring + re-emit reports (Part G step 1)
 - **002** — `max_rounds` plumbing + recorded policy fields (Part G step 2)
@@ -34,6 +58,10 @@ Goal + Acceptance.
 | run-close-out | ⏳ |
 
 ## Log
+- 2026-06-15 — **PAUSED at 2/6 per user.** Feature branch `autodev/harness-rounds-f-ablation-feature`
+  clean + green (1021 passed) at `b69e403`, left open (NOT merged to main — only 2/6 done, no opt-in).
+  Untracked + gitignored stray `learning/` study artifacts swept in by a broad `git add`. Resume guide
+  above. Items 003–006 not started.
 - 2026-06-15 — Intake: mode=backlog, non-web, PR shape A. User-locked scope (infra, steps 1–6 code;
   paid run + report deferred) and authoring (skip brainstorm+grill). Synthesized feature branch
   `autodev/harness-rounds-f-ablation-feature` off `main` (main protected, no opt-in). Design
