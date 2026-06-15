@@ -207,6 +207,49 @@ def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
     assert o.void is True  # only 2 < k=5 clean trials -> INCOMPLETE
 
 
+def test_make_f_run_fn_forwards_max_rounds(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    _config = ProviderConfig(
+        id="local", base_url="http://localhost:11434/v1", api_key_env="", model_id="m"
+    )
+    import httpx
+
+    def _noop_handler(r):
+        return httpx.Response(200, json={})
+
+    _client = httpx.Client(transport=httpx.MockTransport(_noop_handler))
+
+    captured = {}
+
+    def fake_run_single(**kwargs):
+        captured["max_rounds"] = kwargs.get("max_rounds")
+        captured["safety_cap"] = kwargs.get("safety_cap")
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+
+    run_fn = fc.make_f_run_fn(
+        config=_config,
+        http_client=_client,
+        temperature=0.0,
+        max_tokens=4096,
+        condition_id="cond__bare",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    run_fn(_fake_task(), 0)
+    assert captured["max_rounds"] == 40
+    assert captured["safety_cap"] == 200
+
+
 # ---- build_candidate_tree (integration: real repo at pinned base) ---------
 
 

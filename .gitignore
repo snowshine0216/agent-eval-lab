@@ -25,3 +25,7 @@ build/
 
 # Evaluator config — creds + store path, never committed (D33/§18.4)
 evaluator.toml
+
+# Secret-bearing local backups (never commit) — added after push-protection block
+.env.bak*
+*.bak

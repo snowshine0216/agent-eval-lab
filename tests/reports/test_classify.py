@@ -566,3 +566,33 @@ def test_e2_legacy_max_steps_still_step_exhaustion() -> None:
 
 def test_e3_passed_uncapped_still_passes() -> None:
     _is(classify_run(_run(passed=True)), "passed", None)
+
+
+def test_passed_but_max_rounds_capped_classifies_budget_exhausted() -> None:
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.reports.classify import classify_run
+
+    traj = Trajectory(
+        turns=(MessageTurn(role="assistant", content="x"),),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="max_rounds",
+        rounds=20,
+        max_rounds_bound=True,
+    )
+    run = RunResult(
+        task_id="t",
+        condition_id="c",
+        run_index=0,
+        trajectory=traj,
+        grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
+    )
+    result = classify_run(run)
+    # budget_exhausted is a SUBCATEGORY under category "agent_failure"
+    # (classify.py: RunClassification has .category + .subcategory; fc-v4 row at
+    # _classify_grade_and_budget — a passed=True+cap_bound run falls through the
+    # row-1 guard `if run.grade.passed and not cap_bound` into the cap branch).
+    assert result.category == "agent_failure"
+    assert result.subcategory == "budget_exhausted"

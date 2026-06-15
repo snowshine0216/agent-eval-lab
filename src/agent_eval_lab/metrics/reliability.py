@@ -22,14 +22,14 @@ def _run_passes(run: RunResult) -> bool:
     """A run counts as a pass iff it graded-passed AND was not budget-capped.
 
     Enforces the pass_pow_k MetricDef's declared censoring_policy="failure"
-    (§D.1). safety_cap_bound already exists on the trajectory; max_rounds_bound
-    arrives in item 002, so it is read DEFENSIVELY (default False) — every
-    existing record (which lacks the field) is unaffected. The censor is GLOBAL
-    by design (§10.6): D/B inherit it through this shared module and the Fisher-F
-    path in comparisons.py, which both route through task_reliability.
+    (§D.1). Both safety_cap_bound and max_rounds_bound are real Trajectory
+    fields (item 002); a future rename now raises AttributeError (loud) rather
+    than silently reading False. The censor is GLOBAL by design (§10.6): D/B
+    inherit it through this shared module and the Fisher-F path in
+    comparisons.py, which both route through task_reliability.
     """
     traj = run.trajectory
-    capped = traj.safety_cap_bound or getattr(traj, "max_rounds_bound", False)
+    capped = traj.safety_cap_bound or traj.max_rounds_bound
     return run.grade.passed and not capped
 
 

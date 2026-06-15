@@ -829,6 +829,7 @@ def _run_dset_command(
                 max_invalid_rate=cfg.runner.max_invalid_rate,
                 temperature=args.temperature,
                 max_tokens=args.max_tokens,
+                safety_cap=cfg.runner.safety_cap,
                 health_probe_fn=health_probe_fn,
                 reference_sha256=reference_sha256,
                 heartbeat_fn=heartbeat_fn,
@@ -895,6 +896,8 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
         timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
     )
 
+    from agent_eval_lab.runners.round_budget import DOMAIN_MAX_ROUNDS
+
     run_fn = make_f_run_fn(
         config=config,
         http_client=client,
@@ -902,6 +905,8 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
         max_tokens=args.max_tokens,
         condition_id=cond,
         safety_cap=cfg.runner.safety_cap,
+        # F is arm-wide in this phase; per-task F overrides arrive in item 003.
+        max_rounds=DOMAIN_MAX_ROUNDS["F"],
     )
 
     args.out.mkdir(parents=True, exist_ok=True)

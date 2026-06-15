@@ -137,6 +137,7 @@ def make_f_run_fn(
     max_tokens: int,
     condition_id: str,
     safety_cap: int = 60,
+    max_rounds: int | None = None,
 ) -> Callable[[Task, int], Trajectory]:
     """Build the per-attempt model driver for one arm: run the code-world edit
     loop (no executor — the edit tools are pure; run_tests is not offered)."""
@@ -154,6 +155,7 @@ def make_f_run_fn(
             executor=None,
             run_uid=f"{condition_id}__f__{run_index:04d}",
             safety_cap=safety_cap,
+            max_rounds=max_rounds,
         )
 
     return run_fn

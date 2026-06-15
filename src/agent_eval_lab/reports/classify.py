@@ -45,8 +45,9 @@ fc-v4 changes from fc-v3
   ``passed`` short-circuit (a graded-pass that was capped is NOT a reliable
   pass — consistent with §D.1) and the oracle-status rows. Legacy ``max_steps``
   keeps its ``step_exhaustion`` bucket (a truncation, not a budget cap).
-  ``max_rounds_bound`` is read defensively (default False) — it arrives on the
-  record in item 002, and old records (no field) are unaffected (Part E.2/E.3).
+  ``max_rounds_bound`` is read via direct attribute access on the Trajectory
+  dataclass (a real field as of item 002); old records without the field are
+  unaffected via the dataclass default False (Part E.2/E.3).
 """
 
 from collections.abc import Mapping, Sequence
@@ -123,16 +124,15 @@ _CAP_STOP_REASONS = frozenset({"safety_cap", "max_rounds"})
 def _cap_bound(run: RunResult) -> bool:
     """fc-v4: did the run hit a budget cap? (safety_cap / max_rounds, §D.1/§E).
 
-    Reads the safety_cap_bound flag (already on the trajectory) and the two cap
-    stop reasons. max_rounds_bound arrives in item 002, so it is read DEFENSIVELY
-    (default False) — old records lacking the field behave exactly as before.
-    Legacy max_steps is a TRUNCATION (step_exhaustion), NOT a budget cap (D2),
-    so it is deliberately excluded here.
+    Reads the safety_cap_bound and max_rounds_bound flags (both real Trajectory
+    fields as of item 002) and the two cap stop reasons. Legacy max_steps is a
+    TRUNCATION (step_exhaustion), NOT a budget cap (D2), so it is deliberately
+    excluded here.
     """
     traj = run.trajectory
     return (
         traj.safety_cap_bound
-        or getattr(traj, "max_rounds_bound", False)
+        or traj.max_rounds_bound
         or traj.stop_reason in _CAP_STOP_REASONS
     )
 
