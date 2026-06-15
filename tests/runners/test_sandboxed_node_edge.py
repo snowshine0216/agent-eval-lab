@@ -61,3 +61,65 @@ def test_render_feedback_tail_never_splits_a_multibyte_char() -> None:
     # decodes cleanly (no half-character) and is tail-anchored
     assert rendered.encode("utf-8").decode("utf-8")
     assert rendered.endswith("é")
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Pure seatbelt profile builder + Darwin/sandbox-exec probe
+# ---------------------------------------------------------------------------
+
+import sys
+
+import pytest
+
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    DEFAULT_SYSTEM_READ_SUBPATHS,
+    SANDBOX_EXEC,
+    darwin_sandbox_available,
+    seatbelt_profile,
+)
+
+_TREE = "/private/var/folders/x/agent-eval-vsbx-abc"
+_NODE_DIR = "/Users/who/.nvm/versions/node/v16.20.2"
+
+
+def test_profile_is_deny_default_with_system_baseline() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert prof.startswith("(version 1)\n(deny default)\n")
+    assert '(import "system.sb")' in prof
+
+
+def test_profile_has_no_broad_file_read_allow() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    # the load-bearing assertion: every file-read allow is SCOPED to a subpath.
+    for line in prof.splitlines():
+        if line.startswith("(allow file-read*"):
+            assert "(subpath " in line, f"unscoped file-read allow: {line!r}"
+    # and the bare broad form never appears
+    assert "(allow file-read*)" not in prof
+
+
+def test_profile_scopes_reads_to_tree_node_and_system() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert f'(allow file-read* (subpath "{_TREE}"))' in prof
+    assert f'(allow file-read* (subpath "{_NODE_DIR}"))' in prof
+    for sysp in DEFAULT_SYSTEM_READ_SUBPATHS:
+        assert f'(allow file-read* (subpath "{sysp}"))' in prof
+
+
+def test_profile_denies_network_and_scopes_writes() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert "(deny network*)" in prof
+    assert f'(allow file-write* (subpath "{_TREE}"))' in prof
+    # no broad write allow
+    assert "(allow file-write*)" not in prof
+
+
+def test_profile_allows_process_primitives() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert "(allow process-exec)" in prof
+    assert "(allow process-fork)" in prof
+
+
+def test_darwin_probe_false_off_macos(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert darwin_sandbox_available() is False
