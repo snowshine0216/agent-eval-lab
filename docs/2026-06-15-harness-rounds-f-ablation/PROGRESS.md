@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-001` | ✅ `2fd47fb` | ✅ `items/001-drift.md` | ✅ [#26](https://github.com/snowshine0216/agent-eval-lab/pull/26) | ✅ `items/001-verify.md` | ✅ `items/001-review.md` PASS-WITH-NITS | ✅ `items/001-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds | ✅ `a2a4be1` |
 | 002 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-002` | ✅ `7a5e822` | ✅ `items/002-drift.md` | ✅ [#27](https://github.com/snowshine0216/agent-eval-lab/pull/27) | ✅ `items/002-verify.md` | ✅ `items/002-review.md` PASS-WITH-NITS (1 fix round) | ✅ `items/002-pr-review.md` PASS-WITH-NITS | ✅ 1 round | ✅ `420cc69` |
-| 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ⏳ | ⏳ |
+| 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ✅ 1 round (2 nits) | ✅ `40e4f26` |
 | 004 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 006 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -58,6 +58,16 @@ protection blocked it; never reached GitHub, but it was committed locally then p
 | run-close-out | ⏳ |
 
 ## Log
+- 2026-06-15 — **Item 003 MERGED** (PR [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28)
+  squash → `40e4f26`). Arm-as-task + Factor P: 12 F task-arms (3×4) as distinct `task_id`s (M2
+  pattern), Factor-P prompt block in `make_edit_task` (gated by `initial_state["factor_p"]`),
+  task-scoped `run_uid`; V tool surface declared with executor deferred to 005 (NotImplementedError
+  live-guard); no `arm_id`/spec change (frozen M1 specs still verify). v0.2.3; 1033 tests green;
+  ruff check+format clean whole-repo. **Ship steps 8+9 caught a latent P0** (`build_candidate_tree`
+  F3 dispatch missed armed ids → would corrupt F3 arm scores) + CI-red `ruff check` on new tests
+  (and 2 pre-existing E501s from 002) → fixed pre-push (`8900c1f`). pr-review PASS-WITH-NITS (4 nits;
+  2 fixed, 2 accepted). **Resume next = item 004** (candidate-tree enrichment + overlay-disjointness).
+- 2026-06-15 — **Resumed** from pause (fresh session). Items 003–006 picked up; 003 done.
 - 2026-06-15 — **PAUSED at 2/6 per user.** Feature branch `autodev/harness-rounds-f-ablation-feature`
   clean + green (1021 passed) at `b69e403`, left open (NOT merged to main — only 2/6 done, no opt-in).
   Untracked + gitignored stray `learning/` study artifacts swept in by a broad `git add`. Resume guide
