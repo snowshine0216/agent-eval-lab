@@ -29,3 +29,6 @@ evaluator.toml
 # Secret-bearing local backups (never commit) — added after push-protection block
 .env.bak*
 *.bak
+
+# Stray subagent study artifacts (not project source) — untracked 2026-06-15
+learning/
