@@ -182,3 +182,76 @@ def test_executor_run_fn_receives_fixed_authored_test_path() -> None:
 
 def test_authored_test_dir_is_reserved_constant() -> None:
     assert AUTHORED_TEST_DIR == "tests/authored/"
+
+
+# ---------------------------------------------------------------------------
+# Task 7: End-to-end V loop with a FAKE executor, CI-safe
+# ---------------------------------------------------------------------------
+
+
+def test_v_loop_records_node_feedback_via_fake_executor() -> None:
+    """run_tests -> ExecutionRequest -> fake executor -> ToolSuccess(node_feedback)."""
+    import httpx
+
+    from agent_eval_lab.records.node_feedback import NodeFeedbackResult
+    from agent_eval_lab.records.turns import ToolResultTurn, ToolSuccess
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.runners.loop import run_single
+    from agent_eval_lab.tasks.schema import (
+        AllOf,
+        Task,
+        TaskInput,
+        TaskMetadata,
+        ToolCallMatchSpec,
+    )
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
+    from agent_eval_lab.tools.code_world import apply as cw_apply
+
+    # provider: round 1 calls run_tests, round 2 stops naturally
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            msg = {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "c1", "type": "function",
+                     "function": {"name": "run_tests", "arguments": "{}"}}
+                ],
+            }
+        else:
+            msg = {"role": "assistant", "content": "done"}
+        return httpx.Response(200, json={"choices": [{"message": msg}], "usage": {}})
+
+    def fake_executor(request):
+        return NodeFeedbackResult(
+            status="failed", exit_code=1, passed=0, failed=1, output="not ok 1\n"
+        )
+
+    task = Task(
+        id="f-f1-feedback",
+        capability="repo_fix",
+        input=TaskInput(
+            messages=(MessageTurn(role="system", content="edit"),),
+            available_tools=("read_file", "run_tests"),
+        ),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="dev", version="005-test-v1", provenance="unit test"
+        ),
+        initial_state={"files": {"tests/authored/a.test.js": "x"}, "factor_v": True},
+    )
+    cfg = ProviderConfig(id="local", base_url="http://x/v1", api_key_env="", model_id="m")
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    traj = run_single(
+        task=task, registry=CODE_WORLD_TOOLS_V, config=cfg, http_client=client,
+        run_index=0, temperature=0.0, max_tokens=64, apply_fn=cw_apply,
+        executor=fake_executor,
+    )
+    results = [t for t in traj.turns if isinstance(t, ToolResultTurn)]
+    assert len(results) == 1
+    assert isinstance(results[0].outcome, ToolSuccess)
+    assert results[0].outcome.result["record"] == "node_feedback"
+    assert results[0].outcome.result["status"] == "failed"
