@@ -167,6 +167,15 @@ def make_f_run_fn(
     loop (no executor — the edit tools are pure; run_tests is not offered)."""
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
+        # Factor V's executor + sandbox is item 005. A V arm declares run_tests
+        # (its tool SURFACE) but has no executor here; driving it against the live
+        # loop would silently run a no-op V loop, so refuse explicitly. bare/prompt
+        # (factor_v falsey) stay fully runnable today.
+        if (edit_task.initial_state or {}).get("factor_v"):
+            raise NotImplementedError(
+                "Factor V executor is item 005; cannot drive a V arm "
+                f"({edit_task.id!r}) against a live provider in 003"
+            )
         return run_single(
             task=edit_task,
             registry=CODE_WORLD_TOOLS,

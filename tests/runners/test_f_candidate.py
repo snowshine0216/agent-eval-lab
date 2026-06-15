@@ -362,6 +362,75 @@ def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> Non
     assert len(set(seen)) == 60  # all distinct -> no collision in the run space
 
 
+def test_make_f_run_fn_refuses_live_v_arm_until_005(monkeypatch) -> None:
+    """A V arm (factor_v=True) declares run_tests but has NO executor in 003.
+    Driving it against the live loop must raise, not silently run a no-op V loop."""
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.runners.config import ProviderConfig
+    import httpx
+
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    with pytest.raises(NotImplementedError, match="Factor V"):
+        run_fn(v_edit, 0)
+
+
+def test_make_f_run_fn_runs_bare_and_prompt_arms_today(monkeypatch) -> None:
+    """bare/prompt (factor_v=False) stay fully runnable in 003."""
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    import httpx
+
+    def fake_run_single(**kwargs):
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    for flags in ((False, False), (True, False)):  # bare, prompt
+        edit = make_edit_task(
+            _flagged_task(factor_p=flags[0], factor_v=flags[1]),
+            base_tree={"a.js": "x\n"},
+        )
+        traj = run_fn(edit, 0)
+        assert traj.stop_reason == "completed_natural"
+
+
 def test_make_f_run_fn_forwards_max_rounds(monkeypatch) -> None:
     import agent_eval_lab.runners.f_candidate as fc
     from agent_eval_lab.records.trajectory import Trajectory, Usage
