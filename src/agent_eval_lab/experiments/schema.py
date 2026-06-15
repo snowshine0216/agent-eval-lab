@@ -45,7 +45,7 @@ class MetricDef:
 class MultiplicityFamily:
     id: str
     description: str
-    correction: Literal["holm"]
+    correction: Literal["holm", "none"]
     alpha: float
 
 

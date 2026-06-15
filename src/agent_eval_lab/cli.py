@@ -20,9 +20,14 @@ from agent_eval_lab.calibrate.packet import (
     packet_to_jsonl,
     render_agreement_report,
 )
+from agent_eval_lab.experiments.ablation_order import RunUnit, ablation_run_order
 from agent_eval_lab.experiments.evaluator_config import (
     health_probe,
     load_evaluator_config,
+)
+from agent_eval_lab.experiments.f_ablation_spec import (
+    ABLATION_SEED,
+    build_f_ablation_spec,
 )
 from agent_eval_lab.experiments.m1_run import run_m1
 from agent_eval_lab.experiments.pricing import load_pricing
@@ -53,6 +58,12 @@ from agent_eval_lab.runners.config import (
     condition_id,
     resolve_proxy,
 )
+from agent_eval_lab.runners.f_candidate import (
+    build_candidate_tree,
+    grade_f_attempt,
+    make_edit_task,
+    make_f_run_fn,
+)
 from agent_eval_lab.runners.multi_run import (
     ReplacementOutcome,
     TrialAttempt,
@@ -61,7 +72,7 @@ from agent_eval_lab.runners.multi_run import (
 from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
-from agent_eval_lab.tasks.schema import LlmJudgeSpec
+from agent_eval_lab.tasks.schema import LlmJudgeSpec, Task
 
 
 def run_baseline(
@@ -1189,6 +1200,174 @@ def _run_report_m1(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ablation_arm_tasks(store: Path) -> dict[str, Task]:
+    """The 12 F task-arms indexed by task_id (the arm rides task_id, §B.2)."""
+    from agent_eval_lab.datasets.f_tasks import build_f_task_arms
+
+    return {t.id: t for t in build_f_task_arms(evaluator_store=store)}
+
+
+def _default_run_fn_factory(
+    *, http_client: httpx.Client | None, temperature: float, max_tokens: int
+):
+    """Production factory: per condition_id, build the REAL make_f_run_fn driver.
+    Called ONLY on a non-dry user invocation — this is the sole provider-call path
+    (V arms route through the 005 sandbox on macOS via make_f_run_fn). Tests inject
+    a fake factory instead, so no test/CI path ever reaches a network client."""
+
+    def factory(*, condition_id: str, safety_cap: int):
+        provider = condition_id.split(":", 1)[0]
+        config = PROVIDERS[provider]
+        model = condition_id.split(":", 1)[1]
+        config = replace(config, model_id=model)
+        client = http_client or httpx.Client(
+            timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+        )
+        return make_f_run_fn(
+            config=config,
+            http_client=client,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            condition_id=condition_id,
+            safety_cap=safety_cap,
+            max_rounds=40,  # the frozen uniform ablation cap (§B.1)
+        )
+
+    return factory
+
+
+def _write_realized_order(out: Path, order: Sequence[RunUnit]) -> None:
+    """Persist the realized execution / API-call order for audit (§10.7). Pure
+    projection of RunUnits to plain dicts; the on-disk record order in the JSONL is
+    NOT this — this sidecar is the authoritative drift-control record."""
+    payload = {
+        "seed": ABLATION_SEED,
+        "realized_order": [
+            {
+                "model": u.model,
+                "task_id": u.task_id,
+                "base_task": u.base_task,
+                "arm": u.arm,
+                "repetition": u.repetition,
+            }
+            for u in order
+        ],
+    }
+    _atomic_write(
+        out / "f-ablation.realized-order.json",
+        json.dumps(payload, indent=2, sort_keys=True),
+    )
+
+
+def _run_f_ablation_command(  # noqa: C901
+    args: argparse.Namespace,
+    http_client: httpx.Client | None,
+    *,
+    run_fn_factory=None,
+) -> int:
+    """EDGE: orchestrate the F-set ablation in the FROZEN seeded ablation_run_order
+    across (model × task-arm × rep). The arm rides each run's task_id (§B.2). Writes
+    one artifact per condition (runs-ablation-{slug}-F.jsonl, all 12 task-arms
+    inside) + a realized-order sidecar (the API-call order controls drift, not the
+    on-disk record order — §10.7).
+
+    Provider calls happen ONLY when the user invokes this WITHOUT --dry-run and with
+    no injected run_fn_factory. --dry-run writes the realized order and makes ZERO
+    run_fn calls (a network-free preview + the unit-test seam)."""
+    spec = build_f_ablation_spec(dataset_snapshot_hash="", pricing_snapshot_hash="")
+    models = tuple(c.condition_id for c in spec.conditions)
+    base_tasks = ("f1", "f2", "f3")
+    order = ablation_run_order(
+        seed=ABLATION_SEED, models=models, base_tasks=base_tasks, k=spec.k
+    )
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    realized: list[RunUnit] = []
+
+    if args.dry_run:
+        # Preview ONLY: record the realized order, make NO run_fn call (no network).
+        _write_realized_order(args.out, order)
+        print(args.out / "f-ablation.realized-order.json")
+        return 0
+
+    f_repo = Path.home() / "Documents/Repository/web-dossier"
+    if run_fn_factory is not None:
+        # Injected factory (test path): skip config I/O; use a sentinel store.
+        arm_tasks = _ablation_arm_tasks(Path("/nonexistent"))
+        factory = run_fn_factory
+        safety_cap = 200  # spec default; irrelevant on the test path
+    else:
+        cfg = load_evaluator_config(args.evaluator_config)
+        store = Path(cfg.store.path) / "web-dossier-golden"
+        arm_tasks = _ablation_arm_tasks(store)
+        factory = _default_run_fn_factory(
+            http_client=http_client,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+        safety_cap = cfg.runner.safety_cap
+
+    # Validate task_id coverage BEFORE any provider call (catch skew early).
+    expected_ids = {u.task_id for u in order}
+    actual_ids = set(arm_tasks)
+    if actual_ids != expected_ids:
+        missing = expected_ids - actual_ids
+        extra = actual_ids - expected_ids
+        print(
+            f"error: task_id skew — order references ids not in arm_tasks: "
+            f"missing={sorted(missing)!r} extra={sorted(extra)!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Open one JSONL file handle per condition BEFORE the loop (stream, don't buffer).
+    handles: dict[str, TextIO] = {}
+    run_fns: dict[str, object] = {}
+    aborted = False
+    try:
+        for cond in models:
+            path = args.out / f"runs-ablation-{_slug(cond)}-F.jsonl"
+            handles[cond] = path.open("w")
+
+        for unit in order:
+            run_fn = run_fns.get(unit.model)
+            if run_fn is None:
+                run_fn = factory(condition_id=unit.model, safety_cap=safety_cap)
+                run_fns[unit.model] = run_fn
+            task = arm_tasks[unit.task_id]
+            base_tree = build_candidate_tree(task, repo=f_repo)
+            edit_task = make_edit_task(task, base_tree=base_tree)
+            traj = run_fn(edit_task, unit.repetition)
+            result = grade_f_attempt(
+                task, traj, condition_id=unit.model, run_index=unit.repetition
+            )
+            _append_runs(handles[unit.model], [result])
+            realized.append(unit)
+    except httpx.TransportError as exc:
+        print(
+            f"error: cannot reach provider ({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        aborted = True
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(
+            f"error: git command failed building candidate tree: {exc}",
+            file=sys.stderr,
+        )
+        aborted = True
+    finally:
+        for fh in handles.values():
+            fh.close()
+        # Write the realized-order sidecar of whatever was executed so far.
+        # A partial/aborted run still leaves completed JSONL rows + a sidecar.
+        _write_realized_order(args.out, tuple(realized))
+
+    if aborted:
+        return 1
+    print(args.out)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-eval-lab")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1342,6 +1521,23 @@ def _build_parser() -> argparse.ArgumentParser:
     rf2.add_argument("--temperature", type=float, default=0.0)
     rf2.add_argument("--max-tokens", type=int, default=16384)
 
+    rfa = subparsers.add_parser(
+        "run-f-ablation",
+        help="orchestrate the F-set 2×2 ablation in the frozen seeded order "
+        "(one artifact per condition + realized-order sidecar). --dry-run previews "
+        "the order with NO provider calls.",
+    )
+    rfa.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rfa.add_argument("--out", type=Path, default=Path("reports"))
+    rfa.add_argument("--temperature", type=float, default=0.0)
+    rfa.add_argument("--max-tokens", type=int, default=16384)
+    rfa.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="write the realized run order and exit WITHOUT any provider call "
+        "(network-free preview / audit).",
+    )
+
     rmm = subparsers.add_parser(
         "run-m1", help="orchestrate M1 conditions × domains over the runners"
     )
@@ -1400,6 +1596,8 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_dset_command(args, http_client)
     if args.command == "run-f":
         return _run_f_command(args, http_client)
+    if args.command == "run-f-ablation":
+        return _run_f_ablation_command(args, http_client)
     if args.command == "report-m1":
         return _run_report_m1(args)
     if args.command == "run-m1":

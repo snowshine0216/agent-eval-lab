@@ -266,6 +266,17 @@ def _grade(task: Task, trajectory: Trajectory, *, condition_id: str, run_index: 
     )
 
 
+def grade_f_attempt(
+    task: Task, trajectory: Trajectory, *, condition_id: str, run_index: int
+) -> RunResult:
+    """Public grade for ONE F attempt — the held-out node oracle over the model's
+    produced tree, wrapped in a RunResult. Used by the 006 run-f-ablation driver,
+    which schedules attempts at (model × arm × rep) granularity and so cannot use
+    run_f_candidate (it drives whole tasks). Thin pass-through to _grade; no new
+    behavior."""
+    return _grade(task, trajectory, condition_id=condition_id, run_index=run_index)
+
+
 def run_f_candidate(
     *,
     tasks: Sequence[Task],
