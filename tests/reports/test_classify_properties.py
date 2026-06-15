@@ -126,6 +126,7 @@ _trajectories = st.builds(
             "parse_failure",
             "completed_natural",
             "safety_cap",
+            "max_rounds",
             "env_unhealthy",
         ]
     ),
@@ -133,6 +134,7 @@ _trajectories = st.builds(
     final_state=st.none() | st.just({"files": {}}),
     max_tokens=st.none() | st.integers(min_value=1, max_value=8192),
     env_health=_env_healths,
+    safety_cap_bound=st.booleans(),
 )
 
 _runs = st.builds(
@@ -151,7 +153,7 @@ def test_classify_run_is_total_and_closed(run: RunResult) -> None:
     assert isinstance(classification, RunClassification)
     assert classification.category in _CATEGORIES
     assert (classification.category == "passed") == (classification.subcategory is None)
-    assert classification.classifier_version == "fc-v3"
+    assert classification.classifier_version == "fc-v4"
     assert "\n" not in classification.detail
 
 
