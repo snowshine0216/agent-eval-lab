@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.6 — 2026-06-15
+
+### Added — run-f-ablation driver + frozen f_ablation_spec (harness-rounds-f-ablation step 6, code only)
+
+- **Seeded block-randomized run order** (`experiments/ablation_order.py`): pure `ablation_run_order(seed,
+  models, base_tasks, k)` interleaves the four arms within each `(model, base-task, repetition)` block
+  (so provider drift/time can't masquerade as a P/V effect), covering each `(model × 12 task-arm × k)`
+  unit exactly once (240 at k=5). Deterministic (seeded RNG, no wall-clock).
+- **Frozen `experiments/f_ablation_spec.py`**: a separate ExperimentSpec (4-model roster) + an
+  `AblationPolicy` (40-round F policy, 12 arms, seed) frozen by its own sha256 over `canonical_json` —
+  distinct from production `m1_spec` (which keeps F=20); the committed M1 frozen spec is untouched
+  (`verify_spec_hash` still passes). The ablation family is descriptive (`correction="none"`, no Holm —
+  §D.2; `MultiplicityFamily.correction` widened to `Literal["holm","none"]`).
+- **`run-f-ablation` CLI driver**: executes attempts in the frozen order across (model × task-arm × rep)
+  — arm encoded in `task_id` — using the 12 task-arms (003), enriched trees (004), and the Factor V
+  sandbox routing (005); writes **one artifact per condition** (`runs-ablation-{slug}-F.jsonl`, all 12
+  arms inside) + a realized-order sidecar (atomic write). Crash-safe: validates task_id coverage upfront,
+  streams per-attempt, catches transport/git errors, and preserves partial results + the sidecar on
+  abort. A `--dry-run` writes only the realized order with zero provider calls.
+- **No paid execution**: the driver calls a provider only on an explicit user invocation; all tests
+  inject a fake run_fn. The pilot (≈24) + full 240-attempt run and the descriptive report stay deferred
+  (the user triggers the run via this driver).
+
 ## v0.2.5 — 2026-06-15
 
 ### Added — Factor V confined-execution sandbox (harness-rounds-f-ablation step 5)
