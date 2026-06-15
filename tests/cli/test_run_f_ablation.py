@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import httpx
+
 from agent_eval_lab.cli import _run_f_ablation_command
 from agent_eval_lab.experiments.ablation_order import ablation_run_order
 from agent_eval_lab.experiments.f_ablation_spec import ABLATION_SEED
@@ -246,3 +248,73 @@ def test_per_arm_pass_pow_k_separates_by_task_id_no_report_change():
     assert pass_pow_k(runs) == 0.75
     # grouping is by task_id (the arm) — 4 distinct task-arms seen.
     assert len({r.task_id for r in runs}) == 4
+
+
+def test_transport_error_mid_run_aborts_cleanly_and_preserves_partial_results(
+    tmp_path, monkeypatch
+):
+    """B1: a TransportError mid-loop returns non-zero, completed rows are on disk,
+    sidecar exists — no raw traceback, no total loss."""
+    calls: list = []
+    # Raise on the 6th call so a handful of results are already written first.
+    _RAISE_AFTER = 5
+
+    def _raising_factory(*, condition_id: str, **_):
+        def run_fn(edit_task, run_index: int) -> Trajectory:
+            calls.append((condition_id, edit_task.id, run_index))
+            if len(calls) > _RAISE_AFTER:
+                raise httpx.TransportError("simulated network failure")
+            return _fake_traj(run_index)
+
+        return run_fn
+
+    monkeypatch.setattr(
+        "agent_eval_lab.cli._ablation_arm_tasks", lambda store: _stub_arm_tasks()
+    )
+    monkeypatch.setattr(
+        "agent_eval_lab.cli.build_candidate_tree",
+        lambda task, repo: {"x.js": "// base"},
+    )
+    rc = _run_f_ablation_command(
+        _Args(tmp_path, dry_run=False),
+        http_client=None,
+        run_fn_factory=_raising_factory,
+    )
+    # Driver must return non-zero on abort.
+    assert rc != 0
+    # The realized-order sidecar must exist (written in finally).
+    sidecars = list(tmp_path.glob("*.realized-order.json"))
+    assert len(sidecars) == 1
+    realized = json.loads(sidecars[0].read_text())["realized_order"]
+    # Exactly _RAISE_AFTER units completed before the error.
+    assert len(realized) == _RAISE_AFTER
+    # At least some JSONL rows must be on disk (streaming, not buffered).
+    all_rows = []
+    for art in tmp_path.glob("runs-ablation-*-F.jsonl"):
+        lines = [ln for ln in art.read_text().splitlines() if ln.strip()]
+        all_rows.extend(lines)
+    assert len(all_rows) == _RAISE_AFTER, (
+        f"expected {_RAISE_AFTER} streamed rows on disk, got {len(all_rows)}"
+    )
+
+
+def test_task_id_skew_is_caught_before_any_run_fn_call(tmp_path, monkeypatch):
+    """B1: if the frozen order references a task_id not in arm_tasks, the driver
+    must return 1 with zero run_fn calls (validate before any paid call)."""
+    calls: list = []
+
+    # Provide arm_tasks missing one task_id so the skew check triggers.
+    def _short_arm_tasks(store):
+        full = _stub_arm_tasks()
+        # Remove one key so expected_ids != actual_ids.
+        full.pop("f-f1-bare")
+        return full
+
+    monkeypatch.setattr("agent_eval_lab.cli._ablation_arm_tasks", _short_arm_tasks)
+    rc = _run_f_ablation_command(
+        _Args(tmp_path, dry_run=False),
+        http_client=None,
+        run_fn_factory=_make_recording_factory(calls),
+    )
+    assert rc == 1
+    assert calls == [], "run_fn must NOT be called when task_id skew is detected"

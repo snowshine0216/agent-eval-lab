@@ -127,7 +127,7 @@ def build_f_ablation_spec(
     family = MultiplicityFamily(
         id=_FAMILY_ID,
         description="F-set 2×2 harness-factor ablation — descriptive (no Holm, §D.2).",
-        correction="holm",
+        correction="none",
         alpha=0.05,
     )
     return ExperimentSpec(

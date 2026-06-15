@@ -1253,8 +1253,9 @@ def _write_realized_order(out: Path, order: Sequence[RunUnit]) -> None:
             for u in order
         ],
     }
-    (out / "f-ablation.realized-order.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+    _atomic_write(
+        out / "f-ablation.realized-order.json",
+        json.dumps(payload, indent=2, sort_keys=True),
     )
 
 
@@ -1306,29 +1307,63 @@ def _run_f_ablation_command(  # noqa: C901
         )
         safety_cap = cfg.runner.safety_cap
 
+    # Validate task_id coverage BEFORE any provider call (catch skew early).
+    expected_ids = {u.task_id for u in order}
+    actual_ids = set(arm_tasks)
+    if actual_ids != expected_ids:
+        missing = expected_ids - actual_ids
+        extra = actual_ids - expected_ids
+        print(
+            f"error: task_id skew — order references ids not in arm_tasks: "
+            f"missing={sorted(missing)!r} extra={sorted(extra)!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Open one JSONL file handle per condition BEFORE the loop (stream, don't buffer).
+    handles: dict[str, TextIO] = {}
     run_fns: dict[str, object] = {}
-    buffers: dict[str, list[RunResult]] = {cond: [] for cond in models}
-    for unit in order:
-        run_fn = run_fns.get(unit.model)
-        if run_fn is None:
-            run_fn = factory(condition_id=unit.model, safety_cap=safety_cap)
-            run_fns[unit.model] = run_fn
-        task = arm_tasks[unit.task_id]
-        base_tree = build_candidate_tree(task, repo=f_repo)
-        edit_task = make_edit_task(task, base_tree=base_tree)
-        traj = run_fn(edit_task, unit.repetition)
-        buffers[unit.model].append(
-            grade_f_attempt(
+    aborted = False
+    try:
+        for cond in models:
+            path = args.out / f"runs-ablation-{_slug(cond)}-F.jsonl"
+            handles[cond] = path.open("w")
+
+        for unit in order:
+            run_fn = run_fns.get(unit.model)
+            if run_fn is None:
+                run_fn = factory(condition_id=unit.model, safety_cap=safety_cap)
+                run_fns[unit.model] = run_fn
+            task = arm_tasks[unit.task_id]
+            base_tree = build_candidate_tree(task, repo=f_repo)
+            edit_task = make_edit_task(task, base_tree=base_tree)
+            traj = run_fn(edit_task, unit.repetition)
+            result = grade_f_attempt(
                 task, traj, condition_id=unit.model, run_index=unit.repetition
             )
+            _append_runs(handles[unit.model], [result])
+            realized.append(unit)
+    except httpx.TransportError as exc:
+        print(
+            f"error: cannot reach provider ({type(exc).__name__}: {exc})",
+            file=sys.stderr,
         )
-        realized.append(unit)
+        aborted = True
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(
+            f"error: git command failed building candidate tree: {exc}",
+            file=sys.stderr,
+        )
+        aborted = True
+    finally:
+        for fh in handles.values():
+            fh.close()
+        # Write the realized-order sidecar of whatever was executed so far.
+        # A partial/aborted run still leaves completed JSONL rows + a sidecar.
+        _write_realized_order(args.out, tuple(realized))
 
-    for cond, runs in buffers.items():
-        path = args.out / f"runs-ablation-{_slug(cond)}-F.jsonl"
-        with path.open("w") as fh:
-            _append_runs(fh, runs)
-    _write_realized_order(args.out, tuple(realized))
+    if aborted:
+        return 1
     print(args.out)
     return 0
 
