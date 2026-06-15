@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_eval_lab.datasets.f_tasks import build_f_tasks
+from agent_eval_lab.datasets.f_tasks import build_f_task_arms, build_f_tasks
 from agent_eval_lab.tasks.schema import AllOf
 
 _STORE = (
@@ -14,6 +14,74 @@ requires_store = pytest.mark.skipif(
     not (_STORE / "golden-files" / "f1.held_out.test.js").exists(),
     reason="local web-dossier golden store required",
 )
+
+
+def _arm_ids() -> list[str]:
+    return [
+        f"f-{base}-{arm}"
+        for base in ("f1", "f2", "f3")
+        for arm in ("bare", "prompt", "feedback", "both")
+    ]
+
+
+@requires_store
+def test_build_f_task_arms_returns_twelve_arms_with_suffixed_ids() -> None:
+    arms = build_f_task_arms(evaluator_store=_STORE)
+    assert sorted(t.id for t in arms) == sorted(_arm_ids())
+    assert len(arms) == 12
+    for t in arms:
+        assert t.capability == "repo_fix"
+        assert t.metadata.split == "held_out"
+        assert t.initial_state is not None
+        assert t.initial_state["candidate_base_sha"].startswith("5b0c13a6")
+
+
+@requires_store
+def test_four_arms_of_a_base_share_verification_and_tree_state() -> None:
+    arms = {t.id: t for t in build_f_task_arms(evaluator_store=_STORE)}
+    for base in ("f1", "f2", "f3"):
+        suffixes = ("bare", "prompt", "feedback", "both")
+        group = [arms[f"f-{base}-{s}"] for s in suffixes]
+        ref = group[0]
+        for t in group[1:]:
+            # SAME held-out oracle object (identity, not just equality)
+            assert t.verification is ref.verification
+            # byte-identical tree-driving state: same repo, base SHA, target paths
+            assert t.initial_state["repo"] == ref.initial_state["repo"]
+            assert (
+                t.initial_state["candidate_base_sha"]
+                == ref.initial_state["candidate_base_sha"]
+            )
+            assert t.initial_state["target_paths"] == ref.initial_state["target_paths"]
+
+
+@requires_store
+def test_arms_differ_only_in_factor_flags_and_tools() -> None:
+    arms = {t.id: t for t in build_f_task_arms(evaluator_store=_STORE)}
+    # 2x2 factor mapping
+    assert arms["f-f1-bare"].initial_state["factor_p"] is False
+    assert arms["f-f1-bare"].initial_state["factor_v"] is False
+    assert arms["f-f1-prompt"].initial_state["factor_p"] is True
+    assert arms["f-f1-prompt"].initial_state["factor_v"] is False
+    assert arms["f-f1-feedback"].initial_state["factor_p"] is False
+    assert arms["f-f1-feedback"].initial_state["factor_v"] is True
+    assert arms["f-f1-both"].initial_state["factor_p"] is True
+    assert arms["f-f1-both"].initial_state["factor_v"] is True
+    # V arms declare the run_tests tool surface; non-V arms do not
+    assert "run_tests" in arms["f-f1-feedback"].input.available_tools
+    assert "run_tests" in arms["f-f1-both"].input.available_tools
+    assert "run_tests" not in arms["f-f1-bare"].input.available_tools
+    assert "run_tests" not in arms["f-f1-prompt"].input.available_tools
+
+
+@requires_store
+def test_each_arm_carries_the_40_round_ablation_override() -> None:
+    from agent_eval_lab.runners.round_budget import resolve_max_rounds
+
+    for t in build_f_task_arms(evaluator_store=_STORE):
+        assert t.metadata.max_rounds == 40
+        # the per-task override path is reachable: it WINS over the F default (20)
+        assert resolve_max_rounds(domain="F", task=t) == 40
 
 
 @requires_store

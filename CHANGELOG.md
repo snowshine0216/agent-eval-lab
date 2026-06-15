@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.3 — 2026-06-15
+
+### Added — F harness-factor ablation: arm-as-task + Factor P (harness-rounds-f-ablation step 3)
+
+- **12 F task-arms** (`datasets/f_tasks.py`): new `build_f_task_arms` fans each of the 3 base F
+  tasks into 4 arms (`bare`/`prompt`/`feedback`/`both`) as **distinct `task_id`s** (the M2
+  arm-as-task pattern), so the ablation rides the data model the codebase already has — **no**
+  `arm_id`, `ArmDef`, `tool_set_hash`, `ConditionDef`/`ExperimentSpec`, or report-join change. The
+  four arms of a base share one held-out `VerificationSpec` (same object) and byte-identical
+  tree-driving `initial_state`, differing only by `factor_p`/`factor_v` flags and `available_tools`.
+  Each arm carries the 40-round ablation `metadata.max_rounds` (resolvable via `resolve_max_rounds`).
+- **Factor P** (`runners/f_candidate.py`): a discrete, attributable `_FACTOR_P_BLOCK` (context-
+  gathering nudges; "visible tests" vocabulary) appended to `_EDIT_SYSTEM` inside `make_edit_task`,
+  gated by `initial_state["factor_p"]` — applied to `prompt`/`both` arms only.
+- **Factor V tool surface** (deferred executor): `feedback`/`both` arms declare the `run_tests`
+  tool; the sandboxed executor is item 005, so `make_f_run_fn` raises `NotImplementedError` if a V
+  arm is driven live — `bare`/`prompt` stay fully runnable.
+
+### Changed
+
+- **Task-scoped `run_uid`** (`runners/f_candidate.py`, `records/trajectory.py`): F `run_uid` is now
+  `{condition_id}__{task_id}__{run_index:04d}` (was the `__f__` literal), so 12 task-arms sharing a
+  condition's run space cannot collide.
+
+### Fixed
+
+- **F3 candidate-tree dispatch** (`runners/f_candidate.py`): `build_candidate_tree` now matches the
+  armed F3 ids (`f-f3-*`), not just the bare `f-f3`, so armed F3 arms get the failure-analysis causal
+  layer instead of silently falling through to the prefix tree (would have produced corrupt 0-scores).
+- **`ruff check` clean** over the whole repo: wrapped two pre-existing long-line lint errors
+  (`tests/runners/test_dset_run.py`, `tests/runners/test_loop.py`) so CI's `ruff check .` passes.
+
 ## v0.2.2 — 2026-06-15
 
 ### Added — per-domain `max_rounds` turn-bound + recorded policy fields (harness-rounds-f-ablation step 2)

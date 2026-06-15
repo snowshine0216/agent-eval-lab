@@ -58,6 +58,22 @@ _EDIT_SYSTEM = (
     "with a one-line summary and stop."
 )
 
+# Factor P — context-gathering prompt nudges (item 003 §B.3). A discrete,
+# attributable block appended to _EDIT_SYSTEM on the `prompt` and `both` arms
+# ONLY (gated by initial_state["factor_p"] in make_edit_task). Glossary: it says
+# "visible tests", never "public tests" (§11.4). bare/feedback keep the
+# unmodified _EDIT_SYSTEM.
+_FACTOR_P_BLOCK = (
+    "Before editing, gather context. Read the full body of any method that a call "
+    "or assertion you touch depends on — do not assume its contract from its name. "
+    "Before adding a method, read the sibling methods in the same file so your "
+    "addition matches their shape and conventions. Read the local conventions for "
+    "this layer (its README, config, or nearest CLAUDE.md) before you write. Read "
+    "the entire target file and the full set of visible tests that exercise it "
+    "before your first edit. Change only what the task requires; leave every other "
+    "file and layer untouched."
+)
+
 
 def _git_show(repo: Path, rel: str) -> str:
     return subprocess.run(
@@ -105,7 +121,7 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
     F1/F2 are self-contained in their target paths; F3 additionally needs the
     failure-analysis causal layer present so the held-out guard tests can run.
     """
-    if task.id == "f-f3":
+    if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
     return dict(prefix_candidate_tree(task, repo=repo))
 
@@ -113,18 +129,26 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
 def make_edit_task(task: Task, *, base_tree: Mapping[str, str]) -> Task:
     """Recast an F task as a code-world edit task: swap the prose `bash` tool for
     the pure file-edit tools and seed the produced tree into `files`. The held-out
-    verification and task identity are preserved verbatim."""
+    verification and task identity are preserved verbatim.
+
+    Factor P (item 003 §B.3): if initial_state["factor_p"] is truthy, append the
+    attributable _FACTOR_P_BLOCK to the rebuilt _EDIT_SYSTEM. Factor V (§B.2): if
+    initial_state["factor_v"] is truthy, additionally offer the run_tests tool name
+    (its executor is item 005 — make_f_run_fn binds executor=None and refuses to
+    drive a live V arm until then)."""
+    state = task.initial_state or {}
+    system = _EDIT_SYSTEM.format(tools=", ".join(F_EDIT_TOOL_NAMES))
+    if state.get("factor_p"):
+        system = f"{system}\n\n{_FACTOR_P_BLOCK}"
+    tools = F_EDIT_TOOL_NAMES + (("run_tests",) if state.get("factor_v") else ())
     user = next((m for m in task.input.messages if m.role == "user"), None)
-    messages = (
-        MessageTurn(
-            role="system",
-            content=_EDIT_SYSTEM.format(tools=", ".join(F_EDIT_TOOL_NAMES)),
-        ),
-    ) + ((user,) if user is not None else ())
-    initial_state = {**(task.initial_state or {}), "files": dict(base_tree)}
+    messages = (MessageTurn(role="system", content=system),) + (
+        (user,) if user is not None else ()
+    )
+    initial_state = {**state, "files": dict(base_tree)}
     return replace(
         task,
-        input=TaskInput(messages=messages, available_tools=F_EDIT_TOOL_NAMES),
+        input=TaskInput(messages=messages, available_tools=tools),
         initial_state=initial_state,
     )
 
@@ -140,9 +164,21 @@ def make_f_run_fn(
     max_rounds: int | None = None,
 ) -> Callable[[Task, int], Trajectory]:
     """Build the per-attempt model driver for one arm: run the code-world edit
-    loop (no executor — the edit tools are pure; run_tests is not offered)."""
+    loop. The edit tools are pure (no executor in item 003); a V arm
+    additionally declares the run_tests tool surface, but its sandboxed
+    executor lands in item 005 — so this driver refuses to drive a live V arm
+    until then (bare/prompt stay fully runnable)."""
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
+        # Factor V's executor + sandbox is item 005. A V arm declares run_tests
+        # (its tool SURFACE) but has no executor here; driving it against the live
+        # loop would silently run a no-op V loop, so refuse explicitly. bare/prompt
+        # (factor_v falsey) stay fully runnable today.
+        if (edit_task.initial_state or {}).get("factor_v"):
+            raise NotImplementedError(
+                "Factor V executor is item 005; cannot drive a V arm "
+                f"({edit_task.id!r}) against a live provider in 003"
+            )
         return run_single(
             task=edit_task,
             registry=CODE_WORLD_TOOLS,
@@ -153,7 +189,7 @@ def make_f_run_fn(
             max_tokens=max_tokens,
             apply_fn=code_world_apply,
             executor=None,
-            run_uid=f"{condition_id}__f__{run_index:04d}",
+            run_uid=f"{condition_id}__{edit_task.id}__{run_index:04d}",
             safety_cap=safety_cap,
             max_rounds=max_rounds,
         )

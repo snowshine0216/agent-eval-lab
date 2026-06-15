@@ -672,7 +672,8 @@ def test_post_probe_unhealthy_with_max_rounds_sets_env_unhealthy_stop_reason() -
         "a max_rounds stop on an unhealthy env must be marked invalid"
     )
     assert trajectory.max_rounds_bound is True, (
-        "max_rounds_bound must remain True so the classifier can distinguish the budget cap"
+        "max_rounds_bound must remain True so the classifier can "
+        "distinguish the budget cap"
     )
 
 

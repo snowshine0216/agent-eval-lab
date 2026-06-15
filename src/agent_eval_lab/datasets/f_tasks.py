@@ -58,6 +58,24 @@ _F3_USER = (
 )
 
 
+# Arm -> (factor_p, factor_v) — the 2x2 (spec item 003 §B.1).
+_ARM_FACTORS: dict[str, tuple[bool, bool]] = {
+    "bare": (False, False),
+    "prompt": (True, False),
+    "feedback": (False, True),
+    "both": (True, True),
+}
+
+# Factor V's tool name. The executor that binds it is item 005; here it only
+# records the V arms' tool SURFACE (their identity). bare/prompt never see it.
+_V_TOOL = "run_tests"
+
+# The F-ablation runs every arm under a uniform 40-round cap (§B.1); production F
+# stays 20. The value is FROZEN in item 006's f_ablation_spec — here it only makes
+# the per-task max_rounds override path reachable (resolve_max_rounds honors it).
+_ABLATION_MAX_ROUNDS = 40
+
+
 def _task(
     *, task_id: str, user: str, verification, target_paths: tuple[str, ...]
 ) -> Task:
@@ -85,6 +103,41 @@ def _task(
     )
 
 
+def _arm(
+    *, base: str, arm: str, user: str, verification, target_paths: tuple[str, ...]
+) -> Task:
+    """One arm-task of a base F task: same held-out verification + same
+    tree-driving initial_state as its three siblings, differing only in the
+    factor_p/factor_v flags (read by make_edit_task) and available_tools."""
+    factor_p, factor_v = _ARM_FACTORS[arm]
+    tools = ("bash", _V_TOOL) if factor_v else ("bash",)
+    return Task(
+        id=f"f-{base}-{arm}",
+        capability="repo_fix",
+        input=TaskInput(
+            messages=(
+                MessageTurn(role="system", content=_SYSTEM),
+                MessageTurn(role="user", content=user),
+            ),
+            available_tools=tools,
+        ),
+        verification=verification,
+        metadata=TaskMetadata(
+            split="held_out",
+            version="f-domain-v1",
+            provenance="web-dossier PR #23483 (pre-fix 5b0c13a6)",
+            max_rounds=_ABLATION_MAX_ROUNDS,
+        ),
+        initial_state={
+            "repo": "web-dossier",
+            "candidate_base_sha": _CANDIDATE_BASE_SHA,
+            "target_paths": target_paths,
+            "factor_p": factor_p,
+            "factor_v": factor_v,
+        },
+    )
+
+
 def build_f_tasks(*, evaluator_store: Path) -> tuple[Task, ...]:
     return (
         _task(
@@ -105,4 +158,30 @@ def build_f_tasks(*, evaluator_store: Path) -> tuple[Task, ...]:
             verification=build_f3_verification(evaluator_store),
             target_paths=(F3_SOURCE_REL,),
         ),
+    )
+
+
+def build_f_task_arms(*, evaluator_store: Path) -> tuple[Task, ...]:
+    """The 12 F task-arms (3 base tasks x 4 arms) for the harness-factor ablation
+    (item 003 §B.1). Each base's four arms share that base's held-out
+    VerificationSpec and tree-driving initial_state byte-for-byte; they differ
+    ONLY in Factor P (a system-prompt block, gated by initial_state['factor_p'])
+    and Factor V (the declared tool surface, initial_state['factor_v'] +
+    available_tools). The arm IS the task_id — no arm_id, no spec change."""
+    bases = (
+        (
+            "f1",
+            _F1_USER,
+            build_f1_verification(evaluator_store),
+            (F1_SPEC_REL, F1_PAGE_REL),
+        ),
+        ("f2", _F2_USER, build_f2_verification(evaluator_store), (F2_CONF_REL,)),
+        ("f3", _F3_USER, build_f3_verification(evaluator_store), (F3_SOURCE_REL,)),
+    )
+    return tuple(
+        _arm(
+            base=base, arm=arm, user=user, verification=verification, target_paths=paths
+        )
+        for base, user, verification, paths in bases
+        for arm in ("bare", "prompt", "feedback", "both")
     )
