@@ -1,6 +1,6 @@
 [project]
 name = "agent-eval-lab"
-version = "0.2.2"
+version = "0.2.3"
 description = "A portfolio-driven laboratory for reproducible AI agent evaluations"
 readme = "README.md"
 requires-python = ">=3.11"
