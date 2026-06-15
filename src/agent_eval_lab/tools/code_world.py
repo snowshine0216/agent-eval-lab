@@ -277,3 +277,23 @@ def apply(
             "implementation"
         )
     return impl(arguments, state)
+
+
+# Factor V (item 005): the model runs its OWN authored tests under node, NOT
+# pytest. The shared run_tests ToolDef above keeps its pytest wording for the
+# python/D-set path; this node-accurate ToolDef is swapped in for V arms only.
+AUTHORED_RUN_TESTS_TOOLDEF = ToolDef(
+    name="run_tests",
+    description=(
+        "Run your authored JavaScript tests in tests/authored/ with "
+        "`node --test`; returns the run's pass/fail summary and output. Only "
+        "tests under tests/authored/ run — seeded tests are not executed. "
+        "Write your tests there first, then call this to check your edit."
+    ),
+    parameters=_NO_ARGS,
+)
+
+CODE_WORLD_TOOLS_V: Mapping[str, ToolDef] = {
+    **CODE_WORLD_TOOLS,
+    "run_tests": AUTHORED_RUN_TESTS_TOOLDEF,
+}

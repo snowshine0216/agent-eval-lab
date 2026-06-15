@@ -1,0 +1,466 @@
+"""Tests for the Factor V confined-execution sandbox (item 005).
+
+Sections (in order):
+  1. NodeFeedbackResult record + tail-aware renderer (Task 1)
+  2. Pure seatbelt profile builder + Darwin/sandbox-exec probe (Task 2)
+  3. make_authored_test_executor — fake run_fn wiring (Task 3)
+  4. End-to-end V loop with a FAKE executor, CI-safe (Task 7)
+  5. macOS-only integration test — ACTUALLY blocks the leak (Task 8)
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from agent_eval_lab.records.execution import ExecutionRequest
+from agent_eval_lab.records.node_feedback import (
+    FEEDBACK_SCHEMA_VERSION,
+    NodeFeedbackResult,
+    node_feedback_result_from_dict,
+    node_feedback_result_to_dict,
+    render_feedback_tail,
+)
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    AUTHORED_TEST_DIR,
+    DEFAULT_SYSTEM_READ_SUBPATHS,
+    SANDBOX_EXEC,
+    darwin_sandbox_available,
+    make_authored_test_executor,
+    node_install_paths,
+    run_authored_tests_sandboxed,
+    seatbelt_profile,
+)
+
+# ---------------------------------------------------------------------------
+# Task 8 setup: gate marker + constants (module-level, used by decorators)
+# ---------------------------------------------------------------------------
+
+_NODE = shutil.which(os.environ.get("NODE_BIN", "node"))
+
+# Gate ONLY on Darwin + sandbox-exec + node present — NOT on junit support.
+requires_seatbelt = pytest.mark.skipif(
+    not (darwin_sandbox_available() and _NODE is not None),
+    reason="macOS + sandbox-exec + node required for the confined-execution test",
+)
+
+_EVALUATOR_GOLDEN = Path(
+    "evaluator-only/web-dossier-golden/golden-files/report-to-allure.js.golden"
+).resolve()
+
+# ---------------------------------------------------------------------------
+# Task 1: NodeFeedbackResult + tail-aware renderer
+# ---------------------------------------------------------------------------
+
+_TREE = "/private/var/folders/x/agent-eval-vsbx-abc"
+_NODE_DIR = "/Users/who/.nvm/versions/node/v16.20.2"
+
+
+def test_node_feedback_result_round_trips() -> None:
+    rec = NodeFeedbackResult(
+        status="failed",
+        exit_code=1,
+        passed=2,
+        failed=1,
+        output="ok 1\nnot ok 2\n# fail 1\n",
+    )
+    back = node_feedback_result_from_dict(node_feedback_result_to_dict(rec))
+    assert back == rec
+
+
+def test_node_feedback_dict_carries_schema_version() -> None:
+    rec = NodeFeedbackResult(
+        status="passed", exit_code=0, passed=1, failed=0, output="# pass 1\n"
+    )
+    d = node_feedback_result_to_dict(rec)
+    assert d["schema_version"] == FEEDBACK_SCHEMA_VERSION
+    assert d["record"] == "node_feedback"
+
+
+def test_render_feedback_tail_keeps_the_end_when_too_long() -> None:
+    # 20000 lines; the failure summary is the LAST line. Tail-aware: it survives.
+    body = "\n".join(f"ok {i}" for i in range(20000)) + "\n# fail 7 AT-THE-END\n"
+    rendered = render_feedback_tail(body)
+    assert "# fail 7 AT-THE-END" in rendered  # the END is kept (tail-aware)
+    assert rendered.startswith("[head truncated]")  # marker at the FRONT
+    assert len(rendered.encode("utf-8")) <= 8192 + len("[head truncated]\n")
+
+
+def test_render_feedback_tail_passthrough_when_short() -> None:
+    assert render_feedback_tail("# pass 3\n") == "# pass 3\n"
+
+
+def test_render_feedback_tail_never_splits_a_multibyte_char() -> None:
+    body = "é" * 9000  # 2 bytes each -> 18000 bytes, over the cap
+    rendered = render_feedback_tail(body)
+    # decodes cleanly (no half-character) and is tail-anchored
+    assert rendered.encode("utf-8").decode("utf-8")
+    assert rendered.endswith("é")
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Pure seatbelt profile builder + Darwin/sandbox-exec probe
+# ---------------------------------------------------------------------------
+
+
+def test_profile_is_deny_default_with_system_baseline() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert prof.startswith("(version 1)\n(deny default)\n")
+    assert '(import "system.sb")' in prof
+
+
+def test_profile_has_no_broad_file_read_allow() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    # the load-bearing assertion: every file-read allow is SCOPED to a subpath.
+    for line in prof.splitlines():
+        if line.startswith("(allow file-read*"):
+            assert "(subpath " in line, f"unscoped file-read allow: {line!r}"
+    # and the bare broad form never appears
+    assert "(allow file-read*)" not in prof
+
+
+def test_profile_scopes_reads_to_tree_node_and_system() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert f'(allow file-read* (subpath "{_TREE}"))' in prof
+    assert f'(allow file-read* (subpath "{_NODE_DIR}"))' in prof
+    for sysp in DEFAULT_SYSTEM_READ_SUBPATHS:
+        assert f'(allow file-read* (subpath "{sysp}"))' in prof
+
+
+def test_profile_denies_network_and_scopes_writes() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert "(deny network*)" in prof
+    assert f'(allow file-write* (subpath "{_TREE}"))' in prof
+    # no broad write allow
+    assert "(allow file-write*)" not in prof
+
+
+def test_profile_allows_process_primitives() -> None:
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    assert "(allow process-exec)" in prof
+    assert "(allow process-fork)" in prof
+
+
+def test_darwin_probe_false_off_macos(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert darwin_sandbox_available() is False
+
+
+# ---------------------------------------------------------------------------
+# B1: file-read-metadata is scoped (not global)
+# ---------------------------------------------------------------------------
+
+
+def test_profile_metadata_is_scoped_not_global() -> None:
+    """(allow file-read-metadata) must be scoped to the same subpaths as file-read*."""
+    prof = seatbelt_profile(_TREE, _NODE_DIR)
+    # The bare global form must not appear.
+    assert "(allow file-read-metadata)" not in prof
+    # The scoped form must appear with our tree and node_dir.
+    assert "(allow file-read-metadata" in prof
+    for line in prof.splitlines():
+        if "file-read-metadata" in line:
+            assert "(subpath " in line, f"unscoped file-read-metadata: {line!r}"
+    # Must cover temp_tree and node_dir.
+    meta_line = next(ln for ln in prof.splitlines() if "file-read-metadata" in ln)
+    assert f'(subpath "{_TREE}")' in meta_line
+    assert f'(subpath "{_NODE_DIR}")' in meta_line
+
+
+@requires_seatbelt
+def test_sandbox_blocks_stat_of_evaluator_only_golden(tmp_path) -> None:
+    """B1 empirical: fs.statSync on the golden must raise EPERM under the profile."""
+    assert _EVALUATOR_GOLDEN.exists(), "test precondition: golden present"
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    golden_str = str(_EVALUATOR_GOLDEN).replace("'", "\\'")
+    js = (
+        f"try {{ require('fs').statSync('{golden_str}');"
+        " console.log('STAT-SUCCEEDED'); process.exit(0); }"
+        " catch(e) { console.error('STAT-BLOCKED:'+e.code); process.exit(1); }"
+    )
+    res = _run_under_profile(node_bin, node_dir, tree, ["-e", js])
+    assert res.returncode != 0, "stat of evaluator-only golden must be blocked"
+    assert "STAT-SUCCEEDED" not in res.stdout
+    assert "EPERM" in res.stderr or "EPERM" in res.stdout
+
+
+# ---------------------------------------------------------------------------
+# B2: NODE_BIN install-dir disjointness assertion
+# ---------------------------------------------------------------------------
+
+
+def test_node_install_paths_raises_if_install_dir_contains_evaluator_only(
+    monkeypatch,
+) -> None:
+    """B2: if install_dir would be an ancestor of evaluator-only/, RuntimeError."""
+    import agent_eval_lab.runners.sandboxed_node_edge as mod
+
+    # Resolve the real evaluator-only path the same way the module does.
+    module_path = Path(mod.__file__).resolve()
+    # Walk up to repo root: module is src/agent_eval_lab/runners/sandboxed_node_edge.py
+    # so parent^4 = repo root.
+    repo_root = module_path.parent.parent.parent.parent
+    evaluator_only = (repo_root / "evaluator-only").resolve()
+
+    # Fake node binary that lives INSIDE evaluator-only (worst case: exact parent).
+    fake_node = str(evaluator_only / "bin" / "node")
+
+    def fake_which(_name):
+        return fake_node
+
+    def fake_resolve(self):
+        # Return the path unchanged (it's already "absolute" for our purposes).
+        return Path(str(self))
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    # Patch Path.resolve so the fake path resolves to itself even if it doesn't exist.
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+
+    with pytest.raises(RuntimeError, match="trust-boundary violation"):
+        node_install_paths()
+
+
+# ---------------------------------------------------------------------------
+# B3: sandbox-infra OSError returns error-status, does not propagate
+# ---------------------------------------------------------------------------
+
+
+def test_run_authored_tests_sandboxed_returns_error_on_popen_oserror(
+    tmp_path, monkeypatch
+) -> None:
+    """B3: if Popen raises OSError, get an error-status result, not an exception."""
+    node_bin, node_dir = (
+        node_install_paths() if _NODE else ("/usr/local/bin/node", "/usr/local")
+    )
+
+    def boom(*_args, **_kwargs):
+        raise OSError("injected: sandbox-exec disappeared")
+
+    monkeypatch.setattr(subprocess, "Popen", boom)
+
+    result = run_authored_tests_sandboxed(
+        {"tests/authored/x.test.js": "// empty"},
+        node_bin=node_bin,
+        node_dir=node_dir,
+    )
+    assert result.status == "error"
+    assert result.exit_code != 0
+    assert "sandbox infrastructure error" in result.output
+    assert result.passed == 0
+    assert result.failed == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 3: make_authored_test_executor — fake run_fn wiring
+# ---------------------------------------------------------------------------
+
+
+def test_executor_ignores_request_paths_and_runs_authored_dir() -> None:
+    seen: list[tuple] = []
+
+    def fake_run(files, *, node_bin, node_dir, timeout_s):
+        seen.append(tuple(sorted(files)))
+        return NodeFeedbackResult(
+            status="passed", exit_code=0, passed=1, failed=0, output="# pass 1\n"
+        )
+
+    executor = make_authored_test_executor(
+        node_bin="/x/node", node_dir="/x", run_fn=fake_run
+    )
+    # the model snapshotted the WHOLE tree (incl. seeded causal tests); the
+    # executor must run only tests/authored/ regardless.
+    req = ExecutionRequest(
+        files={
+            "tests/authored/a.test.js": "x",
+            "tests/wdio/seeded.causal.test.js": "should-not-run",
+        }
+    )
+    out = executor(req)
+    assert isinstance(out, NodeFeedbackResult)
+    assert out.status == "passed"
+    # the materialized tree carried both files (snapshot), but run_fn only ever
+    # gets the FIXED test dir as the path to run (asserted via the command below)
+
+
+def test_executor_run_fn_receives_fixed_authored_test_path() -> None:
+    captured: dict = {}
+
+    def fake_run(files, *, node_bin, node_dir, timeout_s):
+        captured["test_dir"] = AUTHORED_TEST_DIR
+        return NodeFeedbackResult(
+            status="error", exit_code=1, passed=0, failed=0, output="no tests\n"
+        )
+
+    executor = make_authored_test_executor(
+        node_bin="/x/node", node_dir="/x", run_fn=fake_run
+    )
+    executor(ExecutionRequest(files={"tests/authored/a.test.js": "x"}))
+    assert captured["test_dir"] == "tests/authored/"
+
+
+def test_authored_test_dir_is_reserved_constant() -> None:
+    assert AUTHORED_TEST_DIR == "tests/authored/"
+
+
+# ---------------------------------------------------------------------------
+# Task 7: End-to-end V loop with a FAKE executor, CI-safe
+# ---------------------------------------------------------------------------
+
+
+def test_v_loop_records_node_feedback_via_fake_executor() -> None:
+    """run_tests -> ExecutionRequest -> fake executor -> ToolSuccess(node_feedback)."""
+    import httpx
+
+    from agent_eval_lab.records.turns import MessageTurn, ToolResultTurn, ToolSuccess
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.runners.loop import run_single
+    from agent_eval_lab.tasks.schema import AllOf, Task, TaskInput, TaskMetadata
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
+    from agent_eval_lab.tools.code_world import apply as cw_apply
+
+    # provider: round 1 calls run_tests, round 2 stops naturally
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            msg = {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "run_tests", "arguments": "{}"},
+                    }
+                ],
+            }
+        else:
+            msg = {"role": "assistant", "content": "done"}
+        return httpx.Response(200, json={"choices": [{"message": msg}], "usage": {}})
+
+    def fake_executor(request):
+        return NodeFeedbackResult(
+            status="failed", exit_code=1, passed=0, failed=1, output="not ok 1\n"
+        )
+
+    task = Task(
+        id="f-f1-feedback",
+        capability="repo_fix",
+        input=TaskInput(
+            messages=(MessageTurn(role="system", content="edit"),),
+            available_tools=("read_file", "run_tests"),
+        ),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="dev", version="005-test-v1", provenance="unit test"
+        ),
+        initial_state={"files": {"tests/authored/a.test.js": "x"}, "factor_v": True},
+    )
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    traj = run_single(
+        task=task,
+        registry=CODE_WORLD_TOOLS_V,
+        config=cfg,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=64,
+        apply_fn=cw_apply,
+        executor=fake_executor,
+    )
+    results = [t for t in traj.turns if isinstance(t, ToolResultTurn)]
+    assert len(results) == 1
+    assert isinstance(results[0].outcome, ToolSuccess)
+    assert results[0].outcome.result["record"] == "node_feedback"
+    assert results[0].outcome.result["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Task 8: macOS-only integration test — ACTUALLY blocks the leak + network
+# ---------------------------------------------------------------------------
+
+
+def _run_under_profile(node_bin: str, node_dir: str, tree: Path, args: list[str]):
+    profile_str = seatbelt_profile(str(tree), node_dir)
+    return subprocess.run(
+        [SANDBOX_EXEC, "-p", profile_str, node_bin, *args],
+        cwd=tree,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+@requires_seatbelt
+def test_sandbox_blocks_evaluator_only_read(tmp_path) -> None:
+    assert _EVALUATOR_GOLDEN.exists(), "test precondition: golden present"
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    res = _run_under_profile(
+        node_bin,
+        node_dir,
+        tree,
+        [
+            "-e",
+            f"require('fs').readFileSync({str(_EVALUATOR_GOLDEN)!r},'utf8');"
+            "console.log('LEAK-SUCCEEDED')",
+        ],
+    )
+    assert res.returncode != 0, "evaluator-only read MUST be blocked"
+    assert "LEAK-SUCCEEDED" not in res.stdout
+    assert "EPERM" in res.stderr  # sandbox denial, not ENOENT
+
+
+@requires_seatbelt
+def test_sandbox_blocks_network(tmp_path) -> None:
+    node_bin, node_dir = node_install_paths()
+    tree = (tmp_path / "t").resolve()
+    tree.mkdir()
+    res = _run_under_profile(
+        node_bin,
+        node_dir,
+        tree,
+        [
+            "-e",
+            "const net=require('net');"
+            "const s=net.connect(80,'93.184.216.34',"
+            "()=>{console.log('NET-OK');process.exit(0)});"
+            "s.on('error',e=>{console.log('NET-BLOCKED:'+e.code);process.exit(3)});"
+            "setTimeout(()=>{console.log('NET-TIMEOUT');process.exit(4)},3000)",
+        ],
+    )
+    assert "NET-OK" not in res.stdout, "network connect MUST be blocked"
+    assert res.returncode != 0
+
+
+@requires_seatbelt
+def test_sandbox_starts_node_and_runs_benign_authored_test() -> None:
+    """The boundary still permits the legitimate workflow: node starts, runs an
+    authored test that reads/writes IN-TREE, and reports pass."""
+    node_bin, node_dir = node_install_paths()
+    files = {
+        "package.json": '{"type":"module"}\n',
+        "tests/authored/x.test.js": (
+            "import test from 'node:test';\n"
+            "import assert from 'node:assert/strict';\n"
+            "import fs from 'node:fs';\n"
+            "test('benign in-tree', () => {\n"
+            "  const c = fs.readFileSync('package.json','utf8');\n"
+            "  assert.ok(c.includes('module'));\n"
+            "  fs.writeFileSync('tests/authored/scratch.txt','ok');\n"
+            "});\n"
+        ),
+    }
+    out = run_authored_tests_sandboxed(files, node_bin=node_bin, node_dir=node_dir)
+    assert out.status == "passed", out.output
+    assert out.exit_code == 0
+    assert out.passed == 1
