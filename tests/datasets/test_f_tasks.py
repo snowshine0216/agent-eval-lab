@@ -53,6 +53,9 @@ def test_four_arms_of_a_base_share_verification_and_tree_state() -> None:
                 == ref.initial_state["candidate_base_sha"]
             )
             assert t.initial_state["target_paths"] == ref.initial_state["target_paths"]
+            assert (
+                t.initial_state["context_paths"] == ref.initial_state["context_paths"]
+            )
 
 
 @requires_store
@@ -106,3 +109,40 @@ def test_f_tasks_carry_the_repo_relative_target_paths() -> None:
         in tasks["f-f1"].initial_state["target_paths"][0]
     )
     assert tasks["f-f2"].initial_state["target_paths"] == ("tests/wdio/wdio.conf.ts",)
+
+
+# the concrete context sets enumerated from web-dossier @ 5b0c13a6 (004 §B.5/§C)
+_F1_CONTEXT = (
+    "tests/wdio/pageObjects/common/Alert.js",
+    "tests/wdio/pageObjects/common/SearchBox.js",
+    "tests/wdio/pageObjects/common/Panel.js",
+)
+_F2_CONTEXT = ("tests/wdio/utils/failure-analysis/index.js",)
+_F3_CONTEXT: tuple[str, ...] = ()  # F3 layer already broad; no new context paths
+
+
+@requires_store
+def test_arms_carry_the_curated_context_paths() -> None:
+    arms = {t.id: t for t in build_f_task_arms(evaluator_store=_STORE)}
+    for arm in ("bare", "prompt", "feedback", "both"):
+        assert arms[f"f-f1-{arm}"].initial_state["context_paths"] == _F1_CONTEXT
+        assert arms[f"f-f2-{arm}"].initial_state["context_paths"] == _F2_CONTEXT
+        assert arms[f"f-f3-{arm}"].initial_state["context_paths"] == _F3_CONTEXT
+
+
+@requires_store
+def test_four_arms_of_a_base_share_context_paths() -> None:
+    arms = {t.id: t for t in build_f_task_arms(evaluator_store=_STORE)}
+    for base in ("f1", "f2", "f3"):
+        suffixes = ("bare", "prompt", "feedback", "both")
+        group = [arms[f"f-{base}-{s}"] for s in suffixes]
+        ref = group[0].initial_state["context_paths"]
+        for t in group[1:]:
+            assert t.initial_state["context_paths"] == ref  # byte-identical
+
+
+@requires_store
+def test_production_f_tasks_carry_no_context_paths() -> None:
+    # enrichment is for the ablation arms only; production stays minimal
+    for t in build_f_tasks(evaluator_store=_STORE):
+        assert "context_paths" not in t.initial_state

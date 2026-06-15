@@ -35,8 +35,13 @@ from agent_eval_lab.runners.loop import run_single
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
 from agent_eval_lab.tasks.schema import Task, TaskInput
-from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
-from agent_eval_lab.tools.code_world import apply as code_world_apply
+from agent_eval_lab.tools.code_world import (
+    CODE_WORLD_TOOLS,
+    prefix_collision,
+)
+from agent_eval_lab.tools.code_world import (
+    apply as code_world_apply,
+)
 
 # The edit tools the candidate gets (a subset of code-world): inspect + edit only.
 # run_tests is deliberately EXCLUDED — F grades via the held-out node oracle, not
@@ -120,10 +125,44 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
 
     F1/F2 are self-contained in their target paths; F3 additionally needs the
     failure-analysis causal layer present so the held-out guard tests can run.
+
+    Ablation arms (item 004 §B.5) additionally carry `initial_state['context_paths']`
+    — a curated context set (siblings + readable source) materialized identically
+    across all four arms from the pinned SHA so Factor P's read-the-context directives
+    are non-vacuous. Production `build_f_tasks` sets no context_paths, so its trees
+    stay minimal. The held-out golden grading test is never seeded (D19); the
+    overlay-disjointness invariant (§10.4, seeded_held_out_disjoint) guarantees a
+    context path can never collide with a held-out path.
     """
     if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
-    return dict(prefix_candidate_tree(task, repo=repo))
+    tree = dict(prefix_candidate_tree(task, repo=repo))
+    # prefix_candidate_tree already asserted initial_state is not None, so a direct
+    # read here is safe; a future None becomes a loud AttributeError rather than a
+    # silent un-enriched arm (house style — cf. 002 CF2). Production tasks have no
+    # context_paths key, so .get(...) correctly yields the minimal tree.
+    for rel in task.initial_state.get("context_paths", ()):
+        tree[rel] = _git_show(repo, rel)
+    return tree
+
+
+def seeded_held_out_disjoint(
+    seeded_paths: Sequence[str], held_out_files: Mapping[str, str]
+) -> bool:
+    """True iff no seeded (candidate-visible) path collides with any held-out
+    oracle path under `prefix_collision` (§10.4).
+
+    Pure. The held-out node oracle overlays `held_out_files` over the candidate
+    base tree at grade time; `overlay_node_oracle` raises NodeOverlayCollision ->
+    `tree_collision` error if a seeded path canonically prefix-collides with a
+    held-out path. Identical spellings are DISPLACEMENTS (overwrite allowed), not
+    collisions, so they are disjoint. Reuses the project's single collision
+    predicate (tools/code_world.prefix_collision) — never reimplemented."""
+    return not any(
+        prefix_collision(seeded, oracle)
+        for seeded in seeded_paths
+        for oracle in held_out_files
+    )
 
 
 def make_edit_task(task: Task, *, base_tree: Mapping[str, str]) -> Task:
