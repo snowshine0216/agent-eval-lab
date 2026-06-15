@@ -476,3 +476,49 @@ def test_provider_error_maps_to_harness_provider_response() -> None:
     c = classify_run(run)
     assert c.category == "harness_failure"
     assert c.subcategory == "provider_response"
+
+
+# fc-v4 Row E.1 — node_execution leaf fix ─────────────────────────────────────
+
+
+def _node_exec_run_evidence(status, counts=None):
+    # The node_execution grader emits the SAME evidence shape as the execution
+    # grader (graders/node_execution.py::_interpret).
+    return {
+        "execution": "run",
+        "status": status,
+        "exit_code": 1,
+        "counts": counts or {"passed": 1, "failed": 4, "errors": 0, "skipped": 0},
+        "tests": [],
+        "stdout": "",
+        "stderr": "",
+        "execution_hash": "h",
+        "displaced_paths": [],
+    }
+
+
+def test_e1_failing_node_execution_leg_is_oracle_red() -> None:
+    # Real node-F shape: top grade is all_of with one node_execution sub-result.
+    evidence = {
+        "sub_results": [
+            {
+                "grader_id": "node_execution",
+                "passed": False,
+                "failure_reason": None,
+                "evidence": _node_exec_run_evidence("failed"),
+            }
+        ]
+    }
+    run = _run(grader_id="all_of", evidence=evidence)
+    _is(classify_run(run), "agent_failure", "oracle_red")
+
+
+def test_e1_top_level_node_execution_grader_is_found() -> None:
+    # A top-level node_execution grade (not wrapped in all_of) is also matched.
+    run = _run(grader_id="node_execution", evidence=_node_exec_run_evidence("failed"))
+    _is(classify_run(run), "agent_failure", "oracle_red")
+
+
+def test_e1_first_execution_evidence_matches_node_execution() -> None:
+    ev = _node_exec_run_evidence("failed")
+    assert first_execution_evidence(ev, "node_execution") is ev

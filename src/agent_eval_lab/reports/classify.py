@@ -104,14 +104,14 @@ def _classification(
 def first_execution_evidence(
     evidence: Mapping[str, Any], grader_id: object
 ) -> Mapping[str, Any] | None:
-    """The first execution leg's evidence, in declared order (grill Q9).
+    """The first execution leg's evidence, in declared order (grill Q9; fc-v4 node).
 
     Walks the plain dicts the JSONL round-trip yields: the grade's own
     evidence when it is the execution grader's, recursing `sub_results`
     entries (each a {"grader_id", "evidence", ...} dict) for all_of —
     including nested all_of, walked in declared order.
     """
-    if grader_id == "execution":
+    if grader_id in ("execution", "node_execution"):
         return evidence
     if grader_id != "all_of":
         return None
