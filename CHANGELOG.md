@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.1 — 2026-06-15
+
+### Changed — fc-v4 classifier + pass^k censoring (harness-rounds-f-ablation step 1)
+
+- **Classifier `fc-v3 → fc-v4`** (`reports/classify.py`): `first_execution_evidence` now accepts a
+  `node_execution` grader leg so failing node-F runs classify as `agent_failure / oracle_red` instead
+  of the catch-all `other_miss`; the budget override fires on the loop's real stop reasons
+  (`max_steps` + `safety_cap` + `max_rounds`); the row-1 `passed` short-circuit is guarded with
+  `and not cap_bound` so a graded-passed-but-budget-capped run classifies as the new
+  `agent_failure / budget_exhausted` subcategory (closed vocabulary 19 → 20). ADR-0013 amended.
+- **`pass^k` honors its declared `censoring_policy="failure"`** (`metrics/reliability.py`):
+  `pass_pow_k` / `task_reliability` (and the bootstrap-CI + Fisher-F paths that route through them)
+  count a run as a pass iff `grade.passed AND NOT (safety_cap_bound OR max_rounds_bound)`;
+  `max_rounds_bound` is read defensively (the producing field lands in a later step). Verified to move
+  **zero** historical pass^k numbers (no committed record is `passed AND capped`); only taxonomy
+  outputs move (e.g. `other_miss → oracle_red`), as intended.
+
 ## v0.2.0 — 2026-06-15
 
 ### Added — D-set resume: interrupted runs continue without re-running banked tasks
