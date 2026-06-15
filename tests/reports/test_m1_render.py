@@ -67,7 +67,7 @@ def test_render_includes_spec_hash_and_per_domain_and_composite():
     assert "Per-domain scores" in md
     assert "Macro composite" in md
     assert "Pareto" in md
-    assert "fc-v3" in md or "Failure taxonomy" in md
+    assert "fc-v4" in md or "Failure taxonomy" in md
 
 
 def test_render_marks_f_and_b_not_yet_run():

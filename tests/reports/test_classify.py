@@ -305,9 +305,10 @@ def test_subcategory_vocabulary_is_closed_at_15() -> None:
 # fc-v2 additions ──────────────────────────────────────────────────────────────
 
 
-def test_classifier_version_is_fc_v3() -> None:
-    """The classifier version label is fc-v3 after the env_failure bump (item 001)."""
-    assert CLASSIFIER_VERSION == "fc-v3"
+def test_classifier_version_is_fc_v4() -> None:
+    """The classifier version label is fc-v4 after the budget_exhausted +
+    node_execution-leaf bump (item 001)."""
+    assert CLASSIFIER_VERSION == "fc-v4"
 
 
 def test_token_budget_exhausted_classification() -> None:
@@ -393,8 +394,8 @@ def _env_run(*, stop_reason="env_unhealthy", env_health=None, passed=False):
     )
 
 
-def test_fc_v3_version_label() -> None:
-    assert CLASSIFIER_VERSION == "fc-v3"
+def test_fc_v4_version_label() -> None:
+    assert CLASSIFIER_VERSION == "fc-v4"
 
 
 def test_environment_failure_is_a_category() -> None:
@@ -461,9 +462,10 @@ def test_env_check_runs_after_parse_but_before_execution_grading() -> None:
     assert c.category == "harness_failure"
 
 
-def test_subcategory_vocabulary_is_closed_at_19_after_fc_v3() -> None:
-    """fc-v3 adds pre_probe_failed | post_probe_failed | runner_flagged."""
-    assert len(get_args(Subcategory)) == 19
+def test_subcategory_vocabulary_is_closed_at_20_after_fc_v4() -> None:
+    """fc-v4 adds budget_exhausted (fc-v3 added the three env subcategories)."""
+    assert len(get_args(Subcategory)) == 20
+    assert "budget_exhausted" in get_args(Subcategory)
     for sub in ("pre_probe_failed", "post_probe_failed", "runner_flagged"):
         assert sub in get_args(Subcategory)
 

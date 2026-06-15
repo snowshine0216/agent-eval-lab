@@ -1,4 +1,4 @@
-"""Pure, total fc-v3 failure classification (ADR-0013): derived, never stored.
+"""Pure, total fc-v4 failure classification (ADR-0013): derived, never stored.
 
 Maps every graded RunResult to exactly one of passed | task_failure |
 agent_failure | harness_failure | environment_failure plus one closed
@@ -32,6 +32,21 @@ fc-v3 changes from fc-v2
   ``runner_flagged``. Env-free (F-set) runs and all legacy v1 artifacts are
   unaffected (``stop_reason != "env_unhealthy"`` → ``_classify_environment``
   returns None → fc-v2 chain runs unchanged). Pure/total/versioned (ADR-0013).
+
+fc-v4 changes from fc-v3
+-------------------------
+- ``node_execution`` leaf: ``first_execution_evidence`` now matches the
+  ``"node_execution"`` grader_id (the F-set node oracle, same evidence shape as
+  ``"execution"``), so a failing node-F run classifies as ``agent_failure /
+  oracle_red`` instead of the catch-all ``other_miss`` (Part E.1).
+- ``budget_exhausted`` (agent_failure): a NEW subcategory for runs that hit a
+  budget cap — ``stop_reason in {safety_cap, max_rounds}`` or the
+  ``safety_cap_bound`` / ``max_rounds_bound`` flags. It outranks the row-1
+  ``passed`` short-circuit (a graded-pass that was capped is NOT a reliable
+  pass — consistent with §D.1) and the oracle-status rows. Legacy ``max_steps``
+  keeps its ``step_exhaustion`` bucket (a truncation, not a budget cap).
+  ``max_rounds_bound`` is read defensively (default False) — it arrives on the
+  record in item 002, and old records (no field) are unaffected (Part E.2/E.3).
 """
 
 from collections.abc import Mapping, Sequence
@@ -41,7 +56,7 @@ from typing import Any, Literal
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR, PROVIDER_ERROR
 
-CLASSIFIER_VERSION = "fc-v3"
+CLASSIFIER_VERSION = "fc-v4"
 
 Category = Literal[
     "passed",
