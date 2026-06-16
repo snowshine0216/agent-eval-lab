@@ -286,7 +286,51 @@ def test_seeded_held_out_disjoint_false_on_canonical_prefix_collision() -> None:
 # ---- run_f_candidate (stubbed model) --------------------------------------
 
 
-def test_run_f_candidate_yields_k_runs_per_task_with_real_usage() -> None:
+def _stub_passing_node_oracle(monkeypatch) -> None:
+    """Grade the produced tree as a clean PASS regardless of the HOST's node.
+
+    These run-mechanics tests inject build_tree_fn + run_fn but still call the real
+    `precompute_node_verdicts` (real `node --test`). On a box with node < 20 the
+    oracle correctly env-invalids every attempt (the f-ablation-v2 incident), which
+    would mask the runs these tests assert are valid. Stub the oracle so the tests
+    isolate the run loop, not the host's node version."""
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.graders.node_execution import (
+        NodeExecutionVerdict,
+        collect_node_execution_specs,
+        node_execution_hash,
+    )
+    from agent_eval_lab.records.execution import ExecutionResult
+
+    def fake_precompute(*, verification, trajectory):
+        specs = collect_node_execution_specs(verification)
+        if not specs or trajectory.final_state is None:
+            return {}
+        base_tree = trajectory.final_state.get("files", {})
+        return {
+            node_execution_hash(spec, base_tree): NodeExecutionVerdict(
+                result=ExecutionResult(
+                    status="passed",
+                    exit_code=0,
+                    passed=1,
+                    failed=0,
+                    errors=0,
+                    skipped=0,
+                    tests=(),
+                    stdout="",
+                    stderr="",
+                ),
+                execution_hash=node_execution_hash(spec, base_tree),
+                displaced_paths=(),
+            )
+            for spec in specs
+        }
+
+    monkeypatch.setattr(fc, "precompute_node_verdicts", fake_precompute)
+
+
+def test_run_f_candidate_yields_k_runs_per_task_with_real_usage(monkeypatch) -> None:
+    _stub_passing_node_oracle(monkeypatch)
     task = _fake_task()
 
     def build_tree_fn(_t: Task) -> dict[str, str]:
@@ -320,9 +364,12 @@ def test_run_f_candidate_yields_k_runs_per_task_with_real_usage() -> None:
     assert [r.run_index for r in o.valid_runs] == [0, 1, 2, 3, 4]
 
 
-def test_run_f_candidate_threads_each_tasks_edited_tree_into_its_grade() -> None:
+def test_run_f_candidate_threads_each_tasks_edited_tree_into_its_grade(
+    monkeypatch,
+) -> None:
     """The grade must come from the model's produced tree — a per-task stub that
     returns a tree the (stub) verdict marks passing flows through to grade.passed."""
+    _stub_passing_node_oracle(monkeypatch)
     task = _fake_task()
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
@@ -342,12 +389,15 @@ def test_run_f_candidate_threads_each_tasks_edited_tree_into_its_grade() -> None
     assert all(r.grade is not None for r in outcomes[0].valid_runs)
 
 
-def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
+def test_run_f_candidate_masks_provider_error_and_voids_under_k(monkeypatch) -> None:
     """A provider HTTP rejection (e.g. 403/429) is env-invalid: excluded from
     valid_runs, flagged invalid in attempts, and if fewer than k clean trials
-    result the task is VOID — never scored over <k (D-set parity)."""
+    result the task is VOID — never scored over <k (D-set parity). The clean
+    (non-provider-error) attempts grade through the stubbed node oracle so this
+    isolates provider-side masking from the host's node version."""
     from agent_eval_lab.records.trajectory import PROVIDER_ERROR, ParseFailure
 
+    _stub_passing_node_oracle(monkeypatch)
     task = _fake_task()
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
@@ -373,6 +423,65 @@ def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
     assert len(o.valid_runs) == 2  # 3 provider errors masked, 2 clean
     assert sum(1 for a in o.attempts if not a.valid) == 3
     assert o.void is True  # only 2 < k=5 clean trials -> INCOMPLETE
+
+
+def test_run_f_candidate_masks_incapable_node_oracle_and_voids(monkeypatch) -> None:
+    """Defense-in-depth: if the held-out node oracle hits an INCAPABLE node
+    (`--test-reporter` unsupported on node < 20 -> exit 9, status='error'), every
+    attempt is env-invalid -> masked out of valid_runs, flagged invalid in
+    attempts, and the task VOIDs — never silently scored 0/k as a model FAIL
+    (f-ablation-v2 incident). Exercises the REAL grade_trajectory -> grade_all_of
+    (nested NodeExecutionSpec) -> is_env_invalid_run path; only the node subprocess
+    is stubbed out."""
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.graders.node_execution import (
+        NodeExecutionVerdict,
+        collect_node_execution_specs,
+        node_execution_hash,
+    )
+    from agent_eval_lab.records.execution import ExecutionResult
+
+    def fake_precompute(*, verification, trajectory):
+        base_tree = trajectory.final_state.get("files", {})
+        out = {}
+        for spec in collect_node_execution_specs(verification):
+            key = node_execution_hash(spec, base_tree)
+            out[key] = NodeExecutionVerdict(
+                result=ExecutionResult(
+                    status="error",
+                    exit_code=9,  # node: bad option: --test-reporter=junit
+                    passed=0,
+                    failed=0,
+                    errors=0,
+                    skipped=0,
+                    tests=(),
+                    stdout="",
+                    stderr="node: bad option: --test-reporter=junit",
+                ),
+                execution_hash=key,
+                displaced_paths=(),
+            )
+        return out
+
+    monkeypatch.setattr(fc, "precompute_node_verdicts", fake_precompute)
+
+    task = _fake_task()  # verification is AllOf(NodeExecutionSpec)
+
+    def run_fn(edit_task: Task, run_index: int) -> Trajectory:
+        return _traj_with_files({"a.js": "fixed\n"}, run_index=run_index)
+
+    [o] = list(
+        run_f_candidate(
+            tasks=(task,),
+            k=3,
+            condition_id="c",
+            build_tree_fn=lambda _t: {"a.js": "x\n"},
+            run_fn=run_fn,
+        )
+    )
+    assert len(o.valid_runs) == 0  # all 3 masked: oracle could not run
+    assert sum(1 for a in o.attempts if not a.valid) == 3
+    assert o.void is True  # < k clean trials -> VOID, not 0/3 model FAIL
 
 
 def test_run_uid_is_task_scoped(monkeypatch) -> None:
