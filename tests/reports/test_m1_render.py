@@ -67,7 +67,8 @@ def test_render_includes_spec_hash_and_per_domain_and_composite():
     assert "Per-domain scores" in md
     assert "Macro composite" in md
     assert "Pareto" in md
-    assert "fc-v4" in md or "Failure taxonomy" in md
+    assert "Failure classification (fc-v4) per condition" in md
+    assert "Failure taxonomy" not in md
 
 
 def test_render_marks_f_and_b_not_yet_run():
@@ -76,6 +77,25 @@ def test_render_marks_f_and_b_not_yet_run():
     _, md = _report(outcomes)
     assert "not yet run" in md.lower()
     assert "| F |" in md or "F (not yet run)" in md or "| (all conditions) | F |" in md
+
+
+def test_render_has_efficiency_and_cost_rollup():
+    cond = "deepseek:deepseek-v4-pro"
+    outcomes = {cond: {"D": (_outcome("t0", cond, [True] * 5),)}}
+    _, md = _report(outcomes)
+    assert "Efficiency & cost" in md
+    # rollup columns
+    assert "rounds" in md.lower() and "cost" in md.lower()
+
+
+def test_render_has_subreport_links_and_headline():
+    cond = "deepseek:deepseek-v4-pro"
+    outcomes = {cond: {"D": (_outcome("t0", cond, [True] * 5),)}}
+    _, md = _report(outcomes)
+    assert "Subreports" in md
+    assert "M1-D-report.md" in md
+    # deterministic per-domain headline
+    assert "best pass^k" in md
 
 
 def test_render_flags_void_domain():

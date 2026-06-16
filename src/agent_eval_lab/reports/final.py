@@ -32,6 +32,11 @@ from agent_eval_lab.reports.classify import (
     RunClassification,
     classify_run,
 )
+from agent_eval_lab.reports.defects import (
+    DefectInputGroup,
+    TaskDefectCandidate,
+    task_defect_candidates,
+)
 from agent_eval_lab.reports.validation import (
     TIER_ORDER,
     ConditionInput,
@@ -91,13 +96,6 @@ class FinalConditionReport:
     cost_usd: float | None
     mean_latency_s: float | None
     incomplete_task_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True, kw_only=True)
-class TaskDefectCandidate:
-    task_id: str
-    n_conditions: int  # non-blocked conditions WITH records for the task
-    n_runs: int  # total recorded runs over those conditions
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -248,31 +246,6 @@ def _build_final_condition(
     )
 
 
-def _task_defect_candidates(
-    conditions: Sequence[FinalConditionInput],
-) -> tuple[TaskDefectCandidate, ...]:
-    """Tasks failing ALL recorded runs on EVERY non-blocked condition with
-    records for them (grill Q10): a condition with no records for a task
-    contributes nothing (vacuous); blocked conditions are excluded entirely.
-    Flagged for human review, never auto-classified (ADR-0013)."""
-    live = [c for c in conditions if c.blocked_reason is None and c.results]
-    per_task: dict[str, dict[str, list[bool]]] = {}
-    for cond in live:
-        for run in cond.results:
-            per_task.setdefault(run.task_id, {}).setdefault(cond.label, []).append(
-                run.grade.passed
-            )
-    return tuple(
-        TaskDefectCandidate(
-            task_id=task_id,
-            n_conditions=len(per_task[task_id]),
-            n_runs=sum(len(passes) for passes in per_task[task_id].values()),
-        )
-        for task_id in sorted(per_task)
-        if not any(any(passes) for passes in per_task[task_id].values())
-    )
-
-
 def _shared_discriminativeness(
     conditions: Sequence[FinalConditionInput],
     *,
@@ -354,7 +327,16 @@ def build_final_report(
         prices_snapshot_date=prices_snapshot_date,
         context_text=context_text,
         conditions=built,
-        task_defect_candidates=_task_defect_candidates(conditions),
+        task_defect_candidates=task_defect_candidates(
+            tuple(
+                DefectInputGroup(
+                    label=c.label,
+                    runs=tuple(c.results),
+                    blocked=c.blocked_reason is not None,
+                )
+                for c in conditions
+            )
+        ),
         discriminativeness=_shared_discriminativeness(
             conditions,
             tiers=tiers,
