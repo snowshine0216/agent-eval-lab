@@ -50,6 +50,7 @@ from agent_eval_lab.reports.final import FinalConditionInput, build_final_report
 from agent_eval_lab.reports.final import render_markdown as render_final
 from agent_eval_lab.reports.m1 import build_m1_report
 from agent_eval_lab.reports.m1 import render_markdown as render_m1
+from agent_eval_lab.reports.m1_detail import build_m1_detail, render_detail
 from agent_eval_lab.reports.validation import ConditionInput, build_validation_report
 from agent_eval_lab.reports.validation import render_markdown as render_validation
 from agent_eval_lab.runners.config import (
@@ -1197,6 +1198,23 @@ def _run_report_m1(args: argparse.Namespace) -> int:
     )
     _atomic_write(args.out, render_m1(report))
     print(args.out)
+    if args.subreports:
+        out_dir = args.subreport_dir or args.out.parent
+        for domain in report.subreport_domains:
+            outcomes_for_domain = {
+                cond: outcomes[cond][domain]
+                for cond in sorted(outcomes)
+                if domain in outcomes[cond]
+            }
+            detail = build_m1_detail(
+                domain=domain,
+                outcomes_by_condition=outcomes_for_domain,
+                pricing=pricing,
+                spec=spec,
+            )
+            subreport_path = out_dir / f"M1-{domain}-report.md"
+            _atomic_write(subreport_path, render_detail(detail))
+            print(subreport_path)
     return 0
 
 
@@ -1573,6 +1591,25 @@ def _build_parser() -> argparse.ArgumentParser:
     rm.add_argument("--seed", type=int, default=20260613)
     rm.add_argument("--n-resamples", type=int, default=2000)
     rm.add_argument("--alpha", type=float, default=0.05)
+    rm.add_argument(
+        "--subreports",
+        dest="subreports",
+        action="store_true",
+        default=True,
+        help="also write per-domain M1-<domain>-report.md subreports (default on)",
+    )
+    rm.add_argument(
+        "--no-subreports",
+        dest="subreports",
+        action="store_false",
+        help="suppress per-domain subreports",
+    )
+    rm.add_argument(
+        "--subreport-dir",
+        type=Path,
+        default=None,
+        help="directory for subreports (default: same dir as --out)",
+    )
 
     return parser
 
