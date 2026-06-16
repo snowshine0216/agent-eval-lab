@@ -4,7 +4,7 @@ Mode: plan · Project type: non-web · PR shape: A · Feature branch: `feat/clau
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 |
+| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused
 
@@ -28,4 +28,4 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - verify: ✅ `items/001-verify.md` (PASS; dry-run smoke attempts:1 + 77 unit tests, ruff clean)
 - pr-review: ✅ `items/001-pr-review.md` (PASS-WITH-NITS; 2 nits + 1 verify-surfaced defect all fixed in `d903f10`)
 - fix: ✅ 1 round (`d903f10`: __main__.py + temp-dir cleanup + dead-param drop; pre-push fixes `80bf605`/`9b7d571`)
-- merge: _pending_
+- merge: ✅ `2a82edd` — PR #38 squash-merged into `feat/claude-p-f-baseline` (CI green; sub-branch deleted)
