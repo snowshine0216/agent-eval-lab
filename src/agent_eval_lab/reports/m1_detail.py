@@ -379,3 +379,238 @@ def build_m1_detail(
         efficiency=efficiency,
         efficiency_condition_ids=conditions_present,
     )
+
+
+# ---------------------------------------------------------------------------
+# Renderer
+# ---------------------------------------------------------------------------
+
+
+def _per_trial_str(per_trial: tuple[bool, ...]) -> str:
+    return "".join("✅" if p else "❌" for p in per_trial) or "—"
+
+
+def _rounds_cell(
+    median_val: float, lo: int, hi: int, censored: int, cap: int | None
+) -> str:
+    base = f"{median_val:g} [{lo}–{hi}]"
+    if censored > 0:
+        bound = "cap" if cap is None else f"cap {cap}"
+        base += f" ({censored} right-censored at {bound})"
+    return base
+
+
+def _gap_phrase(gap: EvidenceGap) -> str:
+    if gap.administrative:
+        return "administrative — not executed (owner decision)"
+    if gap.status == "no_answer":
+        return "no answer (no assistant message)"
+    if gap.oracle_total is not None:
+        failing = ", ".join(f"`{u}`" for u in gap.failing_units) or "none"
+        return f"passed {gap.oracle_passed}/{gap.oracle_total} oracle tests; failing: {failing}"
+    if gap.failing_units:
+        return "missed/forbidden facts: " + ", ".join(f"`{u}`" for u in gap.failing_units)
+    return gap.status
+
+
+def _header_lines(detail: M1Detail) -> list[str]:
+    conds = ", ".join(detail.conditions_present) or "(none)"
+    return [
+        f"# M1 subreport — {detail.domain}",
+        "",
+        f"- conditions: {conds}",
+        f"- k={detail.k} · tasks={len(detail.tasks)} · spec_hash=`{detail.spec_hash}`",
+        "",
+    ]
+
+
+def _quickref_lines(detail: M1Detail) -> list[str]:
+    lines = [
+        "## Task quick-reference",
+        "",
+        "| task | target_paths | grader | oracle tests |",
+        "| --- | --- | --- | --- |",
+    ]
+    for ref in detail.task_quick_refs:
+        paths = ", ".join(f"`{p}`" for p in ref.target_paths) or "—"
+        oracle = str(ref.oracle_total) if ref.oracle_total is not None else "—"
+        lines.append(f"| {ref.task_id} | {paths} | {ref.grader_id} | {oracle} |")
+    return lines + [""]
+
+
+def _summary_lines(detail: M1Detail) -> list[str]:
+    lines = [
+        "## Cross-model summary",
+        "",
+        "| task | " + " | ".join(detail.conditions_present) + " | dominant stop |",
+        "| --- | " + " | ".join("---" for _ in detail.conditions_present) + " | --- |",
+    ]
+    for task in detail.tasks:
+        cells_by_cond = {c.condition_id: c for c in task.cells}
+        row_parts = []
+        for cond in detail.conditions_present:
+            c = cells_by_cond.get(cond)
+            if c is None or not c.present:
+                row_parts.append("—")
+            else:
+                row_parts.append(
+                    f"{c.passed_trials}/{c.valid_trials} {_per_trial_str(c.per_trial)}"
+                )
+        dominant = cells_by_cond.get(detail.conditions_present[0])
+        dom_stop = dominant.dominant_stop_reason if dominant and dominant.present else "—"
+        lines.append(
+            f"| {task.task_id} | " + " | ".join(row_parts) + f" | {dom_stop} |"
+        )
+    return lines + [""]
+
+
+def _per_task_cell_lines(cell: TaskConditionCell, k: int) -> list[str]:
+    lines = [f"#### Condition: `{cell.condition_id}`", ""]
+    if not cell.present:
+        lines += ["— (condition has no records for this task)", ""]
+        return lines
+    if cell.administrative:
+        lines += [
+            f"administrative 0/{k} — not executed (owner decision)",
+            "",
+        ]
+        return lines
+    status_note = ""
+    if cell.incomplete:
+        status_note = f" — **status = incomplete (excluded from pass^k)** ({cell.valid_trials}/{k} valid trials)"
+    trial_str = _per_trial_str(cell.per_trial)
+    rounds = _rounds_cell(
+        cell.rounds_median, cell.rounds_min, cell.rounds_max,
+        cell.censored_count, cell.cap_bound,
+    )
+    cost = "—" if cell.cost_usd is None else f"{cell.cost_usd:.6f}"
+    total_tools = sum(cell.tool_call_totals.values())
+    lines += [
+        f"- pass: {cell.passed_trials}/{cell.valid_trials}{status_note} — {trial_str}",
+        f"- rounds: {rounds}",
+        f"- tokens: prompt={cell.prompt_tokens} / completion={cell.completion_tokens} / total={cell.total_tokens}",
+        f"- cost_usd: {cost}",
+        f"- tool calls (total): {total_tools}",
+        f"- safety-cap hits: {cell.safety_cap_hits}",
+        f"- dominant stop: {cell.dominant_stop_reason}",
+        f"- grader gap: {_gap_phrase(cell.gap)}",
+    ]
+    if cell.gap.displaced_paths:
+        lines.append(
+            "- displaced (oracle overlay): "
+            + ", ".join(f"`{p}`" for p in cell.gap.displaced_paths)
+        )
+    edited = ", ".join(f"`{p}`" for p in cell.edits.edited) or "—"
+    oos = ", ".join(f"`{p}`" for p in cell.edits.out_of_scope) or "—"
+    lines += [
+        f"- edited: {edited}",
+        f"- out-of-scope edits: {oos}",
+    ]
+    if cell.invalid_trials > 0:
+        lines.append(
+            f"- invalid (env-masked) trials: {cell.invalid_trials} — excluded, not a model gap"
+        )
+    lines.append("")
+    return lines
+
+
+def _per_task_lines(detail: M1Detail) -> list[str]:
+    lines = ["## Per-task detail", ""]
+    for task in detail.tasks:
+        lines += [f"### Task: `{task.task_id}`", ""]
+        for cell in task.cells:
+            lines += _per_task_cell_lines(cell, detail.k)
+    return lines
+
+
+def _defect_lines(detail: M1Detail) -> list[str]:
+    lines = [
+        "## Task-defect candidates",
+        "",
+        "Tasks that every non-blocked condition with records unanimously fails. "
+        "Flagged for human review, never auto-classified (ADR-0013).",
+        "",
+    ]
+    if not detail.defect_candidates:
+        lines += ["(none)", ""]
+        return lines
+    # build a lookup from task_id to TaskDetail for shared units
+    task_map = {t.task_id: t for t in detail.tasks}
+    for cand in detail.defect_candidates:
+        t = task_map.get(cand.task_id)
+        if t and t.shared_failing_units:
+            shared_txt = "shared failing oracle unit(s): " + ", ".join(
+                f"`{u}`" for u in t.shared_failing_units
+            )
+        elif t and t.divergent:
+            shared_txt = "divergent failures (no shared unit)"
+        else:
+            shared_txt = "(no shared unit data)"
+        lines += [
+            f"- `{cand.task_id}` ({cand.n_conditions} conditions, {cand.n_runs} runs)",
+            f"  - {shared_txt}",
+        ]
+    lines.append("")
+    return lines
+
+
+def _efficiency_lines(detail: M1Detail) -> list[str]:
+    lines = [
+        "## Per-condition efficiency",
+        "",
+        "| condition | rounds median [min–max] | prompt tok | completion tok "
+        "| total tok | cost (USD) | tool calls | safety-cap hits | max-rounds hits "
+        "| dominant stop |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for cond, eff in zip(detail.efficiency_condition_ids, detail.efficiency):
+        rounds = _rounds_cell(
+            eff.rounds_median, eff.rounds_min, eff.rounds_max,
+            eff.censored_count, eff.cap_bound,
+        )
+        cost = "—" if eff.cost_usd is None else f"{eff.cost_usd:.4f}"
+        total_tools = sum(eff.tool_call_totals.values())
+        dominant = (
+            max(eff.stop_reason_counts, key=lambda sr: (eff.stop_reason_counts[sr], sr))
+            if eff.stop_reason_counts
+            else "—"
+        )
+        lines.append(
+            f"| {cond} | {rounds} | {eff.prompt_tokens} | {eff.completion_tokens} "
+            f"| {eff.total_tokens} | {cost} | {total_tools} | {eff.safety_cap_hits} "
+            f"| {eff.max_rounds_hits} | {dominant} |"
+        )
+    return lines + [""]
+
+
+def _classification_lines(detail: M1Detail) -> list[str]:
+    lines = ["## Failure classification (fc-v4) per task × condition", ""]
+    for task in detail.tasks:
+        for cell in task.cells:
+            if not cell.present or not cell.classifications:
+                continue
+            lines.append(f"### `{task.task_id}` × `{cell.condition_id}`")
+            lines += [
+                "",
+                "| category | subcategory |",
+                "| --- | --- |",
+            ]
+            for cat, sub in cell.classifications:
+                lines.append(f"| {cat} | {sub} |")
+            lines.append("")
+    if len(lines) == 2:  # only the header
+        lines += ["(no failures classified)", ""]
+    return lines
+
+
+def render_detail(detail: M1Detail) -> str:
+    lines = (
+        _header_lines(detail)
+        + _quickref_lines(detail)
+        + _summary_lines(detail)
+        + _per_task_lines(detail)
+        + _defect_lines(detail)
+        + _efficiency_lines(detail)
+        + _classification_lines(detail)
+    )
+    return "\n".join(lines) + "\n"
