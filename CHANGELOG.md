@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## Unreleased
 
+### Fixed
+
+- **`python -m agent_eval_lab` now works.** Added `src/agent_eval_lab/__main__.py`, so the
+  documented module invocation (used by every CLI recipe across the docs) runs instead of failing
+  with `No module named agent_eval_lab.__main__`.
+
 ### Added
 
 - **Claude Code F-baseline (`run-f-claude-baseline`).** Runs vanilla Claude Code (`claude -p`,

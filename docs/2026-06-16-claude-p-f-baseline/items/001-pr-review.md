@@ -17,3 +17,9 @@ Verified clean:
   - read_back_tree ignore filter uses exact top-level parts[0] (no substring false-positives).
   - All 5 env-invalid degradation paths tested (timeout, nonzero-exit, parse-error, is_error, non-UTF-8 read-back).
   - _append_runs writes all attempts (intentional for drill-down; test confirms).
+
+## Fix-loop resolution (commit d903f10) — both nits resolved + verify-surfaced defect fixed
+
+- **nit cli.py:1475-1478 (temp-dir leak) → FIXED:** `run_fn` now removes its `workdir` + `clean_home` in a `finally` (read-back happens first, so the produced tree is already in memory). Test `test_run_fn_cleans_up_workdir_and_home`.
+- **nit cli.py:1464 (dead `condition_id`) → FIXED:** parameter dropped from `_real_claude_factory`'s inner `factory` and the call site.
+- **verify-surfaced defect (NOT a nit): `python -m agent_eval_lab` was broken repo-wide** (no `__main__.py` / no console script) — the documented Task 7 / owner smoke recipe and every agentic recipe would fail with "No module named agent_eval_lab.__main__". FIXED: added `src/agent_eval_lab/__main__.py`; test `test_python_m_entrypoint_help_works`; confirmed `python -m agent_eval_lab run-f-claude-baseline --smoke --dry-run` exits 0. Post-fix full suite green, ruff clean.
