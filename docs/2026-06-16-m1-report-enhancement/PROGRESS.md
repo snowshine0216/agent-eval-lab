@@ -4,10 +4,11 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Notes:
 - `spec` ✅ — user-provided, copied verbatim to [items/001-spec.md](items/001-spec.md).
+- `plan` ✅ — Opus writing-plans → [items/001-plan.md](items/001-plan.md) (commit 3916d5c); 10 tasks, TDD-ordered, field names verified at file:line.
 - `grill` ⏭️ — spec mode pre-completes grill (user-grilled; source spec records the Q1–Q6 CONTEXT-grounded grilling pass). Orchestrator does NOT auto-invoke.
 - `verify` (not `qa`) — project type is non-web.
 - Feature branch: `claude/fervent-panini-498c1a`. Item sub-branch: `claude/m1-report-enhancement-001`.
