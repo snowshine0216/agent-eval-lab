@@ -1880,6 +1880,41 @@ def test_claude_baseline_smoke_and_surface_choice():
     assert args.smoke is True
 
 
+def test_claude_baseline_bases_rejects_unknown_value():
+    # Fix 4b: --bases is constrained to f1/f2/f3 so a typo is rejected at parse
+    # time (clean argparse error) instead of a bare KeyError deep in the handler.
+    from agent_eval_lab.cli import _build_parser
+
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(
+            ["run-f-claude-baseline", "--out", "/tmp/x", "--bases", "f9"]
+        )
+
+
+def test_claude_baseline_missing_f_repo_fails_fast(tmp_path, monkeypatch):
+    # Fix 4c: a missing web-dossier checkout fails fast with a clean message on a
+    # real run (run_fn_factory is None), not an unhandled FileNotFoundError.
+    import argparse
+
+    from agent_eval_lab import cli
+
+    monkeypatch.setattr(cli, "node_supports_junit", lambda *a, **k: True)
+    monkeypatch.setattr(cli.Path, "home", lambda: tmp_path)  # no web-dossier under it
+
+    args = argparse.Namespace(
+        out=tmp_path,
+        surface="edit-only",
+        k=1,
+        bases=["f1"],
+        model="claude-sonnet-4-6",
+        smoke=False,
+        dry_run=False,
+        evaluator_config=Path("evaluator.toml"),
+    )
+    rc = cli._run_f_claude_baseline_command(args)
+    assert rc == 1
+
+
 def test_claude_baseline_dry_run_makes_no_subprocess(tmp_path):
     import argparse
     import json

@@ -1521,6 +1521,13 @@ def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
         return 1
 
     f_repo = Path.home() / "Documents/Repository/web-dossier"
+    # Fail fast on a missing F repo (real runs only; injected-factory tests skip).
+    if run_fn_factory is None and not f_repo.exists():
+        print(
+            f"error: F repo not found at {f_repo}. Clone web-dossier there and retry.",
+            file=sys.stderr,
+        )
+        return 1
     cfg = load_evaluator_config(args.evaluator_config)
     store = Path(cfg.store.path) / "web-dossier-golden"
     all_tasks = {t.id: t for t in build_f_tasks(evaluator_store=store)}
@@ -1756,7 +1763,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--surface", choices=["edit-only", "natural", "both"], default="both"
     )
     cb.add_argument("--k", type=int, default=5)
-    cb.add_argument("--bases", nargs="+", default=["f1", "f2", "f3"])
+    cb.add_argument(
+        "--bases", nargs="+", choices=["f1", "f2", "f3"], default=["f1", "f2", "f3"]
+    )
     cb.add_argument("--model", default="claude-sonnet-4-6")
     cb.add_argument("--evaluator-config", type=Path, default=Path("evaluator.toml"))
     cb.add_argument(

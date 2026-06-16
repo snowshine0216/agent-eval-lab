@@ -234,8 +234,14 @@ def make_claude_run_fn(
         except subprocess.TimeoutExpired:
             return _env_invalid_trajectory(run_index, raw="timeout")
         if getattr(completed, "returncode", 0) != 0:
+            # stderr is where `claude` writes its real error; keep it for debugging
+            # a voided paid run (stdout is usually empty on nonzero exit).
             return _env_invalid_trajectory(
-                run_index, raw=getattr(completed, "stdout", "")
+                run_index,
+                raw=(
+                    f"stdout: {getattr(completed, 'stdout', '')}\n"
+                    f"stderr: {getattr(completed, 'stderr', '')}"
+                ),
             )
         try:
             meta = parse_claude_result(completed.stdout)
@@ -243,7 +249,14 @@ def make_claude_run_fn(
             return _env_invalid_trajectory(run_index, raw=str(exc))
         if meta.is_error:
             return _env_invalid_trajectory(run_index, raw="claude is_error")
-        produced = read_back_tree(workdir)
+        try:
+            produced = read_back_tree(workdir)
+        except (UnicodeDecodeError, OSError) as exc:
+            # A tree we cannot read back is no fair trial (e.g. claude emitted a
+            # non-UTF-8 artifact on `natural`). Degrade to env-invalid rather than
+            # crashing the whole run — and never errors="replace" (that would
+            # corrupt the grading input).
+            return _env_invalid_trajectory(run_index, raw=f"read-back failed: {exc}")
         return Trajectory(
             turns=(),
             usage=Usage(

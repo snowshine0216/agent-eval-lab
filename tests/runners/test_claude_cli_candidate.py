@@ -10,11 +10,11 @@ from agent_eval_lab.records.grade import GradeResult, RunResult
 from agent_eval_lab.records.trajectory import PROVIDER_ERROR, Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.claude_cli_candidate import (
+    _CONTAMINATING_ENV_KEYS,
     SURFACES,
     BaselineRow,
     ClaudeResultParseError,
     ClaudeRunMeta,
-    _CONTAMINATING_ENV_KEYS,
     _sanitized_env,
     build_claude_argv,
     claude_system_prompt,
@@ -48,6 +48,7 @@ def _result_json(**over):
 class _FakeCompleted:
     stdout: str
     returncode: int = 0
+    stderr: str = ""
 
 
 def _edit_task(files):
@@ -304,6 +305,113 @@ def test_run_fn_timeout_is_env_invalid(tmp_path):
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     assert traj.parse_failure is not None
     assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+# ---- Fix 4d: is_error / parse-error funnel to env-invalid (coverage gaps) ------
+
+
+def test_run_fn_is_error_true_is_env_invalid(tmp_path):
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        return _FakeCompleted(
+            stdout=_result_json(is_error=True, subtype="error_max_turns")
+        )
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd_err", tmp_path / "home_err"
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+def test_run_fn_unparseable_stdout_is_env_invalid(tmp_path):
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        return _FakeCompleted(stdout="not valid json {")
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd_pe", tmp_path / "home_pe"
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+# ---- Fix 3: an unreadable produced tree must not crash the whole run -----------
+
+
+def test_run_fn_unreadable_produced_tree_is_env_invalid(tmp_path):
+    # Claude (on `natural`/Bash) can emit a non-UTF-8 artifact. read_back_tree's
+    # read_text() would raise UnicodeDecodeError OUTSIDE run_f_candidate's
+    # env-invalid net, crashing the whole paid run. It must degrade to env-invalid.
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        (Path(cwd) / "blob.bin").write_bytes(b"\xff\xfe\x00\x01")
+        return _FakeCompleted(stdout=_result_json())
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd_bin", tmp_path / "home_bin"
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="natural",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+# ---- Fix 4a: nonzero-exit env-invalid carries stderr for debuggability ---------
+
+
+def test_run_fn_nonzero_exit_carries_stderr_in_raw(tmp_path):
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        return _FakeCompleted(stdout="", returncode=2, stderr="boom: auth failed")
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd_se", tmp_path / "home_se"
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert "boom: auth failed" in traj.parse_failure.raw
 
 
 # ---- Fix 2: _sanitized_env strips contaminating vars, keeps auth/PATH/HOME -----
