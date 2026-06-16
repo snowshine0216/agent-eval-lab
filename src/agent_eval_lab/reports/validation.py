@@ -465,7 +465,7 @@ def render_markdown(report: ValidationReport) -> str:
             for t in TIER_ORDER
         ]
         lines.append(f"| {c.label} | " + " | ".join(cells) + " |")
-    lines += ["", "## Failure taxonomy × tier × capability", ""]
+    lines += ["", "## Failure classification × tier × capability", ""]
     for c in report.conditions:
         if c.status == "blocked":
             continue

@@ -166,7 +166,7 @@ def test_render_markdown_contains_headline_sections() -> None:
     md = render_markdown(report)
     assert "# Validation report" in md
     assert "pass^3" in md and "pass@1" in md
-    assert "Failure taxonomy" in md
+    assert "Failure classification" in md
     assert "Deterministic" in md and "flaky" in md.lower()
     assert "Discriminativeness verdict" in md
     assert "n=2" in md  # n stated honestly
@@ -627,4 +627,4 @@ def test_render_golden_sha_pins_the_frozen_validation_surface() -> None:
     )
 
     digest = hashlib.sha256(render_markdown(report).encode("utf-8")).hexdigest()
-    assert digest == "423e3a820a4acf5943addf545cd8ffadc979b8844a36702be55ae76e89e03169"
+    assert digest == "5ab18c3bf87216f1af7043821ada134fed1bfc456ae63017b7770052935b9fb7"
