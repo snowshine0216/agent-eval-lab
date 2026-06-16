@@ -104,3 +104,93 @@ def test_grade_non_pass_when_verdict_missing() -> None:
     res = grade_node_execution(spec=spec, trajectory=_traj(base), verdicts={})
     assert res.passed is False
     assert res.evidence["execution"] == "error"
+
+
+# ---- incapable-node / oracle-exec error -> env-invalid (defense-in-depth) ---
+# An incapable node (e.g. node < 20 rejects `--test-reporter=junit`: exit 9,
+# 'bad option', zero tests) or a NodeExecutionError(kind='harness') means the
+# ORACLE could not run — the model's tree never got a fair trial. The grade must
+# carry an `env_invalid` marker so such a run is masked from pass^k (D34) rather
+# than silently scored 0 as a model FAIL (f-ablation-v2 incident).
+
+
+def _error_verdict(base, *, exit_code: int, stderr: str) -> NodeExecutionVerdict:
+    spec = _spec()
+    key = node_execution_hash(spec, base)
+    return NodeExecutionVerdict(
+        result=ExecutionResult(
+            status="error",
+            exit_code=exit_code,
+            passed=0,
+            failed=0,
+            errors=0,
+            skipped=0,
+            tests=(),
+            stdout="",
+            stderr=stderr,
+        ),
+        execution_hash=key,
+        displaced_paths=(),
+    )
+
+
+def test_grade_marks_incapable_node_env_invalid() -> None:
+    spec, base = _spec(), {"src.js": "v1"}
+    key = node_execution_hash(spec, base)
+    verdict = _error_verdict(
+        base, exit_code=9, stderr="node: bad option: --test-reporter=junit"
+    )
+    res = grade_node_execution(
+        spec=spec, trajectory=_traj(base), verdicts={key: verdict}
+    )
+    assert res.evidence.get("env_invalid") is True
+    assert res.evidence.get("env_invalid_reason") == "incapable_node"
+    assert res.passed is False
+
+
+def test_grade_model_import_crash_is_not_env_invalid() -> None:
+    # A model that breaks the code under a CAPABLE node yields status='error' with
+    # exit_code 1 (load/import crash) — a real FAIL, never env-invalid.
+    spec, base = _spec(), {"src.js": "v1"}
+    key = node_execution_hash(spec, base)
+    verdict = _error_verdict(
+        base, exit_code=1, stderr="SyntaxError: Unexpected token in src.js"
+    )
+    res = grade_node_execution(
+        spec=spec, trajectory=_traj(base), verdicts={key: verdict}
+    )
+    assert res.passed is False
+    assert res.evidence.get("env_invalid") is not True
+
+
+def test_grade_marks_oracle_harness_error_env_invalid() -> None:
+    from agent_eval_lab.runners.node_oracle_edge import NodeExecutionError
+
+    spec, base = _spec(), {"src.js": "v1"}
+    key = node_execution_hash(spec, base)
+    err = NodeExecutionError(
+        kind="harness",
+        detail="RuntimeError('node binary not found')",
+        execution_hash=key,
+    )
+    res = grade_node_execution(spec=spec, trajectory=_traj(base), verdicts={key: err})
+    assert res.evidence.get("env_invalid") is True
+    assert res.evidence.get("env_invalid_reason") == "oracle_harness_error"
+    assert res.passed is False
+
+
+def test_grade_tree_collision_is_not_env_invalid() -> None:
+    # A tree_collision is the model's produced tree colliding with a held-out
+    # oracle path — a model-side fault, NOT an oracle environment error.
+    from agent_eval_lab.runners.node_oracle_edge import NodeExecutionError
+
+    spec, base = _spec(), {"src.js": "v1"}
+    key = node_execution_hash(spec, base)
+    err = NodeExecutionError(
+        kind="tree_collision",
+        detail="canonical-prefix collision: base 'a' vs oracle 'A'",
+        execution_hash=key,
+    )
+    res = grade_node_execution(spec=spec, trajectory=_traj(base), verdicts={key: err})
+    assert res.passed is False
+    assert res.evidence.get("env_invalid") is not True
