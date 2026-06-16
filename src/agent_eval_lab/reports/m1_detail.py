@@ -316,7 +316,9 @@ def build_m1_detail(
         for outcome in outcomes_by_condition[cond]:
             invalid = sum(1 for a in outcome.attempts if not a.valid)
             for run in outcome.valid_runs:
-                runs_by_task_cond.setdefault(run.task_id, {}).setdefault(cond, []).append(run)
+                runs_by_task_cond.setdefault(run.task_id, {}).setdefault(
+                    cond, []
+                ).append(run)
                 valid_by_cond[cond].append(run)
             # attribute invalid attempts to the outcome's task (first valid run's
             # task_id, or skip if a fully-void outcome has no valid runs).
