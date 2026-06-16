@@ -14,6 +14,8 @@ from agent_eval_lab.runners.claude_cli_candidate import (
     BaselineRow,
     ClaudeResultParseError,
     ClaudeRunMeta,
+    _CONTAMINATING_ENV_KEYS,
+    _sanitized_env,
     build_claude_argv,
     claude_system_prompt,
     make_claude_run_fn,
@@ -302,6 +304,31 @@ def test_run_fn_timeout_is_env_invalid(tmp_path):
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     assert traj.parse_failure is not None
     assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+# ---- Fix 2: _sanitized_env strips contaminating vars, keeps auth/PATH/HOME -----
+
+
+def test_sanitized_env_strips_contaminating_keys_and_sets_clean_home(tmp_path):
+    clean_home = tmp_path / "clean_home"
+    base_env = {
+        "HOME": "/original/home",
+        "PATH": "/usr/bin:/bin",
+        "ANTHROPIC_API_KEY": "sk-test-123",
+        "CLAUDE_CODE_OAUTH_TOKEN": "oauth-abc",
+        **{k: "contaminated" for k in _CONTAMINATING_ENV_KEYS},
+    }
+    result = _sanitized_env(base_env, clean_home)
+    # Contaminating vars are gone.
+    for key in _CONTAMINATING_ENV_KEYS:
+        assert key not in result, f"{key!r} should have been stripped"
+    # HOME is set to the clean dir.
+    assert result["HOME"] == str(clean_home)
+    # Auth keys survive.
+    assert result["ANTHROPIC_API_KEY"] == "sk-test-123"
+    assert result["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-abc"
+    # PATH survives.
+    assert result["PATH"] == "/usr/bin:/bin"
 
 
 # ---- Task 5: summarize_baseline -----------------------------------------------

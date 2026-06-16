@@ -1858,6 +1858,9 @@ def test_claude_baseline_parser_defaults():
     assert args.bases == ["f1", "f2", "f3"]
     assert args.model == "claude-sonnet-4-6"
     assert args.smoke is False
+    # Fix 1: evaluator_config must default to Path("evaluator.toml") so that
+    # load_evaluator_config(args.evaluator_config) never receives None.
+    assert args.evaluator_config == Path("evaluator.toml")
 
 
 def test_claude_baseline_smoke_and_surface_choice():

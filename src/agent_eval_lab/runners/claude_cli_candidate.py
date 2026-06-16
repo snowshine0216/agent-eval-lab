@@ -144,6 +144,30 @@ def read_back_tree(
     return out
 
 
+# ---- Env sanitization --------------------------------------------------------
+
+# Vars that would make the nested `claude -p` non-vanilla (owner config / skills /
+# effort level / plugins leaking from the PARENT session). Stripped so the baseline
+# is genuinely Sonnet-4.6-default. NEVER strip auth (ANTHROPIC_*, *TOKEN*, *KEY*),
+# PATH, NODE_BIN, HOME (we set it), or locale — those must pass through.
+_CONTAMINATING_ENV_KEYS: tuple[str, ...] = (
+    "CLAUDE_CONFIG_DIR",
+    "XDG_CONFIG_HOME",
+    "CLAUDE_CODE_EFFORT_LEVEL",
+    "CLAUDE_EFFORT",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_PLUGIN_ROOT",
+    "CLAUDE_PLUGIN_DATA",
+)
+
+
+def _sanitized_env(base_env: Mapping[str, str], clean_home: Path) -> dict[str, str]:
+    """Return a new env dict with contaminating keys removed and HOME replaced."""
+    env = {k: v for k, v in base_env.items() if k not in _CONTAMINATING_ENV_KEYS}
+    env["HOME"] = str(clean_home)
+    return env
+
+
 # ---- run_fn factory -----------------------------------------------------------
 
 from agent_eval_lab.records.trajectory import (  # noqa: E402
@@ -202,7 +226,7 @@ def make_claude_run_fn(
             system_prompt=system_prompt,
             max_budget_usd=max_budget_usd,
         )
-        env = {**os.environ, "HOME": str(clean_home)}
+        env = _sanitized_env(os.environ, clean_home)
         try:
             completed = run_subprocess(
                 argv, cwd=str(workdir), env=env, timeout=timeout_s

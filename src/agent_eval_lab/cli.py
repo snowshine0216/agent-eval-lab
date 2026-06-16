@@ -1758,7 +1758,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cb.add_argument("--k", type=int, default=5)
     cb.add_argument("--bases", nargs="+", default=["f1", "f2", "f3"])
     cb.add_argument("--model", default="claude-sonnet-4-6")
-    cb.add_argument("--evaluator-config", type=Path, default=None)
+    cb.add_argument("--evaluator-config", type=Path, default=Path("evaluator.toml"))
     cb.add_argument(
         "--smoke",
         action="store_true",
