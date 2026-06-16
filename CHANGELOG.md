@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Claude Code F-baseline (`run-f-claude-baseline`).** Runs vanilla Claude Code (`claude -p`,
+  Sonnet 4.6, skills off) as the agent on the F1/F2/F3 repair tasks under two tool surfaces —
+  `edit-only` (Read/Edit/Write/Glob/Grep) and `natural` (+Bash) — graded by the existing held-out
+  Node oracle, producing a **Claude Code baseline distinct from the v2 model ablation**. New
+  `runners/claude_cli_candidate.py` materializes the seeded web-dossier tree to a temp workdir under
+  a **sanitized, clean `HOME`** (owner config/skills/effort/plugin env stripped so the run is
+  genuinely vanilla; auth preserved), drives `claude -p`, reads the produced tree back, and wraps it
+  in a synthetic `Trajectory` that plugs unchanged into `run_f_candidate`'s strict-VOID k-loop and
+  the Node oracle. Subprocess failure / timeout / unparseable output / unreadable produced-tree →
+  env-invalid (`PROVIDER_ERROR`), masked out of pass^k. `summarize_baseline` rolls outcomes into
+  per-(surface, base) rows (valid/invalid/VOID/pass^k/pass@1) with per-attempt JSONL for drill-down.
+  Billing is the session OAuth/subscription (quota, not per-token \$); `total_cost_usd` recorded as
+  an API-equivalent efficiency metric. Bounded by a 300 s wall timeout + `--max-budget-usd` (no
+  `--max-turns` in CLI 2.1.177). Output dir `reports/agentic-v1/f-claude-baseline/`. `--smoke` runs
+  1×F1×edit-only then stops; `--dry-run` previews the plan with no subprocess. Fail-fasts when the
+  resolved Node can't run the oracle (needs Node ≥20) or the web-dossier repo is missing.
+
 ## v0.4.0 — 2026-06-16
 
 ### Added
