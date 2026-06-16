@@ -304,36 +304,39 @@ def build_m1_detail(
     spec: ExperimentSpec,
 ) -> M1Detail:
     conditions_present = tuple(sorted(outcomes_by_condition))
-    # (task_id, cond) -> (valid_runs_list, invalid_count)
-    by_task_cond: dict[str, dict[str, tuple[list[RunResult], int]]] = {}
+    # Accumulate runs and invalid counts separately to avoid mutating tuple-held lists
+    # (CLAUDE.md: never mutate — use separate dicts, defer any tuple wrapping to read).
+    # runs_by_task_cond: (task_id, cond) -> list of valid RunResult (appended immutably)
+    runs_by_task_cond: dict[str, dict[str, list[RunResult]]] = {}
+    # invalid_by_task_cond: (task_id, cond) -> cumulative invalid attempt count
+    invalid_by_task_cond: dict[str, dict[str, int]] = {}
     # valid_by_cond: ALL valid runs (filtered later for defect + efficiency)
     valid_by_cond: dict[str, list[RunResult]] = {c: [] for c in conditions_present}
     for cond in conditions_present:
         for outcome in outcomes_by_condition[cond]:
             invalid = sum(1 for a in outcome.attempts if not a.valid)
             for run in outcome.valid_runs:
-                slot = by_task_cond.setdefault(run.task_id, {}).setdefault(
-                    cond, ([], 0)
-                )
-                slot[0].append(run)
+                runs_by_task_cond.setdefault(run.task_id, {}).setdefault(cond, []).append(run)
                 valid_by_cond[cond].append(run)
             # attribute invalid attempts to the outcome's task (first valid run's
             # task_id, or skip if a fully-void outcome has no valid runs).
             # SUM invalid counts across multiple outcomes for the same (task, cond).
             if outcome.valid_runs:
                 tid = outcome.valid_runs[0].task_id
-                runs_list, existing_invalid = by_task_cond[tid][cond]
-                by_task_cond[tid][cond] = (runs_list, existing_invalid + invalid)
+                task_inv = invalid_by_task_cond.setdefault(tid, {})
+                task_inv[cond] = task_inv.get(cond, 0) + invalid
 
     tasks: list[TaskDetail] = []
     quick: list[TaskQuickRef] = []
-    for task_id in sorted(by_task_cond):
+    for task_id in sorted(runs_by_task_cond):
+        task_runs = runs_by_task_cond[task_id]
+        task_inv = invalid_by_task_cond.get(task_id, {})
         cells = tuple(
             _cell(
                 cond,
-                by_task_cond[task_id].get(cond, ([], 0))[0],
+                task_runs.get(cond, []),
                 spec.k,
-                by_task_cond[task_id].get(cond, ([], 0))[1],
+                task_inv.get(cond, 0),
                 pricing,
             )
             for cond in conditions_present
@@ -363,7 +366,7 @@ def build_m1_detail(
         )
         rep_cell = next((c for c in cells if c.present), cells[0])
         target_paths: tuple[str, ...] = ()
-        rep_runs = by_task_cond[task_id].get(rep_cell.condition_id, ([], 0))[0]
+        rep_runs = task_runs.get(rep_cell.condition_id, [])
         if rep_runs:
             target_paths = _target_paths_of(_representative(rep_runs))
         quick.append(
