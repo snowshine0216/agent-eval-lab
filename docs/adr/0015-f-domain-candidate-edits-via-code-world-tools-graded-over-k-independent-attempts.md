@@ -39,7 +39,11 @@ pinned `web-dossier` checkout and the held-out node oracle grades the model's
   *all* pass (genuine reliability, not `pass^1`), and the summed efficiency totals
   are the honest cost of the `k` attempts — consistent with how D aggregates.
   F is env-free, so every attempt is valid: there is no validity mask, no
-  replacement loop, and no VOID (contrast `run_dset`'s D34 path).
+  replacement loop, and no VOID (contrast `run_dset`'s D34 path). _Refined by
+  ADR-0018_: this "no VOID" held only while the model call and the node oracle were
+  both assumed always-runnable. A provider HTTP rejection (already) and an
+  incapable node / oracle exec error (ADR-0018) route to env-invalid, so an F task
+  CAN VOID when it lands fewer than k clean trials.
 
 ## Consequences
 
