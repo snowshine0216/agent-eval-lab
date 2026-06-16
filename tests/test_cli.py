@@ -1843,3 +1843,135 @@ def test_outcomes_from_runs_genuine_model_parse_failure_stays_valid() -> None:
     [o] = _outcomes_from_runs([run], k=5)
     assert len(o.valid_runs) == 1  # model parse failure is a valid (failed) trial
     assert o.void is True  # but still <k valid -> under-powered -> VOID
+
+
+# ---- Task 6: run-f-claude-baseline CLI ----------------------------------------
+
+
+def test_claude_baseline_parser_defaults():
+    from agent_eval_lab.cli import _build_parser
+
+    args = _build_parser().parse_args(["run-f-claude-baseline", "--out", "/tmp/x"])
+    assert args.command == "run-f-claude-baseline"
+    assert args.surface == "both"
+    assert args.k == 5
+    assert args.bases == ["f1", "f2", "f3"]
+    assert args.model == "claude-sonnet-4-6"
+    assert args.smoke is False
+
+
+def test_claude_baseline_smoke_and_surface_choice():
+    from agent_eval_lab.cli import _build_parser
+
+    args = _build_parser().parse_args(
+        [
+            "run-f-claude-baseline",
+            "--out",
+            "/tmp/x",
+            "--surface",
+            "edit-only",
+            "--smoke",
+        ]
+    )
+    assert args.surface == "edit-only"
+    assert args.smoke is True
+
+
+def test_claude_baseline_dry_run_makes_no_subprocess(tmp_path):
+    import argparse
+    import json
+
+    from agent_eval_lab.cli import _run_f_claude_baseline_command
+
+    args = argparse.Namespace(
+        out=tmp_path,
+        surface="edit-only",
+        k=1,
+        bases=["f1"],
+        model="claude-sonnet-4-6",
+        smoke=True,
+        dry_run=True,
+        evaluator_config=None,
+    )
+    rc = _run_f_claude_baseline_command(args)
+    assert rc == 0
+    plan = json.loads((tmp_path / "claude-baseline.plan.json").read_text())
+    assert plan["attempts"] == 1 and plan["surfaces"] == ["edit-only"]
+
+
+def test_claude_baseline_writes_records_and_void_summary(tmp_path, monkeypatch):
+    import json
+
+    from agent_eval_lab import cli
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    monkeypatch.setattr(cli, "node_supports_junit", lambda *a, **k: True)
+
+    class _Store:  # minimal load_evaluator_config().store.path stand-in
+        path = str(tmp_path / "store")
+
+    class _Cfg:
+        store = _Store()
+
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: _Cfg())
+
+    class _T:  # stand-in task; only .id is read by the handler before run_f_candidate
+        def __init__(self, tid):
+            self.id = tid
+
+    monkeypatch.setattr(cli, "build_f_tasks", lambda **_k: (_T("f-f1"),))
+    monkeypatch.setattr(cli, "build_candidate_tree", lambda t, repo: {})
+
+    def _rr(passed):
+        return RunResult(
+            task_id="f-f1",
+            condition_id="c",
+            run_index=0,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+                run_index=0,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(grader_id="node", passed=passed, score=0.0, evidence={}),
+        )
+
+    def fake_run_f_candidate(*, tasks, k, condition_id, build_tree_fn, run_fn):
+        a, bad = _rr(True), _rr(False)
+        yield ReplacementOutcome(
+            valid_runs=(a,),
+            attempts=(
+                TrialAttempt(attempt_index=0, valid=True, run=a),
+                TrialAttempt(attempt_index=1, valid=False, run=bad),
+            ),
+            void=True,
+        )
+
+    monkeypatch.setattr(cli, "run_f_candidate", fake_run_f_candidate)
+
+    import argparse
+
+    args = argparse.Namespace(
+        out=tmp_path,
+        surface="edit-only",
+        k=2,
+        bases=["f1"],
+        model="claude-sonnet-4-6",
+        smoke=False,
+        dry_run=False,
+        evaluator_config=None,
+    )
+    rc = cli._run_f_claude_baseline_command(
+        args, run_fn_factory=lambda **_k: lambda et, i: None
+    )
+    assert rc == 0
+    # Raw drill-down: both attempts (valid + invalid) written.
+    jsonl = next(tmp_path.glob("runs-claude-*-F.jsonl")).read_text().splitlines()
+    assert len(jsonl) == 2
+    # Strict VOID surfaced in the summary.
+    summary = json.loads((tmp_path / "claude-baseline-summary.json").read_text())
+    assert summary[0]["void"] is True
+    assert summary[0]["valid"] == 1 and summary[0]["invalid"] == 1
+    assert summary[0]["pass_hat_k"] is False

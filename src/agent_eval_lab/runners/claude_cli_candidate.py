@@ -94,9 +94,7 @@ def build_claude_argv(
     if surface not in SURFACES:
         raise ValueError(f"unknown surface: {surface!r}")
     allowed = list(_BASE_ALLOWED_TOOLS) + (["Bash"] if surface == "natural" else [])
-    denied = list(_ALWAYS_DENIED_TOOLS) + (
-        [] if surface == "natural" else ["Bash"]
-    )
+    denied = list(_ALWAYS_DENIED_TOOLS) + ([] if surface == "natural" else ["Bash"])
     return [
         "claude",
         "-p",
@@ -162,9 +160,7 @@ WorkdirFactory = Callable[[], tuple[Path, Path]]  # () -> (workdir, clean_home)
 
 
 def _user_prompt(edit_task) -> str:
-    msg = next(
-        (m for m in edit_task.input.messages if m.role == "user"), None
-    )
+    msg = next((m for m in edit_task.input.messages if m.role == "user"), None)
     return msg.content if msg is not None else ""
 
 
@@ -247,13 +243,13 @@ def make_claude_run_fn(
 @dataclass(frozen=True, kw_only=True)
 class BaselineRow:
     condition_id: str
-    base: str            # "f1" / "f2" / "f3"
-    k: int               # attempts run for this base (== requested k)
-    valid: int           # clean (non env-invalid) attempts
-    invalid: int         # env-invalid attempts (subprocess failure/timeout/parse)
-    void: bool           # True iff < k clean attempts (D34: never scored over <k)
-    pass_hat_k: bool     # not void AND all k clean attempts passed
-    pass_at_1: float     # fraction of clean attempts that passed
+    base: str  # "f1" / "f2" / "f3"
+    k: int  # attempts run for this base (== requested k)
+    valid: int  # clean (non env-invalid) attempts
+    invalid: int  # env-invalid attempts (subprocess failure/timeout/parse)
+    void: bool  # True iff < k clean attempts (D34: never scored over <k)
+    pass_hat_k: bool  # not void AND all k clean attempts passed
+    pass_at_1: float  # fraction of clean attempts that passed
 
 
 def summarize_baseline(

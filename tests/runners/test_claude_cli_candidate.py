@@ -1,11 +1,31 @@
 # tests/runners/test_claude_cli_candidate.py
 import json
+import subprocess as _sp
+from dataclasses import dataclass as _dc
+from pathlib import Path
+
 import pytest
+
+from agent_eval_lab.records.grade import GradeResult, RunResult
+from agent_eval_lab.records.trajectory import PROVIDER_ERROR, Trajectory, Usage
+from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.claude_cli_candidate import (
-    ClaudeRunMeta,
+    SURFACES,
+    BaselineRow,
     ClaudeResultParseError,
+    ClaudeRunMeta,
+    build_claude_argv,
+    claude_system_prompt,
+    make_claude_run_fn,
+    materialize_tree,
     parse_claude_result,
+    read_back_tree,
+    summarize_baseline,
 )
+from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+from agent_eval_lab.tasks.schema import AllOf, Task, TaskInput, TaskMetadata
+
+# ---- helpers ------------------------------------------------------------------
 
 
 def _result_json(**over):
@@ -20,6 +40,55 @@ def _result_json(**over):
     }
     base.update(over)
     return json.dumps(base)
+
+
+@_dc
+class _FakeCompleted:
+    stdout: str
+    returncode: int = 0
+
+
+def _edit_task(files):
+    # NOTE deviation: Task requires capability + metadata (no defaults).
+    # AllOf(specs=()) is a no-op verification; the runner only reads
+    # initial_state["files"] and the first user message.
+    return Task(
+        id="f-f1",
+        capability="repo_fix",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="Fix the bug in a.js"),),
+            available_tools=("read_file",),
+        ),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="held_out", version="f-test-v1", provenance="unit test"
+        ),
+        initial_state={"files": dict(files)},
+    )
+
+
+def _rr(passed: bool) -> RunResult:
+    return RunResult(
+        task_id="f-f1",
+        condition_id="cond",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+        ),
+        grade=GradeResult(
+            grader_id="node",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=None,
+        ),
+    )
+
+
+# ---- Task 1: parse_claude_result ----------------------------------------------
 
 
 def test_parse_happy_path_maps_usage_and_turns():
@@ -49,11 +118,6 @@ def test_parse_missing_usage_raises_typed_error():
 
 
 # ---- Task 2: SURFACES, claude_system_prompt, build_claude_argv ----------------
-from agent_eval_lab.runners.claude_cli_candidate import (
-    SURFACES,
-    build_claude_argv,
-    claude_system_prompt,
-)
 
 
 def test_surfaces_are_the_two_expected():
@@ -112,16 +176,15 @@ def test_argv_natural_allows_bash():
 def test_argv_rejects_unknown_surface():
     with pytest.raises(ValueError):
         build_claude_argv(
-            model="m", surface="bogus", prompt="p", system_prompt="s", max_budget_usd=0.5
+            model="m",
+            surface="bogus",
+            prompt="p",
+            system_prompt="s",
+            max_budget_usd=0.5,
         )
 
 
 # ---- Task 3: materialize_tree + read_back_tree --------------------------------
-from pathlib import Path
-from agent_eval_lab.runners.claude_cli_candidate import (
-    materialize_tree,
-    read_back_tree,
-)
 
 
 def test_materialize_then_read_back_round_trips(tmp_path):
@@ -150,36 +213,6 @@ def test_read_back_includes_files_claude_created(tmp_path):
 
 
 # ---- Task 4: make_claude_run_fn -----------------------------------------------
-from dataclasses import dataclass as _dc
-from agent_eval_lab.records.trajectory import PROVIDER_ERROR
-from agent_eval_lab.records.turns import MessageTurn
-from agent_eval_lab.tasks.schema import AllOf, Task, TaskInput, TaskMetadata
-from agent_eval_lab.runners.claude_cli_candidate import make_claude_run_fn
-
-
-@_dc
-class _FakeCompleted:
-    stdout: str
-    returncode: int = 0
-
-
-def _edit_task(files):
-    # NOTE deviation: Task requires capability + metadata (no defaults).
-    # AllOf(specs=()) is a no-op verification; the runner only reads
-    # initial_state["files"] and the first user message.
-    return Task(
-        id="f-f1",
-        capability="repo_fix",
-        input=TaskInput(
-            messages=(MessageTurn(role="user", content="Fix the bug in a.js"),),
-            available_tools=("read_file",),
-        ),
-        verification=AllOf(specs=()),
-        metadata=TaskMetadata(
-            split="held_out", version="f-test-v1", provenance="unit test"
-        ),
-        initial_state={"files": dict(files)},
-    )
 
 
 def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
@@ -192,7 +225,9 @@ def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
         # Claude "edits" a.js in the workdir.
         (Path(cwd) / "a.js").write_text("fixed\n")
         return _FakeCompleted(
-            stdout=_result_json(num_turns=4, usage={"input_tokens": 10, "output_tokens": 5})
+            stdout=_result_json(
+                num_turns=4, usage={"input_tokens": 10, "output_tokens": 5}
+            )
         )
 
     def fake_workdir():
@@ -229,12 +264,17 @@ def test_run_fn_nonzero_exit_is_env_invalid(tmp_path):
 
     def fake_workdir():
         wd, home = tmp_path / "wd2", tmp_path / "home2"
-        wd.mkdir(); home.mkdir()
+        wd.mkdir()
+        home.mkdir()
         return wd, home
 
     run_fn = make_claude_run_fn(
-        model="m", surface="edit-only", run_subprocess=fake_subprocess,
-        workdir_factory=fake_workdir, max_budget_usd=0.5, timeout_s=300,
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
     )
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     assert traj.parse_failure is not None
@@ -242,19 +282,22 @@ def test_run_fn_nonzero_exit_is_env_invalid(tmp_path):
 
 
 def test_run_fn_timeout_is_env_invalid(tmp_path):
-    import subprocess as _sp
-
     def fake_subprocess(argv, *, cwd, env, timeout):
         raise _sp.TimeoutExpired(cmd=argv, timeout=timeout)
 
     def fake_workdir():
         wd, home = tmp_path / "wd3", tmp_path / "home3"
-        wd.mkdir(); home.mkdir()
+        wd.mkdir()
+        home.mkdir()
         return wd, home
 
     run_fn = make_claude_run_fn(
-        model="m", surface="edit-only", run_subprocess=fake_subprocess,
-        workdir_factory=fake_workdir, max_budget_usd=0.5, timeout_s=300,
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
     )
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     assert traj.parse_failure is not None
@@ -262,34 +305,6 @@ def test_run_fn_timeout_is_env_invalid(tmp_path):
 
 
 # ---- Task 5: summarize_baseline -----------------------------------------------
-from agent_eval_lab.records.grade import GradeResult, RunResult
-from agent_eval_lab.records.trajectory import Trajectory, Usage
-from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
-from agent_eval_lab.runners.claude_cli_candidate import (
-    BaselineRow,
-    summarize_baseline,
-)
-
-
-def _rr(passed: bool) -> RunResult:
-    return RunResult(
-        task_id="f-f1",
-        condition_id="cond",
-        run_index=0,
-        trajectory=Trajectory(
-            turns=(),
-            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
-            run_index=0,
-            stop_reason="completed_natural",
-        ),
-        grade=GradeResult(
-            grader_id="node",
-            passed=passed,
-            score=1.0 if passed else 0.0,
-            evidence={},
-            failure_reason=None,
-        ),
-    )
 
 
 def test_summary_clean_all_pass_is_pass_hat_k():
@@ -304,8 +319,14 @@ def test_summary_clean_all_pass_is_pass_hat_k():
     )
     (row,) = summarize_baseline("cond", ["f1"], [o])
     assert row == BaselineRow(
-        condition_id="cond", base="f1", k=2, valid=2, invalid=0,
-        void=False, pass_hat_k=True, pass_at_1=1.0,
+        condition_id="cond",
+        base="f1",
+        k=2,
+        valid=2,
+        invalid=0,
+        void=False,
+        pass_hat_k=True,
+        pass_at_1=1.0,
     )
 
 
@@ -341,10 +362,16 @@ def test_summary_void_when_an_attempt_is_env_invalid():
 
 
 def test_summary_pairs_base_ids_to_outcomes_in_order():
-    o1 = ReplacementOutcome(valid_runs=(_rr(True),),
-        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(True)),), void=False)
-    o2 = ReplacementOutcome(valid_runs=(_rr(False),),
-        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(False)),), void=False)
+    o1 = ReplacementOutcome(
+        valid_runs=(_rr(True),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(True)),),
+        void=False,
+    )
+    o2 = ReplacementOutcome(
+        valid_runs=(_rr(False),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(False)),),
+        void=False,
+    )
     rows = summarize_baseline("cond", ["f1", "f2"], [o1, o2])
     assert [r.base for r in rows] == ["f1", "f2"]
     assert rows[0].pass_hat_k is True and rows[1].pass_hat_k is False

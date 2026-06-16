@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TextIO
 
@@ -20,6 +20,7 @@ from agent_eval_lab.calibrate.packet import (
     packet_to_jsonl,
     render_agreement_report,
 )
+from agent_eval_lab.datasets.f_tasks import build_f_tasks
 from agent_eval_lab.experiments.ablation_order import ARMS, RunUnit, ablation_run_order
 from agent_eval_lab.experiments.evaluator_config import (
     health_probe,
@@ -54,6 +55,11 @@ from agent_eval_lab.reports.m1 import render_markdown as render_m1
 from agent_eval_lab.reports.m1_detail import build_m1_detail, render_detail
 from agent_eval_lab.reports.validation import ConditionInput, build_validation_report
 from agent_eval_lab.reports.validation import render_markdown as render_validation
+from agent_eval_lab.runners.claude_cli_candidate import (
+    BaselineRow,
+    make_claude_run_fn,
+    summarize_baseline,
+)
 from agent_eval_lab.runners.config import (
     PROVIDERS,
     ProviderConfig,
@@ -65,6 +71,7 @@ from agent_eval_lab.runners.f_candidate import (
     grade_f_attempt,
     make_edit_task,
     make_f_run_fn,
+    run_f_candidate,
 )
 from agent_eval_lab.runners.multi_run import (
     ReplacementOutcome,
@@ -1450,6 +1457,107 @@ def _run_f_ablation_command(  # noqa: C901
     return 0
 
 
+def _real_claude_factory():
+    import subprocess as _sp
+    import tempfile
+
+    def factory(*, model, surface, condition_id):
+        def run_subprocess(argv, *, cwd, env, timeout):
+            return _sp.run(
+                argv,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+                capture_output=True,
+                text=True,
+            )
+
+        def workdir_factory():
+            return (
+                Path(tempfile.mkdtemp(prefix="claude-f-")),
+                Path(tempfile.mkdtemp(prefix="claude-home-")),
+            )
+
+        return make_claude_run_fn(
+            model=model,
+            surface=surface,
+            run_subprocess=run_subprocess,
+            workdir_factory=workdir_factory,
+        )
+
+    return factory
+
+
+def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
+    surfaces = (
+        ["edit-only"]
+        if args.smoke
+        else ["edit-only", "natural"]
+        if args.surface == "both"
+        else [args.surface]
+    )
+    bases = ["f1"] if args.smoke else list(args.bases)
+    k = 1 if args.smoke else args.k
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    if args.dry_run:
+        plan = {
+            "surfaces": surfaces,
+            "bases": bases,
+            "k": k,
+            "attempts": len(surfaces) * len(bases) * k,
+        }
+        (args.out / "claude-baseline.plan.json").write_text(json.dumps(plan, indent=2))
+        print(args.out / "claude-baseline.plan.json")
+        return 0
+
+    # Fail fast: the held-out oracle needs Node >=20 (cf. _run_f_ablation_command).
+    if run_fn_factory is None and not node_supports_junit():
+        print(
+            "error: resolved node cannot run the held-out oracle (needs Node >=20). "
+            "Set NODE_BIN to a Node >=20 binary and retry.",
+            file=sys.stderr,
+        )
+        return 1
+
+    f_repo = Path.home() / "Documents/Repository/web-dossier"
+    cfg = load_evaluator_config(args.evaluator_config)
+    store = Path(cfg.store.path) / "web-dossier-golden"
+    all_tasks = {t.id: t for t in build_f_tasks(evaluator_store=store)}
+    base_to_task = {b: all_tasks[f"f-{b}"] for b in bases}
+
+    factory = run_fn_factory or _real_claude_factory()
+    rows: list[BaselineRow] = []
+    handles: dict[str, TextIO] = {}
+    try:
+        for surface in surfaces:
+            cond = f"claude-cli:{args.model}:{surface}"
+            handle = (args.out / f"runs-claude-{_slug(cond)}-F.jsonl").open("w")
+            handles[cond] = handle
+            run_fn = factory(model=args.model, surface=surface, condition_id=cond)
+            outcomes = list(
+                run_f_candidate(
+                    tasks=[base_to_task[b] for b in bases],
+                    k=k,
+                    condition_id=cond,
+                    build_tree_fn=lambda t: build_candidate_tree(t, repo=f_repo),
+                    run_fn=run_fn,
+                )
+            )
+            for outcome in outcomes:
+                _append_runs(handle, [att.run for att in outcome.attempts])
+            rows.extend(summarize_baseline(cond, bases, outcomes))
+    finally:
+        for fh in handles.values():
+            fh.close()
+
+    (args.out / "claude-baseline-summary.json").write_text(
+        json.dumps([asdict(r) for r in rows], indent=2)
+    )
+    print(args.out / "claude-baseline-summary.json")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-eval-lab")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1639,6 +1747,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "(network-free preview / audit).",
     )
 
+    cb = subparsers.add_parser(
+        "run-f-claude-baseline",
+        help="run vanilla claude -p (Sonnet 4.6, no skills) as the F-task agent",
+    )
+    cb.add_argument("--out", type=Path, required=True)
+    cb.add_argument(
+        "--surface", choices=["edit-only", "natural", "both"], default="both"
+    )
+    cb.add_argument("--k", type=int, default=5)
+    cb.add_argument("--bases", nargs="+", default=["f1", "f2", "f3"])
+    cb.add_argument("--model", default="claude-sonnet-4-6")
+    cb.add_argument("--evaluator-config", type=Path, default=None)
+    cb.add_argument(
+        "--smoke",
+        action="store_true",
+        help="1 attempt, base f1, edit-only — validate plumbing/cost, then stop",
+    )
+    cb.add_argument("--dry-run", action="store_true")
+
     rmm = subparsers.add_parser(
         "run-m1", help="orchestrate M1 conditions × domains over the runners"
     )
@@ -1718,6 +1845,8 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_f_command(args, http_client)
     if args.command == "run-f-ablation":
         return _run_f_ablation_command(args, http_client)
+    if args.command == "run-f-claude-baseline":
+        return _run_f_claude_baseline_command(args)
     if args.command == "report-m1":
         return _run_report_m1(args)
     if args.command == "run-m1":
