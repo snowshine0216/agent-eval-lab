@@ -154,6 +154,7 @@ from agent_eval_lab.records.trajectory import (  # noqa: E402
     Trajectory,
     Usage,
 )
+from agent_eval_lab.runners.multi_run import ReplacementOutcome  # noqa: E402
 
 # Injected so unit tests need no real `claude` / network.
 RunSubprocess = Callable[..., object]  # (argv, *, cwd, env, timeout) -> completed
@@ -238,3 +239,45 @@ def make_claude_run_fn(
         )
 
     return run_fn
+
+
+# ---- Baseline rollup (pure) ---------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineRow:
+    condition_id: str
+    base: str            # "f1" / "f2" / "f3"
+    k: int               # attempts run for this base (== requested k)
+    valid: int           # clean (non env-invalid) attempts
+    invalid: int         # env-invalid attempts (subprocess failure/timeout/parse)
+    void: bool           # True iff < k clean attempts (D34: never scored over <k)
+    pass_hat_k: bool     # not void AND all k clean attempts passed
+    pass_at_1: float     # fraction of clean attempts that passed
+
+
+def summarize_baseline(
+    condition_id: str,
+    base_ids: Sequence[str],
+    outcomes: Sequence[ReplacementOutcome],
+) -> tuple[BaselineRow, ...]:
+    """Roll one ReplacementOutcome per base into per-(condition, base) rows.
+    Pure. `base_ids` and `outcomes` are positionally paired (strict)."""
+    rows = []
+    for base, outcome in zip(base_ids, outcomes, strict=True):
+        passed = [r.grade.passed for r in outcome.valid_runs]
+        n_valid = len(passed)
+        n_attempts = len(outcome.attempts)
+        rows.append(
+            BaselineRow(
+                condition_id=condition_id,
+                base=base,
+                k=n_attempts,
+                valid=n_valid,
+                invalid=n_attempts - n_valid,
+                void=outcome.void,
+                pass_hat_k=(not outcome.void) and n_valid > 0 and all(passed),
+                pass_at_1=(sum(passed) / n_valid) if n_valid else 0.0,
+            )
+        )
+    return tuple(rows)

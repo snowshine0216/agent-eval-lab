@@ -259,3 +259,92 @@ def test_run_fn_timeout_is_env_invalid(tmp_path):
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     assert traj.parse_failure is not None
     assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+# ---- Task 5: summarize_baseline -----------------------------------------------
+from agent_eval_lab.records.grade import GradeResult, RunResult
+from agent_eval_lab.records.trajectory import Trajectory, Usage
+from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+from agent_eval_lab.runners.claude_cli_candidate import (
+    BaselineRow,
+    summarize_baseline,
+)
+
+
+def _rr(passed: bool) -> RunResult:
+    return RunResult(
+        task_id="f-f1",
+        condition_id="cond",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+        ),
+        grade=GradeResult(
+            grader_id="node",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=None,
+        ),
+    )
+
+
+def test_summary_clean_all_pass_is_pass_hat_k():
+    a, b = _rr(True), _rr(True)
+    o = ReplacementOutcome(
+        valid_runs=(a, b),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=True, run=b),
+        ),
+        void=False,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row == BaselineRow(
+        condition_id="cond", base="f1", k=2, valid=2, invalid=0,
+        void=False, pass_hat_k=True, pass_at_1=1.0,
+    )
+
+
+def test_summary_one_valid_fail_breaks_pass_hat_k():
+    a, b = _rr(True), _rr(False)
+    o = ReplacementOutcome(
+        valid_runs=(a, b),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=True, run=b),
+        ),
+        void=False,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.pass_hat_k is False
+    assert row.pass_at_1 == 0.5
+
+
+def test_summary_void_when_an_attempt_is_env_invalid():
+    a, bad = _rr(True), _rr(False)
+    o = ReplacementOutcome(
+        valid_runs=(a,),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=False, run=bad),
+        ),
+        void=True,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.void is True
+    assert row.pass_hat_k is False  # void never counts as a clean pass^k
+    assert row.valid == 1 and row.invalid == 1
+
+
+def test_summary_pairs_base_ids_to_outcomes_in_order():
+    o1 = ReplacementOutcome(valid_runs=(_rr(True),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(True)),), void=False)
+    o2 = ReplacementOutcome(valid_runs=(_rr(False),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(False)),), void=False)
+    rows = summarize_baseline("cond", ["f1", "f2"], [o1, o2])
+    assert [r.base for r in rows] == ["f1", "f2"]
+    assert rows[0].pass_hat_k is True and rows[1].pass_hat_k is False
