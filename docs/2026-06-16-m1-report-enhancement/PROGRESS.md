@@ -23,5 +23,8 @@ Notes:
 - `merge` ✅ — PR #34 squash-merged into `claude/fervent-panini-498c1a` (merge commit `1314c0f`); sub-branch deleted. Item 001 COMPLETE.
 - Feature branch: `claude/fervent-panini-498c1a`. Item sub-branch: `claude/m1-report-enhancement-001` (merged + deleted).
 
-## Phase 3 (post-merge, user request)
-- ⏳ Regenerate M1 report for F-set and D-set; surface overview + `M1-F-report.md` + `M1-D-report.md` for review.
+## Phase 3 (post-merge, user request) — ✅ COMPLETE
+- ✅ Full suite green on merged feature branch (3 pre-existing data-absent failures only); ruff clean.
+- ✅ Phase-3 consistency finding fixed (commit 7febe6d): overview efficiency rollup now excludes admin runs (shared `is_administrative`) — matches the subreport (glm-F 103.5, was 6).
+- ✅ Doc-sync: CONTEXT.md carries the glossary terms; CHANGELOG updated (v0.3.0).
+- ✅ Regenerated M1 report for F-set (5 conditions) + D-set (2 conditions) on the final code → canonical `reports/agentic-v1/` (superseded old thin reports; hand companions untouched) + committed snapshot in [regen/](regen/). Deterministic (byte-identical re-runs).
