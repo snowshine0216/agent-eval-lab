@@ -32,9 +32,7 @@ def _fake_traj(run_index: int) -> Trajectory:
 class _Args:
     """argparse.Namespace stand-in for the driver."""
 
-    def __init__(
-        self, out: Path, *, dry_run: bool, roster: Path = _ROSTER, arms=None
-    ):
+    def __init__(self, out: Path, *, dry_run: bool, roster: Path = _ROSTER, arms=None):
         self.out = out
         self.evaluator_config = Path("/nonexistent/evaluator.toml")
         self.roster = roster
