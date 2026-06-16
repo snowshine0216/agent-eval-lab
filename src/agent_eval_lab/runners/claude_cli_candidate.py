@@ -89,9 +89,16 @@ def build_claude_argv(
 ) -> list[str]:
     """Assemble the `claude -p` argv for one attempt. Pure list construction.
 
-    Skills are disabled (--disable-slash-commands). Bash is allowed iff natural.
-    There is no --max-turns in CLI 2.1.177; rounds are bounded by the subprocess
-    timeout (caller), with --max-budget-usd as a secondary cost stop."""
+    Vanilla isolation is via **--safe-mode**: it disables ALL of the owner's
+    customizations (CLAUDE.md, skills, plugins, hooks, MCP servers, custom commands
+    /agents, output styles, workflows, themes, keybindings) while leaving Auth,
+    model selection, built-in tools, and permissions working normally. This is why
+    the run uses the REAL HOME (not a clean temp HOME): the OAuth credentials live
+    in the macOS Keychain ($HOME/Library/Keychains) + ~/.claude.json, so a clean
+    HOME would report "Not logged in". --disable-slash-commands is kept as a
+    belt-and-suspenders. Bash is allowed iff natural. There is no --max-turns in
+    CLI 2.1.177; rounds are bounded by the subprocess timeout (caller), with
+    --max-budget-usd as a secondary cost stop."""
     if surface not in SURFACES:
         raise ValueError(f"unknown surface: {surface!r}")
     allowed = list(_BASE_ALLOWED_TOOLS) + (["Bash"] if surface == "natural" else [])
@@ -103,6 +110,7 @@ def build_claude_argv(
         model,
         "--output-format",
         "json",
+        "--safe-mode",
         "--disable-slash-commands",
         "--append-system-prompt",
         system_prompt,
@@ -147,10 +155,13 @@ def read_back_tree(
 
 # ---- Env sanitization --------------------------------------------------------
 
-# Vars that would make the nested `claude -p` non-vanilla (owner config / skills /
-# effort level / plugins leaking from the PARENT session). Stripped so the baseline
-# is genuinely Sonnet-4.6-default. NEVER strip auth (ANTHROPIC_*, *TOKEN*, *KEY*),
-# PATH, NODE_BIN, HOME (we set it), or locale — those must pass through.
+# Vars that could make the nested `claude -p` non-vanilla by leaking the PARENT
+# session's effort level / plugin / config dir. --safe-mode already disables
+# customizations, but stripping these keeps effort at the default and prevents a
+# CLAUDE_CONFIG_DIR override from re-pointing config. We deliberately KEEP the real
+# HOME (and never strip auth: ANTHROPIC_*, *TOKEN*, *KEY*, PATH, locale) — the OAuth
+# credentials are resolved via $HOME (macOS Keychain + ~/.claude.json), so a clean
+# HOME would report "Not logged in".
 _CONTAMINATING_ENV_KEYS: tuple[str, ...] = (
     "CLAUDE_CONFIG_DIR",
     "XDG_CONFIG_HOME",
@@ -162,11 +173,10 @@ _CONTAMINATING_ENV_KEYS: tuple[str, ...] = (
 )
 
 
-def _sanitized_env(base_env: Mapping[str, str], clean_home: Path) -> dict[str, str]:
-    """Return a new env dict with contaminating keys removed and HOME replaced."""
-    env = {k: v for k, v in base_env.items() if k not in _CONTAMINATING_ENV_KEYS}
-    env["HOME"] = str(clean_home)
-    return env
+def _sanitized_env(base_env: Mapping[str, str]) -> dict[str, str]:
+    """Return a new env dict with the contaminating keys removed. HOME is preserved
+    (auth resolves via $HOME); vanilla isolation comes from --safe-mode, not HOME."""
+    return {k: v for k, v in base_env.items() if k not in _CONTAMINATING_ENV_KEYS}
 
 
 # ---- run_fn factory -----------------------------------------------------------
@@ -181,7 +191,7 @@ from agent_eval_lab.runners.multi_run import ReplacementOutcome  # noqa: E402
 
 # Injected so unit tests need no real `claude` / network.
 RunSubprocess = Callable[..., object]  # (argv, *, cwd, env, timeout) -> completed
-WorkdirFactory = Callable[[], tuple[Path, Path]]  # () -> (workdir, clean_home)
+WorkdirFactory = Callable[[], Path]  # () -> workdir (the seeded tree root)
 
 
 def _user_prompt(edit_task) -> str:
@@ -217,7 +227,7 @@ def make_claude_run_fn(
     system_prompt = claude_system_prompt(surface)
 
     def run_fn(edit_task, run_index: int) -> Trajectory:
-        workdir, clean_home = workdir_factory()
+        workdir = workdir_factory()
         try:
             seeded = dict((edit_task.initial_state or {}).get("files", {}))
             materialize_tree(seeded, workdir)
@@ -228,7 +238,7 @@ def make_claude_run_fn(
                 system_prompt=system_prompt,
                 max_budget_usd=max_budget_usd,
             )
-            env = _sanitized_env(os.environ, clean_home)
+            env = _sanitized_env(os.environ)
             try:
                 completed = run_subprocess(
                     argv, cwd=str(workdir), env=env, timeout=timeout_s
@@ -276,10 +286,9 @@ def make_claude_run_fn(
             )
         finally:
             # The produced tree is already read into memory above; the temp
-            # dirs are no longer needed. Clean them so a 30-attempt run does
-            # not leak hundreds of workdir/home copies.
+            # workdir is no longer needed. Clean it so a 30-attempt run does not
+            # leak hundreds of tree copies.
             shutil.rmtree(workdir, ignore_errors=True)
-            shutil.rmtree(clean_home, ignore_errors=True)
 
     return run_fn
 
