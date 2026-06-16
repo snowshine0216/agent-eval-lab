@@ -21,11 +21,22 @@
 - **Create** `reports/agentic-v1/f-claude-baseline/.gitkeep` — output dir (records written at run time).
 
 ### Reused, unchanged
-- `runners/f_candidate.py`: `build_candidate_tree`, `make_edit_task`, `grade_f_attempt`.
+- `runners/f_candidate.py`: `build_candidate_tree`, `make_edit_task`, `grade_f_attempt`, **`run_f_candidate`** (the strict-VOID k-loop: k attempts, mask env-invalid, `void = fewer than k valid`).
 - `datasets/f_tasks.py`: `build_f_tasks` (plain F1/F2/F3 — NOT the 2×2 arm variants).
+- `runners/multi_run.py`: `ReplacementOutcome`, `TrialAttempt` (the strict-VOID outcome shapes; `reports/m1.py` already consumes them).
 - `records/trajectory.py`: `Trajectory`, `Usage`, `ParseFailure`, `PROVIDER_ERROR`.
-- `records/grade.py`: `is_env_invalid_run` (consumed indirectly via `run_f_candidate`).
+- `records/grade.py`: `is_env_invalid_run` (used inside `run_f_candidate` to mark each attempt valid/invalid).
 - `runners/node_oracle_edge.py` + the held-out oracle: grading, unchanged.
+
+### Strict VOID — why `run_f_candidate`
+The baseline drives **whole tasks** per (surface, base): all k attempts for one
+base together. That is exactly `run_f_candidate`'s contract — it yields one
+`ReplacementOutcome` per task carrying `valid_runs`, per-attempt `attempts`
+(each flagged `valid`), and `void` (True iff `< k` clean attempts). The v2
+ablation command inlines its loop only because it needs a *seeded cross-arm
+order*; a no-arm baseline has no such constraint, so it uses `run_f_candidate`
+directly and gets D34 VOID accounting for free. A small pure `summarize_baseline`
+rolls the outcomes into per-(surface, base) rows for drill-down.
 
 ### Naming
 - condition ids: `claude-cli:claude-sonnet-4-6:edit-only` and `claude-cli:claude-sonnet-4-6:natural`.
@@ -650,22 +661,198 @@ git commit -m "feat(claude-baseline): make_claude_run_fn (clean HOME, env-invali
 
 ---
 
-## Task 5: CLI subcommand `run-f-claude-baseline`
+## Task 5: `summarize_baseline` — strict VOID + pass^k/pass@1 rollup (pure)
 
 **Files:**
-- Modify: `src/agent_eval_lab/cli.py`
-- Test: `tests/test_cli.py` (or the module that tests `_build_parser` / commands)
+- Modify: `src/agent_eval_lab/runners/claude_cli_candidate.py`
+- Test: `tests/runners/test_claude_cli_candidate.py`
+
+Rolls a list of `ReplacementOutcome` (one per base task, from `run_f_candidate`)
+into per-(surface, base) rows the owner can drill into: valid/invalid counts,
+VOID, pass^k, pass@1. Pure — synthetic outcomes, no Node.
 
 - [ ] **Step 1: Write the failing tests**
 
-First confirm the existing CLI test module path: `Run: ls tests/ | grep -i cli`. Append to it:
+```python
+# append to tests/runners/test_claude_cli_candidate.py
+from agent_eval_lab.records.grade import GradeResult, RunResult
+from agent_eval_lab.records.trajectory import Trajectory, Usage
+from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+from agent_eval_lab.runners.claude_cli_candidate import (
+    BaselineRow,
+    summarize_baseline,
+)
+
+
+def _rr(passed: bool) -> RunResult:
+    return RunResult(
+        task_id="f-f1",
+        condition_id="cond",
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+        ),
+        grade=GradeResult(
+            grader_id="node",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            evidence={},
+            failure_reason=None,
+        ),
+    )
+
+
+def test_summary_clean_all_pass_is_pass_hat_k():
+    a, b = _rr(True), _rr(True)
+    o = ReplacementOutcome(
+        valid_runs=(a, b),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=True, run=b),
+        ),
+        void=False,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row == BaselineRow(
+        condition_id="cond", base="f1", k=2, valid=2, invalid=0,
+        void=False, pass_hat_k=True, pass_at_1=1.0,
+    )
+
+
+def test_summary_one_valid_fail_breaks_pass_hat_k():
+    a, b = _rr(True), _rr(False)
+    o = ReplacementOutcome(
+        valid_runs=(a, b),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=True, run=b),
+        ),
+        void=False,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.pass_hat_k is False
+    assert row.pass_at_1 == 0.5
+
+
+def test_summary_void_when_an_attempt_is_env_invalid():
+    a, bad = _rr(True), _rr(False)
+    o = ReplacementOutcome(
+        valid_runs=(a,),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=False, run=bad),
+        ),
+        void=True,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.void is True
+    assert row.pass_hat_k is False  # void never counts as a clean pass^k
+    assert row.valid == 1 and row.invalid == 1
+
+
+def test_summary_pairs_base_ids_to_outcomes_in_order():
+    o1 = ReplacementOutcome(valid_runs=(_rr(True),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(True)),), void=False)
+    o2 = ReplacementOutcome(valid_runs=(_rr(False),),
+        attempts=(TrialAttempt(attempt_index=0, valid=True, run=_rr(False)),), void=False)
+    rows = summarize_baseline("cond", ["f1", "f2"], [o1, o2])
+    assert [r.base for r in rows] == ["f1", "f2"]
+    assert rows[0].pass_hat_k is True and rows[1].pass_hat_k is False
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pytest tests/runners/test_claude_cli_candidate.py -k summary -v`
+Expected: FAIL with `ImportError` (`BaselineRow`/`summarize_baseline` undefined).
+
+- [ ] **Step 3: Write minimal implementation**
+
+Add `from collections.abc import Sequence` to the imports, and
+`from agent_eval_lab.runners.multi_run import ReplacementOutcome`. Append:
 
 ```python
+@dataclass(frozen=True, kw_only=True)
+class BaselineRow:
+    condition_id: str
+    base: str            # "f1" / "f2" / "f3"
+    k: int               # attempts run for this base (== requested k)
+    valid: int           # clean (non env-invalid) attempts
+    invalid: int         # env-invalid attempts (subprocess failure/timeout/parse)
+    void: bool           # True iff < k clean attempts (D34: never scored over <k)
+    pass_hat_k: bool     # not void AND all k clean attempts passed
+    pass_at_1: float     # fraction of clean attempts that passed
+
+
+def summarize_baseline(
+    condition_id: str,
+    base_ids: Sequence[str],
+    outcomes: Sequence[ReplacementOutcome],
+) -> tuple[BaselineRow, ...]:
+    """Roll one ReplacementOutcome per base into per-(condition, base) rows.
+    Pure. `base_ids` and `outcomes` are positionally paired (strict)."""
+    rows = []
+    for base, outcome in zip(base_ids, outcomes, strict=True):
+        passed = [r.grade.passed for r in outcome.valid_runs]
+        n_valid = len(passed)
+        n_attempts = len(outcome.attempts)
+        rows.append(
+            BaselineRow(
+                condition_id=condition_id,
+                base=base,
+                k=n_attempts,
+                valid=n_valid,
+                invalid=n_attempts - n_valid,
+                void=outcome.void,
+                pass_hat_k=(not outcome.void) and n_valid > 0 and all(passed),
+                pass_at_1=(sum(passed) / n_valid) if n_valid else 0.0,
+            )
+        )
+    return tuple(rows)
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest tests/runners/test_claude_cli_candidate.py -v`
+Expected: PASS (all).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/agent_eval_lab/runners/claude_cli_candidate.py tests/runners/test_claude_cli_candidate.py
+git commit -m "feat(claude-baseline): summarize_baseline (strict VOID + pass^k/pass@1)"
+```
+
+---
+
+## Task 6: CLI subcommand `run-f-claude-baseline`
+
+**Files:**
+- Modify: `src/agent_eval_lab/cli.py`
+- Test: `tests/test_cli.py` (the module that tests `_build_parser` / commands)
+
+The handler drives **`run_f_candidate` per surface** (strict D34 VOID), writes
+every attempt (valid + invalid) to a per-condition JSONL for raw drill-down, and
+writes `claude-baseline-summary.json` from `summarize_baseline`.
+
+> **Prep (implementer):** add these to the TOP-LEVEL imports of `cli.py` so the
+> handler is monkeypatchable and matches house style (the v2 ablation already
+> imports `build_candidate_tree`/`make_edit_task`/`grade_f_attempt` at top):
+> `from agent_eval_lab.datasets.f_tasks import build_f_tasks`,
+> `from agent_eval_lab.runners.f_candidate import build_candidate_tree, run_f_candidate`,
+> `from agent_eval_lab.runners.claude_cli_candidate import make_claude_run_fn, summarize_baseline`.
+> Confirm `build_f_tasks`'s real kwarg (`datasets/f_tasks.py:172` — `evaluator_store: Path`)
+> and the real task ids (`f-f1`/`f-f2`/`f-f3`) before running.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# append to tests/test_cli.py
 def test_claude_baseline_parser_defaults():
     from agent_eval_lab.cli import _build_parser
-    args = _build_parser().parse_args(
-        ["run-f-claude-baseline", "--out", "/tmp/x"]
-    )
+    args = _build_parser().parse_args(["run-f-claude-baseline", "--out", "/tmp/x"])
     assert args.command == "run-f-claude-baseline"
     assert args.surface == "both"
     assert args.k == 5
@@ -674,7 +861,7 @@ def test_claude_baseline_parser_defaults():
     assert args.smoke is False
 
 
-def test_claude_baseline_smoke_flag_and_surface_choices():
+def test_claude_baseline_smoke_and_surface_choice():
     from agent_eval_lab.cli import _build_parser
     args = _build_parser().parse_args(
         ["run-f-claude-baseline", "--out", "/tmp/x", "--surface", "edit-only", "--smoke"]
@@ -684,41 +871,84 @@ def test_claude_baseline_smoke_flag_and_surface_choices():
 
 
 def test_claude_baseline_dry_run_makes_no_subprocess(tmp_path):
-    # --dry-run / injected factory seam: writes a plan, runs no claude.
+    import argparse, json
     from agent_eval_lab.cli import _run_f_claude_baseline_command
-    import argparse
-    calls = []
-
-    def fake_factory(*, model, surface, condition_id):
-        def run_fn(edit_task, i):
-            calls.append((surface, edit_task.id, i))
-            from agent_eval_lab.records.trajectory import Trajectory, Usage
-            return Trajectory(
-                turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-                run_index=i, stop_reason="completed_natural",
-                final_state={"files": {}}, rounds=0,
-            )
-        return run_fn
-
     args = argparse.Namespace(
         out=tmp_path, surface="edit-only", k=1, bases=["f1"],
         model="claude-sonnet-4-6", smoke=True, dry_run=True,
+        evaluator_config=None,
     )
-    rc = _run_f_claude_baseline_command(args, run_fn_factory=fake_factory)
+    rc = _run_f_claude_baseline_command(args)
     assert rc == 0
-    assert calls == []  # dry-run makes zero run_fn calls
-```
+    plan = json.loads((tmp_path / "claude-baseline.plan.json").read_text())
+    assert plan["attempts"] == 1 and plan["surfaces"] == ["edit-only"]
 
-> NOTE: match the existing dry-run convention in `_run_f_ablation_command` (it writes a realized-order sidecar and returns 0 with no run_fn calls). Mirror that seam shape (`run_fn_factory=None` default; `--dry-run` short-circuits before any attempt).
+
+def test_claude_baseline_writes_records_and_void_summary(tmp_path, monkeypatch):
+    import json
+    from agent_eval_lab import cli
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    monkeypatch.setattr(cli, "node_supports_junit", lambda *a, **k: True)
+
+    class _Store:  # minimal load_evaluator_config().store.path stand-in
+        path = str(tmp_path / "store")
+    class _Cfg:
+        store = _Store()
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: _Cfg())
+
+    class _T:  # stand-in task; only .id is read by the handler before run_f_candidate
+        def __init__(self, tid): self.id = tid
+    monkeypatch.setattr(cli, "build_f_tasks", lambda **_k: (_T("f-f1"),))
+    monkeypatch.setattr(cli, "build_candidate_tree", lambda t, repo: {})
+
+    def _rr(passed):
+        return RunResult(
+            task_id="f-f1", condition_id="c", run_index=0,
+            trajectory=Trajectory(turns=(),
+                usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
+                run_index=0, stop_reason="completed_natural"),
+            grade=GradeResult(grader_id="node", passed=passed, score=0.0, evidence={}),
+        )
+
+    def fake_run_f_candidate(*, tasks, k, condition_id, build_tree_fn, run_fn):
+        a, bad = _rr(True), _rr(False)
+        yield ReplacementOutcome(
+            valid_runs=(a,),
+            attempts=(TrialAttempt(attempt_index=0, valid=True, run=a),
+                      TrialAttempt(attempt_index=1, valid=False, run=bad)),
+            void=True,
+        )
+    monkeypatch.setattr(cli, "run_f_candidate", fake_run_f_candidate)
+
+    import argparse
+    args = argparse.Namespace(
+        out=tmp_path, surface="edit-only", k=2, bases=["f1"],
+        model="claude-sonnet-4-6", smoke=False, dry_run=False,
+        evaluator_config=None,
+    )
+    rc = cli._run_f_claude_baseline_command(args, run_fn_factory=lambda **_k: (lambda et, i: None))
+    assert rc == 0
+    # Raw drill-down: both attempts (valid + invalid) written.
+    jsonl = next(tmp_path.glob("runs-claude-*-F.jsonl")).read_text().splitlines()
+    assert len(jsonl) == 2
+    # Strict VOID surfaced in the summary.
+    summary = json.loads((tmp_path / "claude-baseline-summary.json").read_text())
+    assert summary[0]["void"] is True
+    assert summary[0]["valid"] == 1 and summary[0]["invalid"] == 1
+    assert summary[0]["pass_hat_k"] is False
+```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli.py -k claude_baseline -v`
-Expected: FAIL (`run-f-claude-baseline` not a valid subcommand / handler undefined).
+Expected: FAIL (`run-f-claude-baseline` not a subcommand / handler undefined).
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `cli.py`, add the subparser inside `_build_parser` (near the `run-f-ablation` block ~line 1606):
+Add the subparser inside `_build_parser` (near the `run-f-ablation` block ~line 1606):
 
 ```python
     cb = subparsers.add_parser(
@@ -726,12 +956,11 @@ In `cli.py`, add the subparser inside `_build_parser` (near the `run-f-ablation`
         help="run vanilla claude -p (Sonnet 4.6, no skills) as the F-task agent",
     )
     cb.add_argument("--out", type=Path, required=True)
-    cb.add_argument(
-        "--surface", choices=["edit-only", "natural", "both"], default="both"
-    )
+    cb.add_argument("--surface", choices=["edit-only", "natural", "both"], default="both")
     cb.add_argument("--k", type=int, default=5)
     cb.add_argument("--bases", nargs="+", default=["f1", "f2", "f3"])
     cb.add_argument("--model", default="claude-sonnet-4-6")
+    cb.add_argument("--evaluator-config", type=Path, default=None)
     cb.add_argument(
         "--smoke", action="store_true",
         help="1 attempt, base f1, edit-only — validate plumbing/cost, then stop",
@@ -739,24 +968,25 @@ In `cli.py`, add the subparser inside `_build_parser` (near the `run-f-ablation`
     cb.add_argument("--dry-run", action="store_true")
 ```
 
-Add the handler (near `_run_f_ablation_command`). It reuses `build_f_tasks`, `build_candidate_tree`, `make_edit_task`, `grade_f_attempt`, `_append_runs`, `_slug`, plus `make_claude_run_fn` and a real subprocess+tempdir factory:
+Add the real subprocess+tempdir factory and the handler near `_run_f_ablation_command`:
 
 ```python
-def _real_claude_factory(args):
-    import subprocess, tempfile
-    from agent_eval_lab.runners.claude_cli_candidate import make_claude_run_fn
+def _real_claude_factory():
+    import subprocess as _sp
+    import tempfile
 
     def factory(*, model, surface, condition_id):
         def run_subprocess(argv, *, cwd, env, timeout):
-            return subprocess.run(
+            return _sp.run(
                 argv, cwd=cwd, env=env, timeout=timeout,
                 capture_output=True, text=True,
             )
 
         def workdir_factory():
-            wd = Path(tempfile.mkdtemp(prefix="claude-f-"))
-            home = Path(tempfile.mkdtemp(prefix="claude-home-"))
-            return wd, home
+            return (
+                Path(tempfile.mkdtemp(prefix="claude-f-")),
+                Path(tempfile.mkdtemp(prefix="claude-home-")),
+            )
 
         return make_claude_run_fn(
             model=model, surface=surface,
@@ -767,30 +997,25 @@ def _real_claude_factory(args):
 
 
 def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
-    from agent_eval_lab.datasets.f_tasks import build_f_tasks
-    from agent_eval_lab.runners.f_candidate import (
-        build_candidate_tree, grade_f_attempt, make_edit_task,
+    surfaces = (
+        ["edit-only"] if args.smoke
+        else ["edit-only", "natural"] if args.surface == "both"
+        else [args.surface]
     )
-
-    surfaces = (["edit-only"] if args.smoke
-                else ["edit-only", "natural"] if args.surface == "both"
-                else [args.surface])
     bases = ["f1"] if args.smoke else list(args.bases)
     k = 1 if args.smoke else args.k
 
     args.out.mkdir(parents=True, exist_ok=True)
     if args.dry_run:
-        plan = [(s, b, i) for s in surfaces for b in bases for i in range(k)]
-        (args.out / "claude-baseline.plan.json").write_text(
-            __import__("json").dumps(
-                {"surfaces": surfaces, "bases": bases, "k": k, "attempts": len(plan)},
-                indent=2,
-            )
-        )
+        plan = {
+            "surfaces": surfaces, "bases": bases, "k": k,
+            "attempts": len(surfaces) * len(bases) * k,
+        }
+        (args.out / "claude-baseline.plan.json").write_text(json.dumps(plan, indent=2))
         print(args.out / "claude-baseline.plan.json")
         return 0
 
-    # Fail fast: held-out oracle needs Node >=20 (cf. _run_f_ablation_command).
+    # Fail fast: the held-out oracle needs Node >=20 (cf. _run_f_ablation_command).
     if run_fn_factory is None and not node_supports_junit():
         print(
             "error: resolved node cannot run the held-out oracle (needs Node >=20). "
@@ -799,44 +1024,46 @@ def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
         )
         return 1
 
-    factory = run_fn_factory or _real_claude_factory(args)
     f_repo = Path.home() / "Documents/Repository/web-dossier"
-    evaluator_store = (
-        Path(load_evaluator_config(args.evaluator_config).store.path)
-        / "web-dossier-golden"
-        if hasattr(args, "evaluator_config") else None
-    )
-    tasks_by_base = {
-        t.id.replace("f-", ""): t
-        for t in build_f_tasks(evaluator_store=f_repo)  # see NOTE on store arg
-    }
+    cfg = load_evaluator_config(args.evaluator_config)
+    store = Path(cfg.store.path) / "web-dossier-golden"
+    all_tasks = {t.id: t for t in build_f_tasks(evaluator_store=store)}
+    base_to_task = {b: all_tasks[f"f-{b}"] for b in bases}
 
-    handles: dict[str, "TextIO"] = {}
+    factory = run_fn_factory or _real_claude_factory()
+    rows: list[BaselineRow] = []
+    handles: dict[str, TextIO] = {}
     try:
         for surface in surfaces:
             cond = f"claude-cli:{args.model}:{surface}"
-            handles[cond] = (args.out / f"runs-claude-{_slug(cond)}-F.jsonl").open("w")
+            handle = (args.out / f"runs-claude-{_slug(cond)}-F.jsonl").open("w")
+            handles[cond] = handle
             run_fn = factory(model=args.model, surface=surface, condition_id=cond)
-            for base in bases:
-                task = tasks_by_base[base]
-                base_tree = build_candidate_tree(task, repo=f_repo)
-                edit_task = make_edit_task(task, base_tree=base_tree)
-                for i in range(k):
-                    traj = run_fn(edit_task, i)
-                    result = grade_f_attempt(
-                        task, traj, condition_id=cond, run_index=i
-                    )
-                    _append_runs(handles[cond], [result])
+            outcomes = list(
+                run_f_candidate(
+                    tasks=[base_to_task[b] for b in bases],
+                    k=k,
+                    condition_id=cond,
+                    build_tree_fn=lambda t: build_candidate_tree(t, repo=f_repo),
+                    run_fn=run_fn,
+                )
+            )
+            for outcome in outcomes:
+                _append_runs(handle, [att.run for att in outcome.attempts])
+            rows.extend(summarize_baseline(cond, bases, outcomes))
     finally:
         for fh in handles.values():
             fh.close()
-    print(args.out)
+
+    (args.out / "claude-baseline-summary.json").write_text(
+        json.dumps([asdict(r) for r in rows], indent=2)
+    )
+    print(args.out / "claude-baseline-summary.json")
     return 0
 ```
 
-> NOTE (implementer): `build_f_tasks(*, evaluator_store)` — confirm its real signature in `datasets/f_tasks.py:172` and what it expects (it took `evaluator_store: Path`). Pass whatever the ablation command passes (it derives `store` from `load_evaluator_config(...).store.path / "web-dossier-golden"`). Reuse that exact derivation here instead of the placeholder above; the `f-f1`→`f1` id mapping must match the real task ids (`f-f1`, `f-f2`, `f-f3`).
-
-Then wire dispatch (near line 1719):
+Ensure `from dataclasses import asdict` and `import json` are imported at top of
+`cli.py` (add if missing). Then wire dispatch (near line 1719):
 
 ```python
     if args.command == "run-f-claude-baseline":
@@ -851,18 +1078,18 @@ Expected: PASS.
 - [ ] **Step 5: Run the full unit suite + lint**
 
 Run: `pytest -q && ruff check . && ruff format --check .`
-Expected: all pass (fix `ruff format` by running `ruff format .` if needed — CI gates on whole-repo format).
+Expected: all pass (run `ruff format .` if the format gate complains — CI gates on whole-repo format).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/agent_eval_lab/cli.py tests/test_cli.py reports/agentic-v1/f-claude-baseline/.gitkeep
-git commit -m "feat(claude-baseline): run-f-claude-baseline subcommand (dry-run + smoke)"
+git commit -m "feat(claude-baseline): run-f-claude-baseline (run_f_candidate, strict VOID, summary)"
 ```
 
 ---
 
-## Task 6: Smoke run (manual integration — then PAUSE)
+## Task 7: Smoke run (manual integration — then PAUSE)
 
 **This is the agreed stop point. Do NOT run the full 30 without owner go-ahead.**
 
@@ -896,16 +1123,17 @@ Summarize: did the plumbing work end-to-end? F1 verdict, rounds, tokens, API-equ
 **Spec coverage:**
 - Two surfaces (edit-only/natural) with the one-line system-prompt difference → Task 2. ✓
 - Vanilla isolation (clean HOME, `--disable-slash-commands`) → Task 2 (flag) + Task 4 (HOME). ✓
-- claude-sonnet-4-6, OAuth/subscription billing, total_cost_usd recorded → Task 4 (usage/cost via meta) + Task 6 (capture cost). ✓
-- Reuse run_f_candidate/grade path → Task 4 signature + Task 5 loop using `grade_f_attempt`. ✓ (NOTE: Task 5 inlines the k-loop rather than calling `run_f_candidate`, because the baseline iterates surface×base and writes per-condition JSONL like `_run_f_ablation_command`; the VOID/env-invalid semantics still hold because `grade_f_attempt` + `is_env_invalid_run` are reused downstream in reporting. If strict `ReplacementOutcome`/VOID accounting is wanted inline, call `run_f_candidate` per surface instead — left as an implementer option.)
-- Env-invalid on subprocess failure/timeout/parse-error → Task 4 (`_env_invalid_trajectory`, PROVIDER_ERROR). ✓
+- claude-sonnet-4-6, OAuth/subscription billing, total_cost_usd recorded → Task 4 (usage/cost via meta) + Task 7 (capture cost). ✓
+- **Strict VOID bookkeeping (owner request)** → Task 6 handler drives `run_f_candidate` per surface (k attempts, env-invalid masked, `void = <k clean`); Task 5 `summarize_baseline` surfaces per-(surface,base) valid/invalid/void/pass^k/pass@1; per-attempt JSONL gives raw drill-down. ✓
+- Reuse grade path → Task 6 via `run_f_candidate` (which calls `grade_f_attempt` + `is_env_invalid_run` internally). ✓
+- Env-invalid on subprocess failure/timeout/parse-error → Task 4 (`_env_invalid_trajectory`, PROVIDER_ERROR) → masked by `run_f_candidate`'s `is_env_invalid_run` → contributes to VOID. ✓
 - Bounding: 300s timeout + --max-budget-usd, no --max-turns → Task 2 (argv) + Task 4 (timeout). ✓
-- Node fail-fast (>=20) → Task 5 handler. ✓
-- Smoke-first then pause → Task 6. ✓
-- Separate report dir → Task 5 (`reports/agentic-v1/f-claude-baseline/`). ✓
+- Node fail-fast (>=20) → Task 6 handler. ✓
+- Smoke-first then pause → Task 7. ✓
+- Separate report dir → Task 6 (`reports/agentic-v1/f-claude-baseline/`). ✓
 
-**Placeholder scan:** Two `NOTE`s flag real signatures to confirm against the codebase (`Task`/`TaskInput` kwargs; `build_f_tasks` store arg) — these are verification instructions with concrete fallbacks, not unfinished code. No "TODO/TBD/add error handling" placeholders.
+**Placeholder scan:** `NOTE`s flag real signatures to confirm against the codebase (`Task`/`TaskInput` kwargs in Task 4; `build_f_tasks` store arg + task ids in Task 6) — verification instructions with concrete fallbacks, not unfinished code. No "TODO/TBD/add error handling" placeholders.
 
-**Type consistency:** `ClaudeRunMeta` fields (prompt_tokens/completion_tokens/num_turns/total_cost_usd/is_error) used identically in Tasks 1 & 4. `make_claude_run_fn` signature used in Tasks 4 & 5. `surface` literals `"edit-only"`/`"natural"` consistent throughout. condition_id format `claude-cli:{model}:{surface}` consistent (Task 5).
+**Type consistency:** `ClaudeRunMeta` fields used identically in Tasks 1 & 4. `make_claude_run_fn` signature used in Tasks 4 & 6. `BaselineRow`/`summarize_baseline` defined in Task 5, consumed in Task 6 (`asdict` → summary JSON). `ReplacementOutcome`/`TrialAttempt` shapes consistent (Tasks 5 & 6 tests). `surface` literals `"edit-only"`/`"natural"` and condition_id `claude-cli:{model}:{surface}` consistent throughout.
 
 **Known limitation to surface in the report:** `natural`'s Bash can run in-tree tests but the temp tree has no installed wdio/node_modules, so its practical "run tests" advantage is limited unless Claude installs deps within the attempt; the held-out golden test is never seeded (D19). Record actuals; don't assume `natural` ≈ Factor V.
