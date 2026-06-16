@@ -39,6 +39,7 @@ from agent_eval_lab.reports.classify import (
 from agent_eval_lab.reports.m1_detail import (
     CondDomainEfficiency,
     cond_domain_efficiency,
+    is_administrative,
 )
 from agent_eval_lab.runners.multi_run import ReplacementOutcome
 
@@ -185,12 +186,16 @@ def build_m1_report(
                     condition_id=cond, domain=domain, summary=eff, cost_usd=cost
                 )
             )
+            # Exclude administrative (not-executed) trials so the overview rollup
+            # agrees with the subreport's per-condition efficiency — a 0-round
+            # admin trial must not be read as a fast completion (shared predicate).
+            real = [r for r in valid if not is_administrative(r)]
             rollup.append(
                 (
                     cond,
                     domain,
                     cond_domain_efficiency(
-                        runs=valid, condition_id=cond, pricing=pricing
+                        runs=real, condition_id=cond, pricing=pricing
                     ),
                 )
             )

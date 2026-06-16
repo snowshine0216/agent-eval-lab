@@ -191,8 +191,13 @@ class M1Detail:
 # ---------------------------------------------------------------------------
 
 
-def _is_administrative(run: RunResult) -> bool:
-    """True iff this run was marked as an administrative (not-executed) trial."""
+def is_administrative(run: RunResult) -> bool:
+    """True iff this run was marked as an administrative (not-executed) trial.
+
+    Shared predicate (one definition): an administrative trial is excluded from
+    efficiency aggregation, defect candidacy, and the classification table in BOTH
+    the subreport and the overview rollup, so the two never disagree on a metric.
+    """
     return bool(run.grade.evidence.get("marked_failed_not_executed", False))
 
 
@@ -382,7 +387,7 @@ def build_m1_detail(
 
     # Exclude administrative runs from defect candidates and efficiency (Finding 1)
     real_by_cond: dict[str, list[RunResult]] = {
-        cond: [r for r in valid_by_cond[cond] if not _is_administrative(r)]
+        cond: [r for r in valid_by_cond[cond] if not is_administrative(r)]
         for cond in conditions_present
     }
     defect_candidates = task_defect_candidates(

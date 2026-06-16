@@ -7,9 +7,9 @@ from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.reports.m1_detail import (
     CondDomainEfficiency,
     M1Detail,
-    _is_administrative,
     build_m1_detail,
     cond_domain_efficiency,
+    is_administrative,
 )
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 
@@ -334,15 +334,15 @@ def _admin_run(task_id, cond, idx):
 
 
 def test_is_administrative_detects_admin_run():
-    """Helper _is_administrative returns True for an administrative run."""
+    """Helper is_administrative returns True for an administrative run."""
     r = _admin_run("f1", _COND, 0)
-    assert _is_administrative(r) is True
+    assert is_administrative(r) is True
 
 
 def test_is_administrative_returns_false_for_normal_run():
-    """Helper _is_administrative returns False for a normal run."""
+    """Helper is_administrative returns False for a normal run."""
     r = _f_run("f1", _COND, 0, passed=False, tests=[["a", "failed"]])
-    assert _is_administrative(r) is False
+    assert is_administrative(r) is False
 
 
 def test_admin_run_not_in_defect_candidates():

@@ -35,8 +35,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **CLI** (`report-m1`): `--subreports/--no-subreports` (default on) + `--subreport-dir`; writes one
   `M1-<domain>-report.md` per domain beside `--out`, so the overview's links and the files never drift.
 - Administrative trials (`marked_failed_not_executed`) are honored across every section — excluded
-  from pass^k, task-defect candidacy, and efficiency aggregation; rendered as "not executed (owner
-  decision)", never as a real 0-round/0-token failure.
+  from pass^k, task-defect candidacy, the fc-v4 classification table, and efficiency aggregation in
+  **both** the per-domain subreport and the overview rollup (one shared `is_administrative` predicate,
+  so the two never disagree on a metric); rendered as "not executed (owner decision)", never as a real
+  0-round/0-token failure.
 
 ## v0.2.6 — 2026-06-15
 
