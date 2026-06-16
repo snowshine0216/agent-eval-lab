@@ -29,3 +29,8 @@ Observed behavior:
 Determinism: byte-identical — `diff -r reports/agentic-v1/ reports/agentic-v1-2/` produced no output (empty diff = PASS)
 
 Failures: none
+
+## Re-confirmed after round-2 fix (orchestrator, on commit 619ab5d)
+Re-ran report-m1 on the same real F/D data twice on the round-2 code: both exit 0,
+`diff -rq` byte-identical (determinism holds), Efficiency & cost + Subreports +
+fc-v4 headings present, F subreport has 37 `##` sections. Verdict remains PASS.
