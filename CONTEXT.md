@@ -763,6 +763,14 @@ a replacement trial immediately (D34) — the harness keeps running trials until
 k valid are obtained. A pre-registered **max invalid-rate** (40%) per condition bounds
 abuse: above it the condition is **VOID** (excluded entirely), so an agent cannot earn
 "invalid" in place of "failed" by wedging the environment.
+For domains with no live health probe (e.g. F), `is_env_invalid_run` is the analogue
+mask and recognizes two sources: **provider-side** — a `chat_completion` HTTP rejection
+or empty `choices` on the trajectory (the model never acted) — and **oracle-side** — a
+grader stamps `env_invalid` on its own evidence when the GRADING harness could not run
+(e.g. the F3 `node --test` oracle hit an incapable node: `--test-reporter` unsupported
+on node < 20, exit 9). Both route a run out of `pass_pow_k` exactly like a failed health
+probe; a grade that merely *fails* (tests ran and failed) is a real model miss, never
+env-invalid (ADR-0018).
 _Avoid_: "filtering" (implies post-hoc; replacement trials are live), "exclusion
 criterion" (the mask is structural, not selective post-processing).
 

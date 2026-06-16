@@ -5,6 +5,66 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.3.1 — 2026-06-16
+
+### Fixed
+
+- **An incapable node / oracle-execution error in the F3 held-out `node --test` oracle no
+  longer silently scores as a model FAIL.** On node < 20 the `--test-reporter=junit` flag is
+  rejected (`bad option`, exit 9) and the run is classified `status="error"`; the prior pipeline
+  graded that as an ordinary 0-score FAIL, which silently scored 180 attempts 0/180 in the
+  f-ablation-v2 run (`reports/agentic-v1/f-ablation-v2/INCIDENT-node-v16.md`). Such a run now
+  routes to **env-invalid** (masked from `pass^k`, VOID under D34) — loudly excluded rather than
+  counted as a model failure. This is a defense-in-depth backstop independent of the F CLI
+  fail-fast guards.
+
+### Changed
+
+- **`is_env_invalid_run` (records/grade.py) now recognizes two env-invalid sources**:
+  provider-side (a `chat_completion` HTTP rejection / empty `choices` on the trajectory, as
+  before) **and** oracle-side — a grader stamps `env_invalid` on its own evidence when the
+  grading harness itself could not run. The classifier recurses `AllOf` `sub_results` to find the
+  marker (real F verifications always wrap their `NodeExecutionSpec`(s) in an `AllOf`, so the
+  marker is nested). New pure predicate `is_incapable_node_result` (graders/node_execution.py):
+  `status="error"` + `exit_code == 9` + zero tests. A genuine model failure (import/load crash,
+  exit 1) and a `tree_collision` stay real FAILs — never masked. No D/B-set behavior changes
+  (only the node grader emits the marker). Documented in ADR-0018; ADR-0015's "no VOID" refined.
+
+## v0.3.0 — 2026-06-16
+
+### Added — M1 report enhancement: overview rollup + deterministic per-domain subreports
+
+- **`M1-final-report.md` becomes a thin M1 overview** (`reports/m1.py`): a new **Efficiency & cost**
+  rollup per (condition, domain) — rounds median [min–max] with right-censoring annotation for
+  budget-capped runs, prompt/completion/total tokens, `cost_usd`, total tool calls, safety-cap and
+  max-rounds hits, dominant stop reason — plus a deterministic per-domain headline ("best pass^k …;
+  cheapest on cost-frontier …") and a **Subreports** block linking each generated subreport and the
+  hand-authored companions. The "Failure taxonomy" heading is renamed to **"Failure classification
+  (fc-v4) per condition"** (aligns the M1 report with the glossary and `final.py`).
+- **New auto-generated per-domain subreport `M1-<domain>-report.md`** (`reports/m1_detail.py`, pure
+  build + render): per-task quick-reference, cross-model pass matrix (per-trial ✅❌ + dominant
+  stop), per-task detail blocks (rounds/tokens/cost/tool-calls/censoring, grader-aware failure gap,
+  edit signals), task-defect candidates with shared-failing-oracle-unit intersection, per-condition
+  efficiency, and fc-v4 classification per task×condition. Fully derived from the run JSONL,
+  deterministic (byte-identical for fixed input), regenerated on every `report-m1`.
+- **Grader-aware evidence adapter** (`reports/evidence_summary.py`): `evidence_gap(grade)` maps one
+  `GradeResult` to a render-ready `EvidenceGap` (F `node_execution` per-oracle-test list +
+  `displaced_paths`; D `fact_key` missing/forbidden facts; administrative, degraded `no_answer`, and
+  unknown-grader branches — grade-only, never raises).
+- **Trajectory-derived edit signals** (`reports/edit_paths.py`): `edit_paths(trajectory,
+  target_paths=…)` reports edited paths and the out-of-scope subset (descriptive, never a verdict),
+  kept deliberately separate from the grade-side `displaced_paths`.
+- **Shared `reports/defects.py`**: the unanimous-fail task-defect predicate is extracted from
+  `final.py` into one pure module (DRY; `final.py` imports it back — behavior-neutral, guarded by its
+  existing tests).
+- **CLI** (`report-m1`): `--subreports/--no-subreports` (default on) + `--subreport-dir`; writes one
+  `M1-<domain>-report.md` per domain beside `--out`, so the overview's links and the files never drift.
+- Administrative trials (`marked_failed_not_executed`) are honored across every section — excluded
+  from pass^k, task-defect candidacy, the fc-v4 classification table, and efficiency aggregation in
+  **both** the per-domain subreport and the overview rollup (one shared `is_administrative` predicate,
+  so the two never disagree on a metric); rendered as "not executed (owner decision)", never as a real
+  0-round/0-token failure.
+
 ## v0.2.6 — 2026-06-15
 
 ### Added — run-f-ablation driver + frozen f_ablation_spec (harness-rounds-f-ablation step 6, code only)

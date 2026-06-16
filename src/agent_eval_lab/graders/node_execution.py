@@ -82,6 +82,24 @@ def collect_node_execution_specs(
     return ()
 
 
+def is_incapable_node_result(result: ExecutionResult) -> bool:
+    """True iff the node oracle could not RUN the suite because node rejected the
+    harness's own invocation — e.g. ``--test-reporter=junit`` is unsupported on
+    node < 20, which exits with code 9 (node's 'bad option' / invalid-argument
+    code) having parsed zero test cases. This is an ENVIRONMENT incapability, not
+    a model failure: the model's produced tree never got a fair trial, so the run
+    is env-invalid (D34 analogue), masked from pass^k rather than scored a 0 FAIL.
+    Pure.
+
+    A model that merely breaks the code under a CAPABLE node yields status="error"
+    with exit_code 1 (an import/load crash that ran zero tests) — NOT code 9 — so
+    it stays a real model FAIL. Exit code 9 is reachable only from node's own CLI
+    parser rejecting the oracle's flags, never from user/model code running inside
+    an already-started test runner.
+    """
+    return result.status == "error" and result.exit_code == 9 and not result.tests
+
+
 def grade_node_execution(
     *, spec: NodeExecutionSpec, trajectory: Trajectory, verdicts: Mapping[str, Any]
 ) -> GradeResult:
@@ -99,42 +117,59 @@ def grade_node_execution(
             }
         )
     if not isinstance(value, NodeExecutionVerdict):
-        return _non_pass(
-            {
-                "execution": "error",
-                "execution_error": {
-                    "kind": getattr(value, "kind", "unknown"),
-                    "detail": getattr(value, "detail", repr(value)),
-                },
-                "execution_hash": key,
+        kind = getattr(value, "kind", "unknown")
+        evidence = {
+            "execution": "error",
+            "execution_error": {
+                "kind": kind,
+                "detail": getattr(value, "detail", repr(value)),
+            },
+            "execution_hash": key,
+        }
+        # A harness exec error (node binary missing, OSError launching the
+        # subprocess) means the ORACLE could not run — env-invalid, not a model
+        # FAIL. A tree_collision / verdict_missing is a model/wiring fault and
+        # stays a plain non-pass.
+        if kind == "harness":
+            evidence = {
+                **evidence,
+                "env_invalid": True,
+                "env_invalid_reason": "oracle_harness_error",
             }
-        )
+        return _non_pass(evidence)
     return _interpret(value)
 
 
 def _interpret(verdict: NodeExecutionVerdict) -> GradeResult:
     result = verdict.result
     passed = result.status == "passed"
+    evidence = {
+        "execution": "run",
+        "status": result.status,
+        "exit_code": result.exit_code,
+        "counts": {
+            "passed": result.passed,
+            "failed": result.failed,
+            "errors": result.errors,
+            "skipped": result.skipped,
+        },
+        "tests": [[case.test_id, case.status] for case in result.tests],
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "execution_hash": verdict.execution_hash,
+        "displaced_paths": list(verdict.displaced_paths),
+    }
+    if is_incapable_node_result(result):
+        evidence = {
+            **evidence,
+            "env_invalid": True,
+            "env_invalid_reason": "incapable_node",
+        }
     return GradeResult(
         grader_id=GRADER_ID,
         passed=passed,
         score=1.0 if passed else 0.0,
-        evidence={
-            "execution": "run",
-            "status": result.status,
-            "exit_code": result.exit_code,
-            "counts": {
-                "passed": result.passed,
-                "failed": result.failed,
-                "errors": result.errors,
-                "skipped": result.skipped,
-            },
-            "tests": [[case.test_id, case.status] for case in result.tests],
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "execution_hash": verdict.execution_hash,
-            "displaced_paths": list(verdict.displaced_paths),
-        },
+        evidence=evidence,
         failure_reason=None,
     )
 
