@@ -29,3 +29,13 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - pr-review: ✅ `items/001-pr-review.md` (PASS-WITH-NITS; 2 nits + 1 verify-surfaced defect all fixed in `d903f10`)
 - fix: ✅ 1 round (`d903f10`: __main__.py + temp-dir cleanup + dead-param drop; pre-push fixes `80bf605`/`9b7d571`)
 - merge: ✅ `2a82edd` — PR #38 squash-merged into `feat/claude-p-f-baseline` (CI green; sub-branch deleted)
+
+## Final status (Phase 3 — close-out)
+
+- **Items merged:** 1/1 (item 001 → PR #38 → `2a82edd`).
+- **Items SKIPPED/BLOCKED:** 0. **Deferred (OUT, owner-gated):** Task 7 paid smoke + full 30-run — see SKIPPED.md.
+- **Phase 3:** workflow-completeness audit PASS (all verdict files present + valid); full suite `uv run pytest -q` exit 0; ruff check + format clean; `python -m agent_eval_lab run-f-claude-baseline --smoke --dry-run` exit 0; doc-sync no-op (only CHANGELOG touched — design already in the committed spec). N=1 → no cross-item analysis.
+- **Feature branch:** `feat/claude-p-f-baseline`
+- **Feature-branch PR:** https://github.com/snowshine0216/agent-eval-lab/pull/39
+- **Merged into protected branch:** no (PR #39 left OPEN for owner review — `main` is protected, no opt-in given).
+- **Follow-ups:** (1) owner runs the paid smoke then the 30-run (SKIPPED.md recipe; `NODE_BIN=…/v22.22.2/bin/node`); (2) decide the `is_error`/budget-stop masking methodology; (3) ⚠️ orphaned `git stash@{0}` holds unrelated f-ablation edits from a crashed subagent — inspect/`git stash drop` if unwanted.
