@@ -636,7 +636,7 @@ def _classification_lines(detail: M1Detail) -> list[str]:
     lines = ["## Failure classification (fc-v4) per task × condition", ""]
     for task in detail.tasks:
         for cell in task.cells:
-            if not cell.present or not cell.classifications:
+            if not cell.present or not cell.classifications or cell.administrative:
                 continue
             lines.append(f"### `{task.task_id}` × `{cell.condition_id}`")
             lines += [

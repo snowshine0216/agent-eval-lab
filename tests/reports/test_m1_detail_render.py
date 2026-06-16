@@ -202,6 +202,32 @@ def test_summary_admin_cell_contains_admin_marker():
 
 
 # ---------------------------------------------------------------------------
+# Finding 1 round-2 — admin cell must NOT appear in fc-v4 classification table
+# ---------------------------------------------------------------------------
+
+
+def test_admin_cell_absent_from_classification_table():
+    """An admin (marked_failed_not_executed) cell must NOT produce a fc-v4
+    classification row — even though _cell computes non-empty classifications
+    before setting administrative=True.  The skip guard in _classification_lines
+    must honour cell.administrative.
+    """
+    md = _render([_make_admin_run()])
+    # Extract only the fc-v4 section
+    fc_start = md.find("## Failure classification (fc-v4)")
+    assert fc_start != -1, "fc-v4 section must exist"
+    fc_section = md[fc_start:]
+    # There must be NO category row (lines with "| … | … |" inside a task block)
+    # The only admissible content is the header + the "(no failures classified)" note.
+    assert "### `f1`" not in fc_section, (
+        "Administrative cell must NOT appear as a task block in the fc-v4 table"
+    )
+    assert "agent_failure" not in fc_section, (
+        "Administrative cell classification category must not leak into fc-v4"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Minor: void domain renders explicit note
 # ---------------------------------------------------------------------------
 
