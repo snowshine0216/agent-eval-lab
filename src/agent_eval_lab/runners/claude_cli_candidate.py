@@ -45,3 +45,69 @@ def parse_claude_result(stdout: str) -> ClaudeRunMeta:
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ClaudeResultParseError(str(exc)) from exc
+
+
+SURFACES: tuple[str, ...] = ("edit-only", "natural")
+
+# Inspect + edit tools every surface gets (Claude Code native tool names).
+_BASE_ALLOWED_TOOLS: tuple[str, ...] = ("Read", "Edit", "Write", "Glob", "Grep")
+# Never allowed in either baseline (keep it offline + non-agentic-delegating).
+_ALWAYS_DENIED_TOOLS: tuple[str, ...] = ("WebFetch", "WebSearch", "Task")
+
+_EDIT_SYSTEM_BASE = (
+    "You are fixing code in a checked-out repository. The repository's files are "
+    "in your current working directory. Inspect the relevant files, then make the "
+    "owner-specified change. Change ONLY what the task requires; leave every other "
+    "file and layer untouched. When the edit is complete, reply with a one-line "
+    "summary and stop."
+)
+_NO_TESTS_LINE = "Do not attempt to run tests."
+
+
+def claude_system_prompt(surface: str) -> str:
+    """The edit instructions appended to Claude's system prompt. edit-only forbids
+    running tests; natural allows it. No Factor-P scaffolding in either."""
+    if surface not in SURFACES:
+        raise ValueError(f"unknown surface: {surface!r}")
+    if surface == "edit-only":
+        return f"{_EDIT_SYSTEM_BASE}\n\n{_NO_TESTS_LINE}"
+    return _EDIT_SYSTEM_BASE
+
+
+def build_claude_argv(
+    *,
+    model: str,
+    surface: str,
+    prompt: str,
+    system_prompt: str,
+    max_budget_usd: float,
+) -> list[str]:
+    """Assemble the `claude -p` argv for one attempt. Pure list construction.
+
+    Skills are disabled (--disable-slash-commands). Bash is allowed iff natural.
+    There is no --max-turns in CLI 2.1.177; rounds are bounded by the subprocess
+    timeout (caller), with --max-budget-usd as a secondary cost stop."""
+    if surface not in SURFACES:
+        raise ValueError(f"unknown surface: {surface!r}")
+    allowed = list(_BASE_ALLOWED_TOOLS) + (["Bash"] if surface == "natural" else [])
+    denied = list(_ALWAYS_DENIED_TOOLS) + (
+        [] if surface == "natural" else ["Bash"]
+    )
+    return [
+        "claude",
+        "-p",
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--disable-slash-commands",
+        "--append-system-prompt",
+        system_prompt,
+        "--allowedTools",
+        " ".join(allowed),
+        "--disallowedTools",
+        " ".join(denied),
+        "--max-budget-usd",
+        str(max_budget_usd),
+        prompt,
+    ]
