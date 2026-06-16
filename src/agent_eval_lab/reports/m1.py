@@ -500,14 +500,13 @@ def _efficiency_rollup_lines(report: M1Report) -> list[str]:
             rounds += f" ({eff.censored_count} right-censored at {bound})"
         cost = "—" if eff.cost_usd is None else f"{eff.cost_usd:.4f}"
         total_tools = sum(eff.tool_call_totals.values())
-        dominant = (
-            max(
-                eff.stop_reason_counts,
-                key=lambda sr: (eff.stop_reason_counts[sr], sr),
+        if eff.stop_reason_counts:
+            _max_cnt = max(eff.stop_reason_counts.values())
+            dominant = min(
+                sr for sr, c in eff.stop_reason_counts.items() if c == _max_cnt
             )
-            if eff.stop_reason_counts
-            else "—"
-        )
+        else:
+            dominant = "—"
         lines.append(
             f"| {cond} | {domain} | {rounds} | {eff.prompt_tokens} "
             f"| {eff.completion_tokens} | {eff.total_tokens} | {cost} "

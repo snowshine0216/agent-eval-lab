@@ -9,7 +9,7 @@ signal (oracle-overlay collision) — NOT out-of-scope edits (those are
 trajectory-derived; see reports/edit_paths.py).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,7 +41,7 @@ def _unknown(grade: GradeResult) -> EvidenceGap:
 
 def _node_execution(grader_id: str, passed: bool, ev: Mapping[str, Any]) -> EvidenceGap:
     tests = ev.get("tests")
-    if not isinstance(tests, Sequence):
+    if not isinstance(tests, (list, tuple)):
         # not_run / error branch: no per-test detail in evidence.
         return EvidenceGap(
             grader_id=grader_id,
@@ -115,7 +115,11 @@ def evidence_gap(grade: GradeResult) -> EvidenceGap:
             None,
         )
         if leaf is not None:
-            return _node_execution("node_execution", leaf["passed"], leaf["evidence"])
+            leaf_passed = leaf.get("passed")
+            leaf_ev = leaf.get("evidence")
+            if leaf_passed is None or leaf_ev is None:
+                return _unknown(grade)
+            return _node_execution("node_execution", leaf_passed, leaf_ev)
         return _unknown(grade)
     if grade.grader_id == "node_execution":
         return _node_execution("node_execution", grade.passed, ev)

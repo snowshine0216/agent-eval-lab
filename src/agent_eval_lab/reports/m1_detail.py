@@ -191,12 +191,19 @@ class M1Detail:
 # ---------------------------------------------------------------------------
 
 
+def _is_administrative(run: RunResult) -> bool:
+    """True iff this run was marked as an administrative (not-executed) trial."""
+    return bool(run.grade.evidence.get("marked_failed_not_executed", False))
+
+
 def _dominant_stop_reason(runs: Sequence[RunResult]) -> str:
     counts = _counts([r.trajectory.stop_reason for r in runs])
     if not counts:
         return "—"
-    # max count, ties broken lexicographically smallest
-    return max(counts, key=lambda sr: (counts[sr], tuple(-ord(c) for c in sr)))
+    # max count, ties broken lexicographically SMALLEST (consistent with spec)
+    max_count = max(counts.values())
+    candidates = [sr for sr, c in counts.items() if c == max_count]
+    return min(candidates)
 
 
 def _representative(runs: Sequence[RunResult]) -> RunResult:
@@ -299,6 +306,7 @@ def build_m1_detail(
     conditions_present = tuple(sorted(outcomes_by_condition))
     # (task_id, cond) -> (valid_runs_list, invalid_count)
     by_task_cond: dict[str, dict[str, tuple[list[RunResult], int]]] = {}
+    # valid_by_cond: ALL valid runs (filtered later for defect + efficiency)
     valid_by_cond: dict[str, list[RunResult]] = {c: [] for c in conditions_present}
     for cond in conditions_present:
         for outcome in outcomes_by_condition[cond]:
@@ -311,10 +319,11 @@ def build_m1_detail(
                 valid_by_cond[cond].append(run)
             # attribute invalid attempts to the outcome's task (first valid run's
             # task_id, or skip if a fully-void outcome has no valid runs).
+            # SUM invalid counts across multiple outcomes for the same (task, cond).
             if outcome.valid_runs:
                 tid = outcome.valid_runs[0].task_id
-                runs_list, _ = by_task_cond[tid][cond]
-                by_task_cond[tid][cond] = (runs_list, invalid)
+                runs_list, existing_invalid = by_task_cond[tid][cond]
+                by_task_cond[tid][cond] = (runs_list, existing_invalid + invalid)
 
     tasks: list[TaskDetail] = []
     quick: list[TaskQuickRef] = []
@@ -329,8 +338,14 @@ def build_m1_detail(
             )
             for cond in conditions_present
         )
+        # Exclude administrative cells from failing_cells (spec §6 / Finding 1)
         failing_cells = [
-            c for c in cells if c.present and c.passed_trials == 0 and c.valid_trials
+            c
+            for c in cells
+            if c.present
+            and c.passed_trials == 0
+            and c.valid_trials
+            and not c.administrative
         ]
         failing_unit_sets = [set(c.gap.failing_units) for c in failing_cells]
         if failing_unit_sets:
@@ -360,15 +375,20 @@ def build_m1_detail(
             )
         )
 
+    # Exclude administrative runs from defect candidates and efficiency (Finding 1)
+    real_by_cond: dict[str, list[RunResult]] = {
+        cond: [r for r in valid_by_cond[cond] if not _is_administrative(r)]
+        for cond in conditions_present
+    }
     defect_candidates = task_defect_candidates(
         tuple(
-            DefectInputGroup(label=cond, runs=tuple(valid_by_cond[cond]), blocked=False)
+            DefectInputGroup(label=cond, runs=tuple(real_by_cond[cond]), blocked=False)
             for cond in conditions_present
         )
     )
     efficiency = tuple(
         cond_domain_efficiency(
-            runs=tuple(valid_by_cond[cond]), condition_id=cond, pricing=pricing
+            runs=tuple(real_by_cond[cond]), condition_id=cond, pricing=pricing
         )
         for cond in conditions_present
     )
@@ -460,6 +480,9 @@ def _summary_lines(detail: M1Detail) -> list[str]:
             c = cells_by_cond.get(cond)
             if c is None or not c.present:
                 row_parts.append("—")
+            elif c.administrative:
+                # Administrative: owner decided not to execute — never a real failure
+                row_parts.append("— admin (not executed)")
             else:
                 row_parts.append(
                     f"{c.passed_trials}/{c.valid_trials} {_per_trial_str(c.per_trial)}"
@@ -594,11 +617,13 @@ def _efficiency_lines(detail: M1Detail) -> list[str]:
         )
         cost = "—" if eff.cost_usd is None else f"{eff.cost_usd:.4f}"
         total_tools = sum(eff.tool_call_totals.values())
-        dominant = (
-            max(eff.stop_reason_counts, key=lambda sr: (eff.stop_reason_counts[sr], sr))
-            if eff.stop_reason_counts
-            else "—"
-        )
+        if eff.stop_reason_counts:
+            _max_cnt = max(eff.stop_reason_counts.values())
+            dominant = min(
+                sr for sr, c in eff.stop_reason_counts.items() if c == _max_cnt
+            )
+        else:
+            dominant = "—"
         lines.append(
             f"| {cond} | {rounds} | {eff.prompt_tokens} | {eff.completion_tokens} "
             f"| {eff.total_tokens} | {cost} | {total_tools} | {eff.safety_cap_hits} "
@@ -628,13 +653,21 @@ def _classification_lines(detail: M1Detail) -> list[str]:
 
 
 def render_detail(detail: M1Detail) -> str:
-    lines = (
-        _header_lines(detail)
-        + _quickref_lines(detail)
-        + _summary_lines(detail)
-        + _per_task_lines(detail)
-        + _defect_lines(detail)
-        + _efficiency_lines(detail)
-        + _classification_lines(detail)
-    )
+    body: list[str]
+    if not detail.tasks:
+        # Void domain: all runs were voided or absent; emit an explicit note (spec §6)
+        body = [
+            "_(no executed tasks — all runs voided or absent)_",
+            "",
+        ]
+    else:
+        body = (
+            _quickref_lines(detail)
+            + _summary_lines(detail)
+            + _per_task_lines(detail)
+            + _defect_lines(detail)
+            + _efficiency_lines(detail)
+            + _classification_lines(detail)
+        )
+    lines = _header_lines(detail) + body
     return "\n".join(lines) + "\n"

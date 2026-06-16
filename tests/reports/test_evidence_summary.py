@@ -128,3 +128,75 @@ def test_unknown_grader_never_raises():
     assert gap.grader_id == "some_future_grader"
     assert gap.status == "passed"
     assert gap.oracle_total is None and gap.failing_units == ()
+
+
+# ---------------------------------------------------------------------------
+# Finding 2 — all_of leaf KeyError when evidence key missing
+# ---------------------------------------------------------------------------
+
+
+def test_all_of_leaf_missing_evidence_does_not_raise():
+    """all_of whose node_execution sub_result lacks 'evidence' must not raise KeyError;
+    should fall through to _unknown (or graceful gap)."""
+    grade = _grade(
+        "all_of",
+        False,
+        {
+            "sub_results": [
+                {
+                    "grader_id": "node_execution",
+                    "passed": False,
+                    # 'evidence' key is intentionally missing
+                }
+            ]
+        },
+    )
+    # Must not raise
+    gap = evidence_gap(grade)
+    # Returns a minimal gap (unknown-style or not_executed)
+    assert gap.oracle_total is None
+    assert gap.failing_units == ()
+
+
+def test_all_of_leaf_missing_passed_does_not_raise():
+    """all_of whose node_execution sub_result lacks 'passed' must not raise."""
+    grade = _grade(
+        "all_of",
+        False,
+        {
+            "sub_results": [
+                {
+                    "grader_id": "node_execution",
+                    # 'passed' key is intentionally missing
+                    "evidence": {"tests": [["a", "failed"]], "displaced_paths": []},
+                }
+            ]
+        },
+    )
+    # Must not raise
+    gap = evidence_gap(grade)
+    # just mustn't raise — any gap is acceptable
+    assert gap.oracle_total is not None or gap.oracle_total is None
+
+
+# ---------------------------------------------------------------------------
+# Finding 3 — isinstance(tests, Sequence) accepts str
+# ---------------------------------------------------------------------------
+
+
+def test_node_execution_tests_as_string_does_not_raise():
+    """evidence['tests'] = 'error' (a str) must NOT crash the unpack;
+    must return status='not_executed' (or unknown) with oracle_total=None."""
+    grade = _grade(
+        "node_execution",
+        False,
+        {
+            "execution": "run",
+            "status": "failed",
+            "tests": "error",  # str is a Sequence — the bug
+        },
+    )
+    # Must not raise
+    gap = evidence_gap(grade)
+    assert gap.oracle_total is None
+    assert gap.oracle_passed is None

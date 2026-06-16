@@ -7,6 +7,7 @@ from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.reports.m1_detail import (
     CondDomainEfficiency,
     M1Detail,
+    _is_administrative,
     build_m1_detail,
     cond_domain_efficiency,
 )
@@ -302,3 +303,134 @@ def test_defect_candidate_flagged_when_all_conditions_fail():
         spec=_spec(),
     )
     assert [c.task_id for c in detail.defect_candidates] == ["f1"]
+
+
+# ---------------------------------------------------------------------------
+# Finding 1 — Administrative-trial leak tests
+# ---------------------------------------------------------------------------
+
+
+def _admin_run(task_id, cond, idx):
+    """An administrative run: marked_failed_not_executed=True, 0 rounds/tokens."""
+    return RunResult(
+        task_id=task_id,
+        condition_id=cond,
+        run_index=idx,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=idx,
+            stop_reason="completed_natural",
+            rounds=0,
+            final_state={"files": {}, "target_paths": []},
+        ),
+        grade=GradeResult(
+            grader_id="node_execution",
+            passed=False,
+            score=0.0,
+            evidence={"marked_failed_not_executed": True},
+        ),
+    )
+
+
+def test_is_administrative_detects_admin_run():
+    """Helper _is_administrative returns True for an administrative run."""
+    r = _admin_run("f1", _COND, 0)
+    assert _is_administrative(r) is True
+
+
+def test_is_administrative_returns_false_for_normal_run():
+    """Helper _is_administrative returns False for a normal run."""
+    r = _f_run("f1", _COND, 0, passed=False, tests=[["a", "failed"]])
+    assert _is_administrative(r) is False
+
+
+def test_admin_run_not_in_defect_candidates():
+    """Administrative run across all conds must NOT appear in defect_candidates."""
+    cond_a, cond_b = "a:m", "b:m"
+    admin_a = _admin_run("f1", cond_a, 0)
+    admin_b = _admin_run("f1", cond_b, 0)
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={
+            cond_a: (_outcome([admin_a]),),
+            cond_b: (_outcome([admin_b]),),
+        },
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    assert detail.defect_candidates == ()
+
+
+def test_admin_run_excluded_from_efficiency():
+    """Admin runs must NOT pollute real efficiency medians.
+
+    A cond with only admin runs -> excluded -> zero-summary.
+    A real run in the same cond (were they mixed) is NOT averaged with admin run.
+    Here we test the pure-admin case: efficiency for a cond with only admin runs
+    should produce zero-summary (rounds_median==0.0, no data).
+    """
+    cond = _COND
+    admin = _admin_run("f1", cond, 0)
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={cond: (_outcome([admin]),)},
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    # The condition's efficiency is computed over NON-admin runs.
+    # With all admin, it should be empty -> zero summary.
+    eff = detail.efficiency[0]
+    assert eff.rounds_median == 0.0
+    assert eff.total_tokens == 0
+
+
+def test_admin_cell_is_flagged_as_administrative():
+    """A cell whose only run is administrative must have cell.administrative=True."""
+    cond = _COND
+    admin = _admin_run("f1", cond, 0)
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={cond: (_outcome([admin]),)},
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    cell = detail.tasks[0].cells[0]
+    assert cell.administrative is True
+
+
+def test_duplicate_task_cond_invalid_counts_summed():
+    """When the same (task_id, cond) appears in >1 outcome, SUM invalid counts."""
+    cond = _COND
+    run1 = _f_run("f1", cond, 0, passed=False, tests=[["a", "failed"]])
+    run2 = _f_run("f1", cond, 1, passed=False, tests=[["a", "failed"]])
+    # Two outcomes for the same task, each with 1 invalid attempt.
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={
+            cond: (_outcome([run1], invalid=1), _outcome([run2], invalid=1))
+        },
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    cell = detail.tasks[0].cells[0]
+    assert cell.invalid_trials == 2
+
+
+# ---------------------------------------------------------------------------
+# Minor: void-domain guard
+# ---------------------------------------------------------------------------
+
+
+def test_void_domain_produces_no_tasks():
+    """A domain where all outcomes are void should produce zero tasks in detail."""
+    cond = _COND
+    # void outcome has no valid_runs
+    void_outcome = ReplacementOutcome(valid_runs=(), attempts=(), void=True)
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={cond: (void_outcome,)},
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    assert len(detail.tasks) == 0

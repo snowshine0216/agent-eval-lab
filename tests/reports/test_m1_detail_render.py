@@ -1,3 +1,5 @@
+import re
+
 from agent_eval_lab.experiments.m1_spec import build_m1_spec
 from agent_eval_lab.experiments.pricing import PricePoint, PricingSnapshot
 from agent_eval_lab.experiments.spec_hash import freeze_spec
@@ -149,3 +151,135 @@ def test_render_administrative_label():
     md = _render([admin])
     assert "administrative" in md
     assert "not executed" in md
+
+
+# ---------------------------------------------------------------------------
+# Finding 1 — cross-model summary must NOT render 0/1 ❌ for admin cells
+# ---------------------------------------------------------------------------
+
+
+def _make_admin_run():
+    return RunResult(
+        task_id="f1",
+        condition_id=_COND,
+        run_index=0,
+        trajectory=Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+            rounds=0,
+            final_state={"files": {}, "target_paths": []},
+        ),
+        grade=GradeResult(
+            grader_id="node_execution",
+            passed=False,
+            score=0.0,
+            evidence={"marked_failed_not_executed": True},
+        ),
+    )
+
+
+def test_summary_admin_cell_does_not_render_zero_slash_failure():
+    """Cross-model summary for an admin cell must NOT show a real-failure tally."""
+    md = _render([_make_admin_run()])
+    # They mustn't appear together in an admin context
+    assert "0/1" not in md or "❌" not in md
+    assert "admin" in md.lower()
+
+
+def test_summary_admin_cell_contains_admin_marker():
+    """Summary line for admin cell: admin marker present, ❌ absent."""
+    md = _render([_make_admin_run()])
+    # Find the summary section
+    summary_section = md[
+        md.find("## Cross-model summary") : md.find("## Per-task detail")
+    ]
+    # Admin marker must be present in the summary
+    assert "admin" in summary_section.lower()
+    # The real failure symbol ❌ must NOT appear in the summary for this admin cell
+    assert "❌" not in summary_section
+
+
+# ---------------------------------------------------------------------------
+# Minor: void domain renders explicit note
+# ---------------------------------------------------------------------------
+
+
+def test_render_void_domain_emits_note():
+    """Void domain (zero tasks): render_detail emits an explicit note."""
+    from agent_eval_lab.reports.m1_detail import M1Detail, render_detail
+
+    detail = M1Detail(
+        domain="F",
+        conditions_present=(_COND,),
+        k=3,
+        spec_hash="abc",
+        task_quick_refs=(),
+        tasks=(),
+        defect_candidates=(),
+        efficiency=(),
+        efficiency_condition_ids=(),
+    )
+    md = render_detail(detail)
+    # Must include an explicit note about no executed tasks
+    assert "no executed tasks" in md.lower() or "all runs voided" in md.lower()
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 — dominant stop tie-break consistency
+# ---------------------------------------------------------------------------
+
+
+def _make_run_with_stop(stop, idx, rounds=4):
+    return RunResult(
+        task_id="f1",
+        condition_id=_COND,
+        run_index=idx,
+        trajectory=Trajectory(
+            turns=(MessageTurn(role="assistant", content="x"),),
+            usage=Usage(prompt_tokens=10, completion_tokens=5, latency_s=1.0),
+            run_index=idx,
+            stop_reason=stop,
+            rounds=rounds,
+            final_state={"files": {}, "target_paths": ["wdio.conf.ts"]},
+        ),
+        grade=GradeResult(
+            grader_id="node_execution",
+            passed=False,
+            score=0.0,
+            evidence={
+                "execution": "run",
+                "status": "failed",
+                "tests": [["a", "failed"]],
+                "displaced_paths": [],
+            },
+        ),
+    )
+
+
+def test_dominant_stop_tie_break_consistent_in_summary_and_efficiency():
+    """For a tie input (1 'completed_natural', 1 'max_rounds'),
+    both the per-cell summary and efficiency table agree on the dominant stop."""
+    run_a = _make_run_with_stop("completed_natural", 0)
+    run_b = _make_run_with_stop("max_rounds", 1, rounds=40)
+    detail = build_m1_detail(
+        domain="F",
+        outcomes_by_condition={_COND: (_outcome([run_a, run_b]),)},
+        pricing=_PRICING,
+        spec=_spec(),
+    )
+    md = render_detail(detail)
+    # Extract the dominant stop from per-task detail section
+    task_section = md[md.find("## Per-task detail") : md.find("## Task-defect")]
+    eff_section = md[
+        md.find("## Per-condition efficiency") : md.find("## Failure classification")
+    ]
+    # Both must agree - find the stop reason shown in task detail
+    # The per-task detail has "- dominant stop: <value>"
+    task_dom = re.search(r"- dominant stop: (\S+)", task_section)
+    # The efficiency table has the stop in the last column
+    eff_dom = re.search(r"\|\s*(\w+)\s*\|$", eff_section, re.MULTILINE)
+    assert task_dom is not None
+    assert eff_dom is not None
+    assert task_dom.group(1) == eff_dom.group(1)
