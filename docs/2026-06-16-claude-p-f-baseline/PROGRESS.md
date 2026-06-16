@@ -4,7 +4,7 @@ Mode: plan · Project type: non-web · PR shape: A · Feature branch: `feat/clau
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ✅ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused
 
@@ -24,7 +24,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - impl: ✅ `ad3bea8` (6 task commits; 68 module tests pass, full suite green, ruff clean)
 - drift: ✅ `items/001-drift.md` (PASS; 1 import-placement divergence, plan amended `eb743b2`)
 - review: ✅ `items/001-review.md` (PASS-WITH-NITS; fixes `80bf605`, `9b7d571`)
-- PR: _filling_
+- PR: ✅ [#38](https://github.com/snowshine0216/agent-eval-lab/pull/38) (`items/001-ship.md`)
 - verify: `items/001-verify.md`
 - pr-review: `items/001-pr-review.md`
 - merge: _pending_
