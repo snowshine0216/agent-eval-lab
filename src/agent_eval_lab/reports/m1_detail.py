@@ -94,9 +94,8 @@ def cond_domain_efficiency(
     tool_totals: dict[str, int] = {}
     for r in runs:
         for tool in sorted(r.trajectory.tool_call_counts):
-            tool_totals[tool] = tool_totals.get(tool, 0) + r.trajectory.tool_call_counts[
-                tool
-            ]
+            n = r.trajectory.tool_call_counts[tool]
+            tool_totals[tool] = tool_totals.get(tool, 0) + n
     stop_counts = _counts([r.trajectory.stop_reason for r in runs])
     cost = (
         condition_cost_usd(runs, condition_id, pricing)
@@ -149,8 +148,10 @@ class TaskConditionCell:
     gap: EvidenceGap  # grader-aware gap from a representative failing run (or last run)
     edits: EditPaths  # edit signals from a representative run
     administrative: bool
-    invalid_trials: int  # attempts that were not valid (env-masked); spec §6 invalid case
-    classifications: tuple[tuple[str, str], ...]  # (category, subcategory) per failing valid run
+    # attempts that were not valid (env-masked); spec §6 invalid case
+    invalid_trials: int
+    # (category, subcategory) per failing valid run
+    classifications: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -158,14 +159,16 @@ class TaskQuickRef:
     task_id: str
     target_paths: tuple[str, ...]
     grader_id: str
-    oracle_total: int | None  # EvidenceGap.oracle_total of a representative run (F only)
+    # EvidenceGap.oracle_total of a representative run (F only)
+    oracle_total: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
 class TaskDetail:
     task_id: str
     cells: tuple[TaskConditionCell, ...]  # one per condition, sorted by condition_id
-    shared_failing_units: tuple[str, ...]  # intersection of failing_units across failing conds
+    # intersection of failing_units across failing conds
+    shared_failing_units: tuple[str, ...]
     divergent: bool  # True iff the intersection is empty but >1 failing cond
 
 
@@ -178,7 +181,8 @@ class M1Detail:
     task_quick_refs: tuple[TaskQuickRef, ...]
     tasks: tuple[TaskDetail, ...]
     defect_candidates: tuple[TaskDefectCandidate, ...]
-    efficiency: tuple[CondDomainEfficiency, ...]  # one per condition (domain-scoped, sorted)
+    # one per condition (domain-scoped, sorted)
+    efficiency: tuple[CondDomainEfficiency, ...]
     efficiency_condition_ids: tuple[str, ...]  # parallel to efficiency, sorted
 
 
@@ -407,9 +411,13 @@ def _gap_phrase(gap: EvidenceGap) -> str:
         return "no answer (no assistant message)"
     if gap.oracle_total is not None:
         failing = ", ".join(f"`{u}`" for u in gap.failing_units) or "none"
-        return f"passed {gap.oracle_passed}/{gap.oracle_total} oracle tests; failing: {failing}"
+        return (
+            f"passed {gap.oracle_passed}/{gap.oracle_total} oracle tests; "
+            f"failing: {failing}"
+        )
     if gap.failing_units:
-        return "missed/forbidden facts: " + ", ".join(f"`{u}`" for u in gap.failing_units)
+        facts = ", ".join(f"`{u}`" for u in gap.failing_units)
+        return "missed/forbidden facts: " + facts
     return gap.status
 
 
@@ -457,7 +465,9 @@ def _summary_lines(detail: M1Detail) -> list[str]:
                     f"{c.passed_trials}/{c.valid_trials} {_per_trial_str(c.per_trial)}"
                 )
         dominant = cells_by_cond.get(detail.conditions_present[0])
-        dom_stop = dominant.dominant_stop_reason if dominant and dominant.present else "—"
+        dom_stop = (
+            dominant.dominant_stop_reason if dominant and dominant.present else "—"
+        )
         lines.append(
             f"| {task.task_id} | " + " | ".join(row_parts) + f" | {dom_stop} |"
         )
@@ -477,18 +487,28 @@ def _per_task_cell_lines(cell: TaskConditionCell, k: int) -> list[str]:
         return lines
     status_note = ""
     if cell.incomplete:
-        status_note = f" — **status = incomplete (excluded from pass^k)** ({cell.valid_trials}/{k} valid trials)"
+        status_note = (
+            f" — **status = incomplete (excluded from pass^k)**"
+            f" ({cell.valid_trials}/{k} valid trials)"
+        )
     trial_str = _per_trial_str(cell.per_trial)
     rounds = _rounds_cell(
-        cell.rounds_median, cell.rounds_min, cell.rounds_max,
-        cell.censored_count, cell.cap_bound,
+        cell.rounds_median,
+        cell.rounds_min,
+        cell.rounds_max,
+        cell.censored_count,
+        cell.cap_bound,
     )
     cost = "—" if cell.cost_usd is None else f"{cell.cost_usd:.6f}"
     total_tools = sum(cell.tool_call_totals.values())
     lines += [
         f"- pass: {cell.passed_trials}/{cell.valid_trials}{status_note} — {trial_str}",
         f"- rounds: {rounds}",
-        f"- tokens: prompt={cell.prompt_tokens} / completion={cell.completion_tokens} / total={cell.total_tokens}",
+        (
+            f"- tokens: prompt={cell.prompt_tokens}"
+            f" / completion={cell.completion_tokens}"
+            f" / total={cell.total_tokens}"
+        ),
         f"- cost_usd: {cost}",
         f"- tool calls (total): {total_tools}",
         f"- safety-cap hits: {cell.safety_cap_hits}",
@@ -508,7 +528,8 @@ def _per_task_cell_lines(cell: TaskConditionCell, k: int) -> list[str]:
     ]
     if cell.invalid_trials > 0:
         lines.append(
-            f"- invalid (env-masked) trials: {cell.invalid_trials} — excluded, not a model gap"
+            f"- invalid (env-masked) trials: {cell.invalid_trials}"
+            " — excluded, not a model gap"
         )
     lines.append("")
     return lines
@@ -565,8 +586,11 @@ def _efficiency_lines(detail: M1Detail) -> list[str]:
     ]
     for cond, eff in zip(detail.efficiency_condition_ids, detail.efficiency):
         rounds = _rounds_cell(
-            eff.rounds_median, eff.rounds_min, eff.rounds_max,
-            eff.censored_count, eff.cap_bound,
+            eff.rounds_median,
+            eff.rounds_min,
+            eff.rounds_max,
+            eff.censored_count,
+            eff.cap_bound,
         )
         cost = "—" if eff.cost_usd is None else f"{eff.cost_usd:.4f}"
         total_tools = sum(eff.tool_call_totals.values())

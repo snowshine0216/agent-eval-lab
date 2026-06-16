@@ -389,7 +389,10 @@ def _pareto_lines(report: M1Report) -> list[str]:
 
 
 def _taxonomy_lines(report: M1Report) -> list[str]:
-    lines = [f"## Failure classification ({report.classifier_version}) per condition", ""]
+    lines = [
+        f"## Failure classification ({report.classifier_version}) per condition",
+        "",
+    ]
     for t in report.failure_taxonomy:
         lines += [
             f"### {t.condition_id}",

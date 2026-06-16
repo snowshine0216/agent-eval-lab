@@ -20,9 +20,19 @@ _PRICING = PricingSnapshot(
 
 
 def _run(
-    task_id, idx, *, rounds, prompt, completion, stop="completed_natural",
-    safety_cap_bound=False, max_rounds_bound=False, max_rounds=None, safety_cap=None,
-    tool_calls=None, passed=False,
+    task_id,
+    idx,
+    *,
+    rounds,
+    prompt,
+    completion,
+    stop="completed_natural",
+    safety_cap_bound=False,
+    max_rounds_bound=False,
+    max_rounds=None,
+    safety_cap=None,
+    tool_calls=None,
+    passed=False,
 ):
     return RunResult(
         task_id=task_id,
@@ -30,8 +40,9 @@ def _run(
         run_index=idx,
         trajectory=Trajectory(
             turns=(MessageTurn(role="assistant", content="x"),),
-            usage=Usage(prompt_tokens=prompt, completion_tokens=completion,
-                        latency_s=1.0),
+            usage=Usage(
+                prompt_tokens=prompt, completion_tokens=completion, latency_s=1.0
+            ),
             run_index=idx,
             stop_reason=stop,
             rounds=rounds,
@@ -41,17 +52,27 @@ def _run(
             max_rounds=max_rounds,
             safety_cap=safety_cap,
         ),
-        grade=GradeResult(grader_id="g", passed=passed,
-                          score=1.0 if passed else 0.0, evidence={}),
+        grade=GradeResult(
+            grader_id="g", passed=passed, score=1.0 if passed else 0.0, evidence={}
+        ),
     )
 
 
 def test_empty_runs_is_zero_summary():
     eff = cond_domain_efficiency(runs=(), condition_id=_COND, pricing=_PRICING)
     assert eff == CondDomainEfficiency(
-        rounds_median=0.0, rounds_min=0, rounds_max=0, censored_count=0,
-        cap_bound=None, prompt_tokens=0, completion_tokens=0, total_tokens=0,
-        cost_usd=None, tool_call_totals={}, safety_cap_hits=0, max_rounds_hits=0,
+        rounds_median=0.0,
+        rounds_min=0,
+        rounds_max=0,
+        censored_count=0,
+        cap_bound=None,
+        prompt_tokens=0,
+        completion_tokens=0,
+        total_tokens=0,
+        cost_usd=None,
+        tool_call_totals={},
+        safety_cap_hits=0,
+        max_rounds_hits=0,
         stop_reason_counts={},
     )
 
@@ -59,8 +80,16 @@ def test_empty_runs_is_zero_summary():
 def test_tokens_observed_over_all_runs_including_capped():
     runs = (
         _run("t1", 0, rounds=5, prompt=100, completion=50),
-        _run("t1", 1, rounds=40, prompt=200, completion=80, stop="max_rounds",
-             max_rounds_bound=True, max_rounds=40),
+        _run(
+            "t1",
+            1,
+            rounds=40,
+            prompt=200,
+            completion=80,
+            stop="max_rounds",
+            max_rounds_bound=True,
+            max_rounds=40,
+        ),
     )
     eff = cond_domain_efficiency(runs=runs, condition_id=_COND, pricing=_PRICING)
     assert eff.prompt_tokens == 300
@@ -76,11 +105,25 @@ def test_tokens_observed_over_all_runs_including_capped():
 
 def test_tool_call_totals_and_stop_reason_counts_merge():
     runs = (
-        _run("t1", 0, rounds=3, prompt=1, completion=1,
-             tool_calls={"read_file": 2, "str_replace": 1}),
-        _run("t1", 1, rounds=3, prompt=1, completion=1, stop="safety_cap",
-             safety_cap_bound=True, safety_cap=60,
-             tool_calls={"read_file": 1}),
+        _run(
+            "t1",
+            0,
+            rounds=3,
+            prompt=1,
+            completion=1,
+            tool_calls={"read_file": 2, "str_replace": 1},
+        ),
+        _run(
+            "t1",
+            1,
+            rounds=3,
+            prompt=1,
+            completion=1,
+            stop="safety_cap",
+            safety_cap_bound=True,
+            safety_cap=60,
+            tool_calls={"read_file": 1},
+        ),
     )
     eff = cond_domain_efficiency(runs=runs, condition_id=_COND, pricing=_PRICING)
     assert eff.tool_call_totals == {"read_file": 3, "str_replace": 1}
@@ -104,20 +147,29 @@ def test_cost_none_when_condition_not_priced():
 
 def _node_grade(passed, tests, displaced=()):
     return GradeResult(
-        grader_id="node_execution", passed=passed,
+        grader_id="node_execution",
+        passed=passed,
         score=1.0 if passed else 0.0,
-        evidence={"execution": "run", "status": "passed" if passed else "failed",
-                  "tests": tests, "displaced_paths": list(displaced)},
+        evidence={
+            "execution": "run",
+            "status": "passed" if passed else "failed",
+            "tests": tests,
+            "displaced_paths": list(displaced),
+        },
     )
 
 
 def _f_run(task_id, cond, idx, passed, tests, target_paths=("wdio.conf.ts",)):
     return RunResult(
-        task_id=task_id, condition_id=cond, run_index=idx,
+        task_id=task_id,
+        condition_id=cond,
+        run_index=idx,
         trajectory=Trajectory(
             turns=(MessageTurn(role="assistant", content="x"),),
             usage=Usage(prompt_tokens=100, completion_tokens=50, latency_s=1.0),
-            run_index=idx, stop_reason="completed_natural", rounds=4,
+            run_index=idx,
+            stop_reason="completed_natural",
+            rounds=4,
             final_state={"files": {}, "target_paths": list(target_paths)},
         ),
         grade=_node_grade(passed, tests),
@@ -143,8 +195,13 @@ def _spec():
 def test_build_detail_per_task_pass_contribution():
     cond = _COND
     runs = [
-        _f_run("f1", cond, i, passed=(i == 0),
-               tests=[["a", "passed" if i == 0 else "failed"]])
+        _f_run(
+            "f1",
+            cond,
+            i,
+            passed=(i == 0),
+            tests=[["a", "passed" if i == 0 else "failed"]],
+        )
         for i in range(3)
     ]
     detail = build_m1_detail(
@@ -162,15 +219,22 @@ def test_build_detail_per_task_pass_contribution():
 
 def test_shared_failing_unit_intersection():
     cond_a, cond_b = "a:m", "b:m"
-    runs_a = [_f_run("f1", cond_a, i, passed=False,
-                     tests=[["a", "failed"], ["b", "passed"]]) for i in range(2)]
-    runs_b = [_f_run("f1", cond_b, i, passed=False,
-                     tests=[["a", "failed"], ["b", "failed"]]) for i in range(2)]
+    runs_a = [
+        _f_run("f1", cond_a, i, passed=False, tests=[["a", "failed"], ["b", "passed"]])
+        for i in range(2)
+    ]
+    runs_b = [
+        _f_run("f1", cond_b, i, passed=False, tests=[["a", "failed"], ["b", "failed"]])
+        for i in range(2)
+    ]
     detail = build_m1_detail(
         domain="F",
-        outcomes_by_condition={cond_a: (_outcome(runs_a),),
-                               cond_b: (_outcome(runs_b),)},
-        pricing=_PRICING, spec=_spec(),
+        outcomes_by_condition={
+            cond_a: (_outcome(runs_a),),
+            cond_b: (_outcome(runs_b),),
+        },
+        pricing=_PRICING,
+        spec=_spec(),
     )
     # both conditions fail "a" -> shared; only b fails "b" -> not shared.
     assert detail.tasks[0].shared_failing_units == ("a",)
@@ -183,9 +247,12 @@ def test_divergent_when_no_shared_unit():
     runs_b = [_f_run("f1", cond_b, 0, passed=False, tests=[["b", "failed"]])]
     detail = build_m1_detail(
         domain="F",
-        outcomes_by_condition={cond_a: (_outcome(runs_a),),
-                               cond_b: (_outcome(runs_b),)},
-        pricing=_PRICING, spec=_spec(),
+        outcomes_by_condition={
+            cond_a: (_outcome(runs_a),),
+            cond_b: (_outcome(runs_b),),
+        },
+        pricing=_PRICING,
+        spec=_spec(),
     )
     assert detail.tasks[0].shared_failing_units == ()
     assert detail.tasks[0].divergent is True
@@ -197,7 +264,8 @@ def test_invalid_trials_counted_from_attempts():
     detail = build_m1_detail(
         domain="F",
         outcomes_by_condition={cond: (_outcome(runs, invalid=2),)},
-        pricing=_PRICING, spec=_spec(),
+        pricing=_PRICING,
+        spec=_spec(),
     )
     assert detail.tasks[0].cells[0].invalid_trials == 2
 
@@ -208,9 +276,12 @@ def test_condition_missing_task_is_absent_cell():
     runs_b = [_f_run("f2", cond_b, 0, passed=False, tests=[["a", "failed"]])]
     detail = build_m1_detail(
         domain="F",
-        outcomes_by_condition={cond_a: (_outcome(runs_a),),
-                               cond_b: (_outcome(runs_b),)},
-        pricing=_PRICING, spec=_spec(),
+        outcomes_by_condition={
+            cond_a: (_outcome(runs_a),),
+            cond_b: (_outcome(runs_b),),
+        },
+        pricing=_PRICING,
+        spec=_spec(),
     )
     f1 = next(t for t in detail.tasks if t.task_id == "f1")
     cell_b = next(c for c in f1.cells if c.condition_id == cond_b)
@@ -223,8 +294,11 @@ def test_defect_candidate_flagged_when_all_conditions_fail():
     runs_b = [_f_run("f1", cond_b, 0, passed=False, tests=[["a", "failed"]])]
     detail = build_m1_detail(
         domain="F",
-        outcomes_by_condition={cond_a: (_outcome(runs_a),),
-                               cond_b: (_outcome(runs_b),)},
-        pricing=_PRICING, spec=_spec(),
+        outcomes_by_condition={
+            cond_a: (_outcome(runs_a),),
+            cond_b: (_outcome(runs_b),),
+        },
+        pricing=_PRICING,
+        spec=_spec(),
     )
     assert [c.task_id for c in detail.defect_candidates] == ["f1"]

@@ -15,22 +15,44 @@ _PRICING = PricingSnapshot(
 
 
 def _node_grade(passed, tests, **extra):
-    ev = {"execution": "run", "status": "passed" if passed else "failed",
-          "tests": tests, "displaced_paths": []}
+    ev = {
+        "execution": "run",
+        "status": "passed" if passed else "failed",
+        "tests": tests,
+        "displaced_paths": [],
+    }
     ev.update(extra)
-    return GradeResult(grader_id="node_execution", passed=passed,
-                       score=1.0 if passed else 0.0, evidence=ev)
+    return GradeResult(
+        grader_id="node_execution",
+        passed=passed,
+        score=1.0 if passed else 0.0,
+        evidence=ev,
+    )
 
 
-def _f_run(idx, passed, tests, *, stop="completed_natural",
-           safety_cap_bound=False, max_rounds_bound=False, max_rounds=None, rounds=4):
+def _f_run(
+    idx,
+    passed,
+    tests,
+    *,
+    stop="completed_natural",
+    safety_cap_bound=False,
+    max_rounds_bound=False,
+    max_rounds=None,
+    rounds=4,
+):
     return RunResult(
-        task_id="f1", condition_id=_COND, run_index=idx,
+        task_id="f1",
+        condition_id=_COND,
+        run_index=idx,
         trajectory=Trajectory(
             turns=(MessageTurn(role="assistant", content="x"),),
             usage=Usage(prompt_tokens=100, completion_tokens=50, latency_s=1.0),
-            run_index=idx, stop_reason=stop, rounds=rounds,
-            safety_cap_bound=safety_cap_bound, max_rounds_bound=max_rounds_bound,
+            run_index=idx,
+            stop_reason=stop,
+            rounds=rounds,
+            safety_cap_bound=safety_cap_bound,
+            max_rounds_bound=max_rounds_bound,
             max_rounds=max_rounds,
             final_state={"files": {}, "target_paths": ["wdio.conf.ts"]},
         ),
@@ -53,8 +75,10 @@ def _spec():
 
 def _render(runs):
     detail = build_m1_detail(
-        domain="F", outcomes_by_condition={_COND: (_outcome(runs),)},
-        pricing=_PRICING, spec=_spec(),
+        domain="F",
+        outcomes_by_condition={_COND: (_outcome(runs),)},
+        pricing=_PRICING,
+        spec=_spec(),
     )
     return render_detail(detail)
 
@@ -71,21 +95,32 @@ def test_render_has_all_sections():
 
 
 def test_render_per_trial_string_and_gap():
-    md = _render([
-        _f_run(0, passed=True, tests=[["a", "passed"], ["b", "passed"]]),
-        _f_run(1, passed=False, tests=[["a", "passed"], ["b", "failed"]]),
-    ])
+    md = _render(
+        [
+            _f_run(0, passed=True, tests=[["a", "passed"], ["b", "passed"]]),
+            _f_run(1, passed=False, tests=[["a", "passed"], ["b", "failed"]]),
+        ]
+    )
     assert "✅" in md and "❌" in md
     # grader-aware gap names the failing oracle test
     assert "b" in md
 
 
 def test_render_censoring_annotation():
-    md = _render([
-        _f_run(0, passed=False, tests=[["a", "failed"]]),
-        _f_run(1, passed=False, tests=[["a", "failed"]],
-               stop="max_rounds", max_rounds=40, max_rounds_bound=True, rounds=40),
-    ])
+    md = _render(
+        [
+            _f_run(0, passed=False, tests=[["a", "failed"]]),
+            _f_run(
+                1,
+                passed=False,
+                tests=[["a", "failed"]],
+                stop="max_rounds",
+                max_rounds=40,
+                max_rounds_bound=True,
+                rounds=40,
+            ),
+        ]
+    )
     # the censored run must annotate the rounds cell, never silently
     assert "right-censored" in md
     assert "cap 40" in md
@@ -93,14 +128,23 @@ def test_render_censoring_annotation():
 
 def test_render_administrative_label():
     admin = RunResult(
-        task_id="f1", condition_id=_COND, run_index=0,
+        task_id="f1",
+        condition_id=_COND,
+        run_index=0,
         trajectory=Trajectory(
-            turns=(), usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
-            run_index=0, stop_reason="completed_natural", rounds=0,
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+            rounds=0,
             final_state={"files": {}, "target_paths": []},
         ),
-        grade=GradeResult(grader_id="node_execution", passed=False, score=0.0,
-                          evidence={"marked_failed_not_executed": True}),
+        grade=GradeResult(
+            grader_id="node_execution",
+            passed=False,
+            score=0.0,
+            evidence={"marked_failed_not_executed": True},
+        ),
     )
     md = _render([admin])
     assert "administrative" in md

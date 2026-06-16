@@ -4,16 +4,20 @@ from agent_eval_lab.reports.evidence_summary import EvidenceGap, evidence_gap
 
 def _grade(grader_id, passed, evidence):
     return GradeResult(
-        grader_id=grader_id, passed=passed, score=1.0 if passed else 0.0,
+        grader_id=grader_id,
+        passed=passed,
+        score=1.0 if passed else 0.0,
         evidence=evidence,
     )
 
 
 def test_node_execution_failing_tests_and_displaced():
     grade = _grade(
-        "node_execution", False,
+        "node_execution",
+        False,
         {
-            "execution": "run", "status": "failed",
+            "execution": "run",
+            "status": "failed",
             "counts": {"passed": 1, "failed": 2, "errors": 0, "skipped": 0},
             "tests": [["a", "passed"], ["b", "failed"], ["c", "failed"]],
             "displaced_paths": ["tests/test_app.js"],
@@ -21,17 +25,26 @@ def test_node_execution_failing_tests_and_displaced():
     )
     gap = evidence_gap(grade)
     assert gap == EvidenceGap(
-        grader_id="node_execution", oracle_total=3, oracle_passed=1,
-        failing_units=("b", "c"), displaced_paths=("tests/test_app.js",),
-        administrative=False, status="failed",
+        grader_id="node_execution",
+        oracle_total=3,
+        oracle_passed=1,
+        failing_units=("b", "c"),
+        displaced_paths=("tests/test_app.js",),
+        administrative=False,
+        status="failed",
     )
 
 
 def test_node_execution_passed():
     grade = _grade(
-        "node_execution", True,
-        {"execution": "run", "status": "passed", "tests": [["a", "passed"]],
-         "displaced_paths": []},
+        "node_execution",
+        True,
+        {
+            "execution": "run",
+            "status": "passed",
+            "tests": [["a", "passed"]],
+            "displaced_paths": [],
+        },
     )
     gap = evidence_gap(grade)
     assert gap.status == "passed"
@@ -41,7 +54,8 @@ def test_node_execution_passed():
 
 def test_node_execution_not_run_branch_has_no_tests():
     grade = _grade(
-        "node_execution", False,
+        "node_execution",
+        False,
         {"execution": "not_run", "reason": "missing_final_state"},
     )
     gap = evidence_gap(grade)
@@ -51,12 +65,23 @@ def test_node_execution_not_run_branch_has_no_tests():
 
 def test_all_of_walks_to_node_execution_leaf():
     grade = _grade(
-        "all_of", False,
-        {"sub_results": [
-            {"grader_id": "node_execution", "passed": False, "failure_reason": None,
-             "evidence": {"execution": "run", "status": "failed",
-                          "tests": [["x", "failed"]], "displaced_paths": []}},
-        ]},
+        "all_of",
+        False,
+        {
+            "sub_results": [
+                {
+                    "grader_id": "node_execution",
+                    "passed": False,
+                    "failure_reason": None,
+                    "evidence": {
+                        "execution": "run",
+                        "status": "failed",
+                        "tests": [["x", "failed"]],
+                        "displaced_paths": [],
+                    },
+                },
+            ]
+        },
     )
     gap = evidence_gap(grade)
     assert gap.grader_id == "node_execution"
@@ -66,10 +91,15 @@ def test_all_of_walks_to_node_execution_leaf():
 
 def test_fact_key_missing_and_forbidden():
     grade = _grade(
-        "fact_key", False,
-        {"level": "L1", "required_not_on_page": [],
-         "missing_required": ["price"], "present_forbidden": ["refund"],
-         "page_snapshot_sha256": "abc"},
+        "fact_key",
+        False,
+        {
+            "level": "L1",
+            "required_not_on_page": [],
+            "missing_required": ["price"],
+            "present_forbidden": ["refund"],
+            "page_snapshot_sha256": "abc",
+        },
     )
     gap = evidence_gap(grade)
     assert gap.oracle_total is None and gap.oracle_passed is None
@@ -78,16 +108,14 @@ def test_fact_key_missing_and_forbidden():
 
 
 def test_fact_key_no_answer_degraded_branch():
-    grade = _grade("fact_key", False,
-                   {"error": "no assistant message in trajectory"})
+    grade = _grade("fact_key", False, {"error": "no assistant message in trajectory"})
     gap = evidence_gap(grade)
     assert gap.status == "no_answer"
     assert gap.failing_units == () and gap.oracle_total is None
 
 
 def test_administrative_marked_failed_not_executed():
-    grade = _grade("node_execution", False,
-                   {"marked_failed_not_executed": True})
+    grade = _grade("node_execution", False, {"marked_failed_not_executed": True})
     gap = evidence_gap(grade)
     assert gap.administrative is True
     assert gap.status == "not_executed"

@@ -14,13 +14,25 @@ def _traj(turns):
 
 
 def test_collects_str_replace_and_write_file_targets():
-    traj = _traj([
-        MessageTurn(role="assistant", content="ok"),
-        ToolCallTurn(tool_calls=(
-            ToolCall(call_id="c1", name="str_replace", arguments={"path": "wdio.conf.ts"}),
-            ToolCall(call_id="c2", name="write_file", arguments={"path": "index.ts", "content": "x"}),
-        )),
-    ])
+    traj = _traj(
+        [
+            MessageTurn(role="assistant", content="ok"),
+            ToolCallTurn(
+                tool_calls=(
+                    ToolCall(
+                        call_id="c1",
+                        name="str_replace",
+                        arguments={"path": "wdio.conf.ts"},
+                    ),
+                    ToolCall(
+                        call_id="c2",
+                        name="write_file",
+                        arguments={"path": "index.ts", "content": "x"},
+                    ),
+                )
+            ),
+        ]
+    )
     out = edit_paths(traj, target_paths=("wdio.conf.ts",))
     assert out == EditPaths(
         edited=("index.ts", "wdio.conf.ts"),
@@ -29,34 +41,54 @@ def test_collects_str_replace_and_write_file_targets():
 
 
 def test_dedups_repeated_edits():
-    traj = _traj([
-        ToolCallTurn(tool_calls=(
-            ToolCall(call_id="c1", name="str_replace", arguments={"path": "a.ts"}),
-            ToolCall(call_id="c2", name="str_replace", arguments={"path": "a.ts"}),
-        )),
-    ])
+    traj = _traj(
+        [
+            ToolCallTurn(
+                tool_calls=(
+                    ToolCall(
+                        call_id="c1", name="str_replace", arguments={"path": "a.ts"}
+                    ),
+                    ToolCall(
+                        call_id="c2", name="str_replace", arguments={"path": "a.ts"}
+                    ),
+                )
+            ),
+        ]
+    )
     out = edit_paths(traj, target_paths=("a.ts",))
     assert out.edited == ("a.ts",)
     assert out.out_of_scope == ()
 
 
 def test_unknown_edit_tool_contributes_no_path():
-    traj = _traj([
-        ToolCallTurn(tool_calls=(
-            ToolCall(call_id="c1", name="read_file", arguments={"path": "a.ts"}),
-            ToolCall(call_id="c2", name="list_files", arguments={}),
-        )),
-    ])
+    traj = _traj(
+        [
+            ToolCallTurn(
+                tool_calls=(
+                    ToolCall(
+                        call_id="c1", name="read_file", arguments={"path": "a.ts"}
+                    ),
+                    ToolCall(call_id="c2", name="list_files", arguments={}),
+                )
+            ),
+        ]
+    )
     out = edit_paths(traj, target_paths=("a.ts",))
     assert out.edited == ()
     assert out.out_of_scope == ()
 
 
 def test_missing_path_argument_is_fail_quiet():
-    traj = _traj([
-        ToolCallTurn(tool_calls=(
-            ToolCall(call_id="c1", name="write_file", arguments={"content": "x"}),
-        )),
-    ])
+    traj = _traj(
+        [
+            ToolCallTurn(
+                tool_calls=(
+                    ToolCall(
+                        call_id="c1", name="write_file", arguments={"content": "x"}
+                    ),
+                )
+            ),
+        ]
+    )
     out = edit_paths(traj, target_paths=())
     assert out.edited == ()

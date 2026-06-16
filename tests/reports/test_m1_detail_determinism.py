@@ -19,27 +19,44 @@ _PRICING = PricingSnapshot(
 
 def _run(task_id, cond, idx, passed, tests):
     return RunResult(
-        task_id=task_id, condition_id=cond, run_index=idx,
+        task_id=task_id,
+        condition_id=cond,
+        run_index=idx,
         trajectory=Trajectory(
             turns=(
-                ToolCallTurn(tool_calls=(
-                    ToolCall(call_id="c1", name="str_replace",
-                             arguments={"path": "wdio.conf.ts"}),
-                    ToolCall(call_id="c2", name="write_file",
-                             arguments={"path": "extra.ts", "content": "x"}),
-                )),
+                ToolCallTurn(
+                    tool_calls=(
+                        ToolCall(
+                            call_id="c1",
+                            name="str_replace",
+                            arguments={"path": "wdio.conf.ts"},
+                        ),
+                        ToolCall(
+                            call_id="c2",
+                            name="write_file",
+                            arguments={"path": "extra.ts", "content": "x"},
+                        ),
+                    )
+                ),
                 MessageTurn(role="assistant", content="done"),
             ),
             usage=Usage(prompt_tokens=100 + idx, completion_tokens=50, latency_s=1.0),
-            run_index=idx, stop_reason="completed_natural", rounds=4 + idx,
+            run_index=idx,
+            stop_reason="completed_natural",
+            rounds=4 + idx,
             tool_call_counts={"str_replace": 1, "write_file": 1, "read_file": 2},
             final_state={"files": {}, "target_paths": ["wdio.conf.ts"]},
         ),
         grade=GradeResult(
-            grader_id="node_execution", passed=passed,
+            grader_id="node_execution",
+            passed=passed,
             score=1.0 if passed else 0.0,
-            evidence={"execution": "run", "status": "passed" if passed else "failed",
-                      "tests": tests, "displaced_paths": []},
+            evidence={
+                "execution": "run",
+                "status": "passed" if passed else "failed",
+                "tests": tests,
+                "displaced_paths": [],
+            },
         ),
     )
 
@@ -57,8 +74,12 @@ def test_build_render_byte_identical():
     )
     outcomes = {
         _A: (
-            _outcome([_run("f1", _A, i, i == 0,
-                           [["a", "passed" if i == 0 else "failed"]]) for i in range(3)]),
+            _outcome(
+                [
+                    _run("f1", _A, i, i == 0, [["a", "passed" if i == 0 else "failed"]])
+                    for i in range(3)
+                ]
+            ),
             _outcome([_run("f2", _A, i, False, [["b", "failed"]]) for i in range(3)]),
         ),
         _B: (
