@@ -1880,6 +1880,21 @@ def test_claude_baseline_smoke_and_surface_choice():
     assert args.smoke is True
 
 
+def test_python_m_entrypoint_help_works():
+    # `python -m agent_eval_lab` is the documented invocation (plan Task 7, the
+    # agentic recipes) and requires a __main__.py.
+    import subprocess
+    import sys
+
+    r = subprocess.run(
+        [sys.executable, "-m", "agent_eval_lab", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "run-f-claude-baseline" in r.stdout
+
+
 def test_claude_baseline_bases_rejects_unknown_value():
     # Fix 4b: --bases is constrained to f1/f2/f3 so a typo is rejected at parse
     # time (clean argparse error) instead of a bare KeyError deep in the handler.

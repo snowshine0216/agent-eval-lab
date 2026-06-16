@@ -388,6 +388,38 @@ def test_run_fn_unreadable_produced_tree_is_env_invalid(tmp_path):
     assert traj.parse_failure.error == PROVIDER_ERROR
 
 
+# ---- pr-review nit 1: temp workdir/home must not leak across a 30-run ----------
+
+
+def test_run_fn_cleans_up_workdir_and_home(tmp_path):
+    wd = tmp_path / "wd_clean"
+    home = tmp_path / "home_clean"
+
+    def fake_workdir():
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        (Path(cwd) / "a.js").write_text("fixed\n")
+        return _FakeCompleted(stdout=_result_json())
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    # Read-back happened before cleanup (produced tree is captured in memory).
+    assert traj.final_state["files"] == {"a.js": "fixed\n"}
+    # Temp dirs are removed so a 30-attempt run does not leak hundreds of dirs.
+    assert not wd.exists()
+    assert not home.exists()
+
+
 # ---- Fix 4a: nonzero-exit env-invalid carries stderr for debuggability ---------
 
 

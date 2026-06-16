@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -217,59 +218,68 @@ def make_claude_run_fn(
 
     def run_fn(edit_task, run_index: int) -> Trajectory:
         workdir, clean_home = workdir_factory()
-        seeded = dict((edit_task.initial_state or {}).get("files", {}))
-        materialize_tree(seeded, workdir)
-        argv = build_claude_argv(
-            model=model,
-            surface=surface,
-            prompt=_user_prompt(edit_task),
-            system_prompt=system_prompt,
-            max_budget_usd=max_budget_usd,
-        )
-        env = _sanitized_env(os.environ, clean_home)
         try:
-            completed = run_subprocess(
-                argv, cwd=str(workdir), env=env, timeout=timeout_s
+            seeded = dict((edit_task.initial_state or {}).get("files", {}))
+            materialize_tree(seeded, workdir)
+            argv = build_claude_argv(
+                model=model,
+                surface=surface,
+                prompt=_user_prompt(edit_task),
+                system_prompt=system_prompt,
+                max_budget_usd=max_budget_usd,
             )
-        except subprocess.TimeoutExpired:
-            return _env_invalid_trajectory(run_index, raw="timeout")
-        if getattr(completed, "returncode", 0) != 0:
-            # stderr is where `claude` writes its real error; keep it for debugging
-            # a voided paid run (stdout is usually empty on nonzero exit).
-            return _env_invalid_trajectory(
-                run_index,
-                raw=(
-                    f"stdout: {getattr(completed, 'stdout', '')}\n"
-                    f"stderr: {getattr(completed, 'stderr', '')}"
+            env = _sanitized_env(os.environ, clean_home)
+            try:
+                completed = run_subprocess(
+                    argv, cwd=str(workdir), env=env, timeout=timeout_s
+                )
+            except subprocess.TimeoutExpired:
+                return _env_invalid_trajectory(run_index, raw="timeout")
+            if getattr(completed, "returncode", 0) != 0:
+                # stderr is where `claude` writes its real error; keep it for debugging
+                # a voided paid run (stdout is usually empty on nonzero exit).
+                return _env_invalid_trajectory(
+                    run_index,
+                    raw=(
+                        f"stdout: {getattr(completed, 'stdout', '')}\n"
+                        f"stderr: {getattr(completed, 'stderr', '')}"
+                    ),
+                )
+            try:
+                meta = parse_claude_result(completed.stdout)
+            except ClaudeResultParseError as exc:
+                return _env_invalid_trajectory(run_index, raw=str(exc))
+            if meta.is_error:
+                return _env_invalid_trajectory(run_index, raw="claude is_error")
+            try:
+                produced = read_back_tree(workdir)
+            except (UnicodeDecodeError, OSError) as exc:
+                # A tree we cannot read back is no fair trial (e.g. claude emitted a
+                # non-UTF-8 artifact on `natural`). Degrade to env-invalid rather than
+                # crashing the whole run — and never errors="replace" (that would
+                # corrupt the grading input).
+                return _env_invalid_trajectory(
+                    run_index, raw=f"read-back failed: {exc}"
+                )
+            return Trajectory(
+                turns=(),
+                usage=Usage(
+                    prompt_tokens=meta.prompt_tokens,
+                    completion_tokens=meta.completion_tokens,
+                    latency_s=0.0,
                 ),
+                run_index=run_index,
+                stop_reason="completed_natural",
+                final_state={"files": produced},
+                rounds=meta.num_turns,
+                tool_call_counts={},
             )
-        try:
-            meta = parse_claude_result(completed.stdout)
-        except ClaudeResultParseError as exc:
-            return _env_invalid_trajectory(run_index, raw=str(exc))
-        if meta.is_error:
-            return _env_invalid_trajectory(run_index, raw="claude is_error")
-        try:
-            produced = read_back_tree(workdir)
-        except (UnicodeDecodeError, OSError) as exc:
-            # A tree we cannot read back is no fair trial (e.g. claude emitted a
-            # non-UTF-8 artifact on `natural`). Degrade to env-invalid rather than
-            # crashing the whole run — and never errors="replace" (that would
-            # corrupt the grading input).
-            return _env_invalid_trajectory(run_index, raw=f"read-back failed: {exc}")
-        return Trajectory(
-            turns=(),
-            usage=Usage(
-                prompt_tokens=meta.prompt_tokens,
-                completion_tokens=meta.completion_tokens,
-                latency_s=0.0,
-            ),
-            run_index=run_index,
-            stop_reason="completed_natural",
-            final_state={"files": produced},
-            rounds=meta.num_turns,
-            tool_call_counts={},
-        )
+        finally:
+            # The produced tree is already read into memory above; the temp
+            # dirs are no longer needed. Clean them so a 30-attempt run does
+            # not leak hundreds of workdir/home copies.
+            shutil.rmtree(workdir, ignore_errors=True)
+            shutil.rmtree(clean_home, ignore_errors=True)
 
     return run_fn
 

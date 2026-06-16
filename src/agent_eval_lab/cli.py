@@ -1461,7 +1461,7 @@ def _real_claude_factory():
     import subprocess as _sp
     import tempfile
 
-    def factory(*, model, surface, condition_id):
+    def factory(*, model, surface):
         def run_subprocess(argv, *, cwd, env, timeout):
             return _sp.run(
                 argv,
@@ -1541,7 +1541,7 @@ def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
             cond = f"claude-cli:{args.model}:{surface}"
             handle = (args.out / f"runs-claude-{_slug(cond)}-F.jsonl").open("w")
             handles[cond] = handle
-            run_fn = factory(model=args.model, surface=surface, condition_id=cond)
+            run_fn = factory(model=args.model, surface=surface)
             outcomes = list(
                 run_f_candidate(
                     tasks=[base_to_task[b] for b in bases],
