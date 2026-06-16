@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.4.0 — 2026-06-16
+
+### Added
+
+- **Config-driven F-ablation roster.** Which models the F-set ablation compares moved out of a
+  hard-coded `_CONDITIONS` constant into a committed **`f-ablation-roster.toml`** (`experiment_id`
+  + an ordered `[[model]]` array of `condition_id`/`label`). Add/remove a model is now a config
+  edit, no code change. New `experiments/f_ablation_roster.py` (`load_f_ablation_roster`) parses +
+  validates each `condition_id` as `provider:model` against the `PROVIDERS` registry (a typo'd
+  provider is rejected before any paid call). `build_f_ablation_spec` is now **pure** over
+  `(conditions, experiment_id)`. `run-f-ablation` gains `--roster` (default the committed file) and
+  `--arms` (run a subset of the 2×2 arms, applied to the full seeded order so survivors keep their
+  position — e.g. `--arms feedback both`). The realized-order sidecar now records `experiment_id`
+  + `spec_hash`, so a run is reconstructable from artifacts. ADR-0019; CONTEXT.md "F-ablation
+  roster". The **F-ablation-v2** roster = `deepseek-v4-pro` / `MiniMax-M3` / `Qwen/Qwen3.6-35B-A3B`
+  (GLM dropped) → 3 models × 3 bases × 4 arms × k=5 = 180 attempts.
+- **Fail-fast Node-capability guard on the paid F commands.** `run-f-ablation` and `run-f` now call
+  `node_supports_junit()` and **refuse before any provider call** when the resolvable node can't run
+  the held-out oracle (Node < 20 lacks `--test-reporter=junit`). This complements the v0.3.1
+  grader-level env-invalid routing: refuse-before-spend (here) + VOID-if-slipped-through (v0.3.1).
+  Prevents a recurrence of the node-v16 incident that silently graded 180 attempts FAIL.
+
 ## v0.3.1 — 2026-06-16
 
 ### Fixed
