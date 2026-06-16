@@ -36,6 +36,10 @@ from agent_eval_lab.reports.classify import (
     RunClassification,
     classify_run,
 )
+from agent_eval_lab.reports.m1_detail import (
+    CondDomainEfficiency,
+    cond_domain_efficiency,
+)
 from agent_eval_lab.runners.multi_run import ReplacementOutcome
 
 _DOMAINS: tuple[Domain, ...] = ("F", "D", "B")
@@ -96,6 +100,8 @@ class M1Report:
     comparisons: tuple[ComparisonRow, ...]
     conditions_present: tuple[str, ...]
     domains_not_run: tuple[str, ...]
+    cond_domain_efficiency_rollup: tuple[tuple[str, str, CondDomainEfficiency], ...]
+    subreport_domains: tuple[str, ...]
 
 
 def _primary_for(spec: ExperimentSpec, domain: Domain) -> MetricDef:
@@ -140,6 +146,7 @@ def build_m1_report(
     efficiency: list[DomainEfficiency] = []
     validity: list[ValidityRow] = []
     taxonomy: list[ConditionFailureTaxonomy] = []
+    rollup: list[tuple[str, str, CondDomainEfficiency]] = []
     # valid-run map for comparisons / Pareto / fc-v3
     runs_by: dict[str, dict[str, list[RunResult]]] = {}
     domains_seen: set[str] = set()
@@ -176,6 +183,15 @@ def build_m1_report(
             efficiency.append(
                 DomainEfficiency(
                     condition_id=cond, domain=domain, summary=eff, cost_usd=cost
+                )
+            )
+            rollup.append(
+                (
+                    cond,
+                    domain,
+                    cond_domain_efficiency(
+                        runs=valid, condition_id=cond, pricing=pricing
+                    ),
                 )
             )
             invalid = result.invalid_run_count
@@ -245,6 +261,8 @@ def build_m1_report(
         comparisons=comparisons,
         conditions_present=conditions_present,
         domains_not_run=domains_not_run,
+        cond_domain_efficiency_rollup=tuple(rollup),
+        subreport_domains=tuple(sorted(domains_seen)),
     )
 
 
@@ -371,7 +389,7 @@ def _pareto_lines(report: M1Report) -> list[str]:
 
 
 def _taxonomy_lines(report: M1Report) -> list[str]:
-    lines = [f"## Failure taxonomy ({report.classifier_version}) per condition", ""]
+    lines = [f"## Failure classification ({report.classifier_version}) per condition", ""]
     for t in report.failure_taxonomy:
         lines += [
             f"### {t.condition_id}",
@@ -459,14 +477,88 @@ def _header_lines(report: M1Report) -> list[str]:
     ]
 
 
+def _efficiency_rollup_lines(report: M1Report) -> list[str]:
+    lines = [
+        "## Efficiency & cost",
+        "",
+        "Per (condition, domain). Rounds are time-to-completion (right-censored "
+        "for budget-capped runs); tokens and cost are observed over ALL valid "
+        "runs incl. capped (never censored).",
+        "",
+        "| condition | domain | rounds median [min–max] | prompt tok | "
+        "completion tok | total tok | cost (USD) | tool calls | safety-cap hits "
+        "| max-rounds hits | dominant stop |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for cond, domain, eff in report.cond_domain_efficiency_rollup:
+        rounds = f"{eff.rounds_median:g} [{eff.rounds_min}–{eff.rounds_max}]"
+        if eff.censored_count > 0:
+            bound = "cap" if eff.cap_bound is None else f"cap {eff.cap_bound}"
+            rounds += f" ({eff.censored_count} right-censored at {bound})"
+        cost = "—" if eff.cost_usd is None else f"{eff.cost_usd:.4f}"
+        total_tools = sum(eff.tool_call_totals.values())
+        dominant = (
+            max(
+                eff.stop_reason_counts,
+                key=lambda sr: (eff.stop_reason_counts[sr], sr),
+            )
+            if eff.stop_reason_counts
+            else "—"
+        )
+        lines.append(
+            f"| {cond} | {domain} | {rounds} | {eff.prompt_tokens} "
+            f"| {eff.completion_tokens} | {eff.total_tokens} | {cost} "
+            f"| {total_tools} | {eff.safety_cap_hits} | {eff.max_rounds_hits} "
+            f"| {dominant} |"
+        )
+    return lines + [""]
+
+
+def _headline_lines(report: M1Report) -> list[str]:
+    lines = ["## Per-domain headlines", ""]
+    domains = sorted({r.domain for r in report.per_domain_results})
+    for domain in domains:
+        rows = [r for r in report.per_domain_results if r.domain == domain]
+        best = max(rows, key=lambda r: r.estimate)
+        cheapest = None
+        frontier_cost = None
+        for chart in report.pareto_charts:
+            if chart.domain == domain and chart.axis == "cost_usd":
+                for p in chart.frontier:
+                    if frontier_cost is None or p.cost < frontier_cost:
+                        frontier_cost, cheapest = p.cost, p.condition_id
+        cheap_txt = cheapest or "—"
+        lines.append(
+            f"- **{domain}** — best pass^k: `{best.condition_id}` "
+            f"({best.estimate:.3f}); cheapest on cost-frontier: `{cheap_txt}`"
+        )
+    return lines + [""]
+
+
+def _subreport_lines(report: M1Report) -> list[str]:
+    lines = ["## Subreports", ""]
+    for domain in report.subreport_domains:
+        lines.append(f"- [`M1-{domain}-report.md`](M1-{domain}-report.md)")
+    # Hand-authored companions (never generated, never overwritten — spec §2/§7)
+    lines += [
+        "- [`M1-F-failure-analysis.md`](M1-F-failure-analysis.md) "
+        "(hand-authored companion)",
+        "- [`M1-F-report-NOTES.md`](M1-F-report-NOTES.md) (hand-authored companion)",
+    ]
+    return lines + [""]
+
+
 def render_markdown(report: M1Report) -> str:
     lines = (
         _header_lines(report)
         + _per_domain_lines(report)
+        + _headline_lines(report)
         + _composite_lines(report)
+        + _efficiency_rollup_lines(report)
         + _pareto_lines(report)
         + _comparison_lines(report)
         + _taxonomy_lines(report)
         + _validity_lines(report)
+        + _subreport_lines(report)
     )
     return "\n".join(lines) + "\n"
