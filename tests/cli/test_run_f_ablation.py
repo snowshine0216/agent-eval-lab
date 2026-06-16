@@ -8,6 +8,16 @@ from agent_eval_lab.experiments.ablation_order import ablation_run_order
 from agent_eval_lab.experiments.f_ablation_spec import ABLATION_SEED
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 
+# The committed default roster (3 models, F-ablation-v2). Driver reads args.roster.
+_ROSTER = Path(__file__).resolve().parents[2] / "f-ablation-roster.toml"
+_MODELS = (
+    "deepseek:deepseek-v4-pro",
+    "minimax:MiniMax-M3",
+    "siliconflow:Qwen/Qwen3.6-35B-A3B",
+)
+# 3 models × 3 bases × 4 arms × k=5 = 180 units (was 240 with the 4-model roster).
+_N_UNITS = len(_MODELS) * 3 * 4 * 5
+
 
 def _fake_traj(run_index: int) -> Trajectory:
     return Trajectory(
@@ -22,12 +32,16 @@ def _fake_traj(run_index: int) -> Trajectory:
 class _Args:
     """argparse.Namespace stand-in for the driver."""
 
-    def __init__(self, out: Path, *, dry_run: bool):
+    def __init__(
+        self, out: Path, *, dry_run: bool, roster: Path = _ROSTER, arms=None
+    ):
         self.out = out
         self.evaluator_config = Path("/nonexistent/evaluator.toml")
+        self.roster = roster
         self.temperature = 0.0
         self.max_tokens = 16384
         self.dry_run = dry_run
+        self.arms = arms
 
 
 def _make_recording_factory(calls: list):
@@ -59,9 +73,12 @@ def test_dry_run_writes_order_and_makes_zero_run_fn_calls(tmp_path, monkeypatch)
     assert calls == []  # NO run_fn call on the dry path → NO provider call
     sidecars = list(tmp_path.glob("*.realized-order.json"))
     assert len(sidecars) == 1
-    order = json.loads(sidecars[0].read_text())["realized_order"]
-    # 4 arms × 4 models × 3 bases × 5 reps = 240 units recorded, none executed.
-    assert len(order) == 240
+    payload = json.loads(sidecars[0].read_text())
+    # 4 arms × 3 models × 3 bases × 5 reps = 180 units recorded, none executed.
+    assert len(payload["realized_order"]) == _N_UNITS == 180
+    # the sidecar records the resolved roster identity so the run is auditable.
+    assert payload["experiment_id"] == "F-ablation-v2"
+    assert payload["spec_hash"]  # non-empty frozen hash
     assert not list(tmp_path.glob("runs-ablation-*-F.jsonl"))  # no run artifacts
 
 
@@ -82,11 +99,11 @@ def test_real_path_with_fake_run_fn_writes_one_artifact_per_condition(
         run_fn_factory=_make_recording_factory(calls),
     )
     assert rc == 0
-    # consumed the WHOLE frozen order: 240 attempts, no provider/network call.
-    assert len(calls) == 240
-    # one artifact per condition (4 conditions), all 12 task-arms inside each.
+    # consumed the WHOLE frozen order: 180 attempts, no provider/network call.
+    assert len(calls) == _N_UNITS == 180
+    # one artifact per condition (3 conditions), all 12 task-arms inside each.
     artifacts = sorted(tmp_path.glob("runs-ablation-*-F.jsonl"))
-    assert len(artifacts) == 4
+    assert len(artifacts) == 3
     for art in artifacts:
         rows = [
             json.loads(line) for line in art.read_text().splitlines() if line.strip()
@@ -98,7 +115,7 @@ def test_real_path_with_fake_run_fn_writes_one_artifact_per_condition(
     sidecars = list(tmp_path.glob("*.realized-order.json"))
     assert len(sidecars) == 1
     realized = json.loads(sidecars[0].read_text())["realized_order"]
-    assert len(realized) == 240
+    assert len(realized) == _N_UNITS
 
 
 def test_realized_order_matches_the_frozen_pure_order(tmp_path, monkeypatch):
@@ -118,12 +135,7 @@ def test_realized_order_matches_the_frozen_pure_order(tmp_path, monkeypatch):
     realized = json.loads(sidecar.read_text())["realized_order"]
     expected = ablation_run_order(
         seed=ABLATION_SEED,
-        models=(
-            "deepseek:deepseek-v4-pro",
-            "glm:Pro/zai-org/GLM-5.1",
-            "minimax:MiniMax-M3",
-            "siliconflow:Qwen/Qwen3.6-35B-A3B",
-        ),
+        models=_MODELS,
         base_tasks=("f1", "f2", "f3"),
         k=5,
     )
@@ -188,6 +200,64 @@ def test_parser_exposes_run_f_ablation_with_dry_run():
     assert args.command == "run-f-ablation"
     assert args.dry_run is True
     assert args.max_tokens == 16384  # F default
+    # roster path defaults to the committed file; overridable for add/remove-a-model.
+    assert args.roster == Path("f-ablation-roster.toml")
+    assert args.arms is None  # default = all four arms
+
+
+def test_arms_filter_runs_only_selected_arms(tmp_path, monkeypatch):
+    """`--arms feedback both` re-runs ONLY the two V arms (the contaminated-V
+    recovery path): 2 arms × 3 bases × 5 reps × 3 models = 90 attempts, and every
+    executed task_id is a feedback/both arm. The full seeded order is filtered, so
+    no skew error despite arm_tasks carrying all 12 ids."""
+    calls: list = []
+    monkeypatch.setattr(
+        "agent_eval_lab.cli._ablation_arm_tasks", lambda store: _stub_arm_tasks()
+    )
+    monkeypatch.setattr(
+        "agent_eval_lab.cli.build_candidate_tree",
+        lambda task, repo: {"x.js": "// base"},
+    )
+    args = _Args(tmp_path, dry_run=False, arms=["feedback", "both"])
+    rc = _run_f_ablation_command(
+        args, http_client=None, run_fn_factory=_make_recording_factory(calls)
+    )
+    assert rc == 0
+    assert len(calls) == 2 * 3 * 5 * 3 == 90
+    assert {c[1].rsplit("-", 1)[1] for c in calls} == {"feedback", "both"}
+
+
+def test_parser_accepts_arms_filter():
+    from agent_eval_lab.cli import _build_parser
+
+    args = _build_parser().parse_args(
+        [
+            "run-f-ablation",
+            "--evaluator-config",
+            "evaluator.toml",
+            "--arms",
+            "feedback",
+            "both",
+            "--dry-run",
+        ]
+    )
+    assert args.arms == ["feedback", "both"]
+
+
+def test_parser_accepts_roster_override():
+    from agent_eval_lab.cli import _build_parser
+
+    args = _build_parser().parse_args(
+        [
+            "run-f-ablation",
+            "--evaluator-config",
+            "evaluator.toml",
+            "--roster",
+            "/tmp/custom-roster.toml",
+            "--dry-run",
+        ]
+    )
+    assert args.roster == Path("/tmp/custom-roster.toml")
 
 
 def test_dispatch_routes_run_f_ablation(tmp_path, monkeypatch):
@@ -295,6 +365,25 @@ def test_transport_error_mid_run_aborts_cleanly_and_preserves_partial_results(
         all_rows.extend(lines)
     assert len(all_rows) == _RAISE_AFTER, (
         f"expected {_RAISE_AFTER} streamed rows on disk, got {len(all_rows)}"
+    )
+
+
+def test_incapable_node_is_caught_before_any_paid_call(tmp_path, monkeypatch):
+    """The held-out oracle needs Node >=20 (--test-reporter=junit). If the
+    resolvable node can't run it, the production path must FAIL FAST (rc 1) before
+    any provider call rather than silently grading every attempt FAIL — the
+    node-v16 incident. The test seam (injected run_fn_factory) is exempt."""
+    import agent_eval_lab.cli as cli
+
+    monkeypatch.setattr(cli, "node_supports_junit", lambda: False)
+    rc = cli._run_f_ablation_command(
+        _Args(tmp_path, dry_run=False),
+        http_client=None,
+        # run_fn_factory=None → the real production path, which is gated.
+    )
+    assert rc == 1
+    assert not list(tmp_path.glob("runs-ablation-*-F.jsonl")), (
+        "no run artifacts may be written when the node oracle is incapable"
     )
 
 

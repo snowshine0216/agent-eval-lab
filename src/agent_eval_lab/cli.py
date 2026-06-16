@@ -20,11 +20,12 @@ from agent_eval_lab.calibrate.packet import (
     packet_to_jsonl,
     render_agreement_report,
 )
-from agent_eval_lab.experiments.ablation_order import RunUnit, ablation_run_order
+from agent_eval_lab.experiments.ablation_order import ARMS, RunUnit, ablation_run_order
 from agent_eval_lab.experiments.evaluator_config import (
     health_probe,
     load_evaluator_config,
 )
+from agent_eval_lab.experiments.f_ablation_roster import load_f_ablation_roster
 from agent_eval_lab.experiments.f_ablation_spec import (
     ABLATION_SEED,
     build_f_ablation_spec,
@@ -69,6 +70,7 @@ from agent_eval_lab.runners.multi_run import (
     TrialAttempt,
     run_task_k,
 )
+from agent_eval_lab.runners.node_edge import node_supports_junit
 from agent_eval_lab.runners.prompt import apply_system_prompt
 from agent_eval_lab.runners.worlds import resolve_world
 from agent_eval_lab.tasks.loader import load_tasks
@@ -893,6 +895,18 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
         run_f_candidate,
     )
 
+    # Fail fast on an incapable node BEFORE any paid call: the held-out oracle
+    # needs Node >=20 (`--test-reporter=junit`); otherwise every attempt grades
+    # FAIL silently (the node-v16 incident). Set NODE_BIN to a Node >=20 binary.
+    if http_client is None and not node_supports_junit():
+        print(
+            "error: resolved node cannot run the held-out oracle "
+            "(needs `--test-reporter=junit`, Node >=20). Set NODE_BIN to a "
+            "Node >=20 binary and retry.",
+            file=sys.stderr,
+        )
+        return 1
+
     cfg = load_evaluator_config(args.evaluator_config)
     store = Path(cfg.store.path)
 
@@ -1236,11 +1250,17 @@ def _default_run_fn_factory(
     return factory
 
 
-def _write_realized_order(out: Path, order: Sequence[RunUnit]) -> None:
+def _write_realized_order(
+    out: Path, order: Sequence[RunUnit], *, experiment_id: str, spec_hash: str
+) -> None:
     """Persist the realized execution / API-call order for audit (§10.7). Pure
     projection of RunUnits to plain dicts; the on-disk record order in the JSONL is
-    NOT this — this sidecar is the authoritative drift-control record."""
+    NOT this — this sidecar is the authoritative drift-control record. It also
+    records experiment_id + spec_hash so a run is reconstructable from artifacts
+    even though the roster now lives in config rather than frozen source."""
     payload = {
+        "experiment_id": experiment_id,
+        "spec_hash": spec_hash,
         "seed": ABLATION_SEED,
         "realized_order": [
             {
@@ -1273,22 +1293,60 @@ def _run_f_ablation_command(  # noqa: C901
 
     Provider calls happen ONLY when the user invokes this WITHOUT --dry-run and with
     no injected run_fn_factory. --dry-run writes the realized order and makes ZERO
-    run_fn calls (a network-free preview + the unit-test seam)."""
-    spec = build_f_ablation_spec(dataset_snapshot_hash="", pricing_snapshot_hash="")
+    run_fn calls (a network-free preview + the unit-test seam).
+
+    The roster (WHICH models compete) is read from args.roster (the committed
+    f-ablation-roster.toml by default) — add/remove a model there, no code change.
+    A typo'd provider is rejected at load, before any paid call."""
+    roster = load_f_ablation_roster(args.roster, valid_providers=frozenset(PROVIDERS))
+    spec = _freeze_spec_pure(
+        build_f_ablation_spec(
+            conditions=roster.conditions,
+            experiment_id=roster.experiment_id,
+            dataset_snapshot_hash="",
+            pricing_snapshot_hash="",
+        )
+    )
     models = tuple(c.condition_id for c in spec.conditions)
     base_tasks = ("f1", "f2", "f3")
     order = ablation_run_order(
         seed=ABLATION_SEED, models=models, base_tasks=base_tasks, k=spec.k
     )
+    # Optional arm filter (e.g. re-run ONLY the V arms after a contaminated run).
+    # Applied to the FULL seeded order so each kept unit retains its original
+    # relative position — selecting a subset never reshuffles the survivors.
+    selected_arms = getattr(args, "arms", None)
+    if selected_arms:
+        order = tuple(u for u in order if u.arm in selected_arms)
 
     args.out.mkdir(parents=True, exist_ok=True)
     realized: list[RunUnit] = []
 
     if args.dry_run:
         # Preview ONLY: record the realized order, make NO run_fn call (no network).
-        _write_realized_order(args.out, order)
+        _write_realized_order(
+            args.out,
+            order,
+            experiment_id=spec.experiment_id,
+            spec_hash=spec.spec_hash,
+        )
         print(args.out / "f-ablation.realized-order.json")
         return 0
+
+    # Fail fast: the held-out node oracle grades EVERY arm via
+    # `node --test --test-reporter=junit` (Node >=20). If the resolvable node
+    # can't run it, every attempt would silently grade FAIL (the node-v16
+    # incident) — refuse before any paid call. The injected-factory test seam
+    # (run_fn_factory is not None) is exempt: its grading is over stub trees.
+    if run_fn_factory is None and not node_supports_junit():
+        print(
+            "error: resolved node cannot run the held-out oracle "
+            "(needs `--test-reporter=junit`, Node >=20). Set NODE_BIN to a "
+            "Node >=20 binary and retry — refusing so attempts are not all "
+            "graded FAIL by an incapable node.",
+            file=sys.stderr,
+        )
+        return 1
 
     f_repo = Path.home() / "Documents/Repository/web-dossier"
     if run_fn_factory is not None:
@@ -1307,15 +1365,16 @@ def _run_f_ablation_command(  # noqa: C901
         )
         safety_cap = cfg.runner.safety_cap
 
-    # Validate task_id coverage BEFORE any provider call (catch skew early).
+    # Validate task_id coverage BEFORE any provider call (catch skew early). Every
+    # task_id the (possibly arm-filtered) order references MUST exist in arm_tasks;
+    # arm_tasks may legitimately carry MORE ids than a filtered order touches.
     expected_ids = {u.task_id for u in order}
     actual_ids = set(arm_tasks)
-    if actual_ids != expected_ids:
-        missing = expected_ids - actual_ids
-        extra = actual_ids - expected_ids
+    missing = expected_ids - actual_ids
+    if missing:
         print(
             f"error: task_id skew — order references ids not in arm_tasks: "
-            f"missing={sorted(missing)!r} extra={sorted(extra)!r}",
+            f"missing={sorted(missing)!r}",
             file=sys.stderr,
         )
         return 1
@@ -1360,7 +1419,12 @@ def _run_f_ablation_command(  # noqa: C901
             fh.close()
         # Write the realized-order sidecar of whatever was executed so far.
         # A partial/aborted run still leaves completed JSONL rows + a sidecar.
-        _write_realized_order(args.out, tuple(realized))
+        _write_realized_order(
+            args.out,
+            tuple(realized),
+            experiment_id=spec.experiment_id,
+            spec_hash=spec.spec_hash,
+        )
 
     if aborted:
         return 1
@@ -1528,9 +1592,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "the order with NO provider calls.",
     )
     rfa.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rfa.add_argument(
+        "--roster",
+        type=Path,
+        default=Path("f-ablation-roster.toml"),
+        metavar="TOML",
+        help="roster of models to compare (provider:model + label per [[model]]); "
+        "edit this to add/remove a model — no code change. Default: "
+        "f-ablation-roster.toml at repo root.",
+    )
     rfa.add_argument("--out", type=Path, default=Path("reports"))
     rfa.add_argument("--temperature", type=float, default=0.0)
     rfa.add_argument("--max-tokens", type=int, default=16384)
+    rfa.add_argument(
+        "--arms",
+        nargs="+",
+        choices=list(ARMS),
+        default=None,
+        metavar="ARM",
+        help="restrict the run to these 2×2 arms (default: all four). Applied to "
+        "the full seeded order, so survivors keep their relative position — used "
+        "to re-run only a subset (e.g. `--arms feedback both`).",
+    )
     rfa.add_argument(
         "--dry-run",
         action="store_true",
