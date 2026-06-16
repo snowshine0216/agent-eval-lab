@@ -147,3 +147,115 @@ def test_read_back_includes_files_claude_created(tmp_path):
     materialize_tree({"a.js": "1\n"}, tmp_path)
     (tmp_path / "new.js").write_text("2\n")
     assert read_back_tree(tmp_path) == {"a.js": "1\n", "new.js": "2\n"}
+
+
+# ---- Task 4: make_claude_run_fn -----------------------------------------------
+from dataclasses import dataclass as _dc
+from agent_eval_lab.records.trajectory import PROVIDER_ERROR
+from agent_eval_lab.records.turns import MessageTurn
+from agent_eval_lab.tasks.schema import AllOf, Task, TaskInput, TaskMetadata
+from agent_eval_lab.runners.claude_cli_candidate import make_claude_run_fn
+
+
+@_dc
+class _FakeCompleted:
+    stdout: str
+    returncode: int = 0
+
+
+def _edit_task(files):
+    # NOTE deviation: Task requires capability + metadata (no defaults).
+    # AllOf(specs=()) is a no-op verification; the runner only reads
+    # initial_state["files"] and the first user message.
+    return Task(
+        id="f-f1",
+        capability="repo_fix",
+        input=TaskInput(
+            messages=(MessageTurn(role="user", content="Fix the bug in a.js"),),
+            available_tools=("read_file",),
+        ),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="held_out", version="f-test-v1", provenance="unit test"
+        ),
+        initial_state={"files": dict(files)},
+    )
+
+
+def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
+    captured = {}
+
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        captured["argv"] = argv
+        captured["cwd"] = cwd
+        captured["home"] = env.get("HOME")
+        # Claude "edits" a.js in the workdir.
+        (Path(cwd) / "a.js").write_text("fixed\n")
+        return _FakeCompleted(
+            stdout=_result_json(num_turns=4, usage={"input_tokens": 10, "output_tokens": 5})
+        )
+
+    def fake_workdir():
+        wd = tmp_path / "wd"
+        home = tmp_path / "home"
+        wd.mkdir()
+        home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="claude-sonnet-4-6",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+
+    assert traj.final_state["files"] == {"a.js": "fixed\n"}
+    assert traj.usage.prompt_tokens == 10
+    assert traj.usage.completion_tokens == 5
+    assert traj.rounds == 4
+    assert traj.parse_failure is None
+    # Ran in the workdir under a clean HOME; prompt carried the user message.
+    assert captured["cwd"] == str(tmp_path / "wd")
+    assert captured["home"] == str(tmp_path / "home")
+    assert captured["argv"][-1] == "Fix the bug in a.js"
+
+
+def test_run_fn_nonzero_exit_is_env_invalid(tmp_path):
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        return _FakeCompleted(stdout="", returncode=1)
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd2", tmp_path / "home2"
+        wd.mkdir(); home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m", surface="edit-only", run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir, max_budget_usd=0.5, timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.parse_failure.error == PROVIDER_ERROR
+
+
+def test_run_fn_timeout_is_env_invalid(tmp_path):
+    import subprocess as _sp
+
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        raise _sp.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    def fake_workdir():
+        wd, home = tmp_path / "wd3", tmp_path / "home3"
+        wd.mkdir(); home.mkdir()
+        return wd, home
+
+    run_fn = make_claude_run_fn(
+        model="m", surface="edit-only", run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir, max_budget_usd=0.5, timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.parse_failure.error == PROVIDER_ERROR

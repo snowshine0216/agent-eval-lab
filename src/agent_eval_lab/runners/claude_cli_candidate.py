@@ -11,7 +11,9 @@ docs/superpowers/specs/2026-06-16-claude-p-f-baseline-design.md.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import os
+import subprocess
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -142,3 +144,97 @@ def read_back_tree(
             continue
         out[rel.as_posix()] = path.read_text()
     return out
+
+
+# ---- run_fn factory -----------------------------------------------------------
+
+from agent_eval_lab.records.trajectory import (  # noqa: E402
+    PROVIDER_ERROR,
+    ParseFailure,
+    Trajectory,
+    Usage,
+)
+
+# Injected so unit tests need no real `claude` / network.
+RunSubprocess = Callable[..., object]  # (argv, *, cwd, env, timeout) -> completed
+WorkdirFactory = Callable[[], tuple[Path, Path]]  # () -> (workdir, clean_home)
+
+
+def _user_prompt(edit_task) -> str:
+    msg = next(
+        (m for m in edit_task.input.messages if m.role == "user"), None
+    )
+    return msg.content if msg is not None else ""
+
+
+def _env_invalid_trajectory(run_index: int, *, raw: str) -> Trajectory:
+    """A run where Claude never produced a fair trial (subprocess failed / timed
+    out / unparseable). Mirrors the chat-loop PROVIDER_ERROR path so
+    is_env_invalid_run masks it out of pass^k."""
+    return Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=run_index,
+        stop_reason="env_unhealthy",
+        parse_failure=ParseFailure(raw=raw[:500], error=PROVIDER_ERROR),
+        final_state={"files": {}},
+    )
+
+
+def make_claude_run_fn(
+    *,
+    model: str,
+    surface: str,
+    run_subprocess: RunSubprocess,
+    workdir_factory: WorkdirFactory,
+    max_budget_usd: float = 0.5,
+    timeout_s: int = 300,
+) -> Callable[[object, int], Trajectory]:
+    """Build the per-attempt claude-p driver for one surface. Same signature as
+    runners.f_candidate.make_f_run_fn so it plugs into run_f_candidate."""
+    system_prompt = claude_system_prompt(surface)
+
+    def run_fn(edit_task, run_index: int) -> Trajectory:
+        workdir, clean_home = workdir_factory()
+        seeded = dict((edit_task.initial_state or {}).get("files", {}))
+        materialize_tree(seeded, workdir)
+        argv = build_claude_argv(
+            model=model,
+            surface=surface,
+            prompt=_user_prompt(edit_task),
+            system_prompt=system_prompt,
+            max_budget_usd=max_budget_usd,
+        )
+        env = {**os.environ, "HOME": str(clean_home)}
+        try:
+            completed = run_subprocess(
+                argv, cwd=str(workdir), env=env, timeout=timeout_s
+            )
+        except subprocess.TimeoutExpired:
+            return _env_invalid_trajectory(run_index, raw="timeout")
+        if getattr(completed, "returncode", 0) != 0:
+            return _env_invalid_trajectory(
+                run_index, raw=getattr(completed, "stdout", "")
+            )
+        try:
+            meta = parse_claude_result(completed.stdout)
+        except ClaudeResultParseError as exc:
+            return _env_invalid_trajectory(run_index, raw=str(exc))
+        if meta.is_error:
+            return _env_invalid_trajectory(run_index, raw="claude is_error")
+        produced = read_back_tree(workdir)
+        return Trajectory(
+            turns=(),
+            usage=Usage(
+                prompt_tokens=meta.prompt_tokens,
+                completion_tokens=meta.completion_tokens,
+                latency_s=0.0,
+            ),
+            run_index=run_index,
+            stop_reason="completed_natural",
+            final_state={"files": produced},
+            rounds=meta.num_turns,
+            tool_call_counts={},
+        )
+
+    return run_fn
