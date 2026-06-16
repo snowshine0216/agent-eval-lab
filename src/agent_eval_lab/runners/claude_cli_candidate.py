@@ -11,7 +11,9 @@ docs/superpowers/specs/2026-06-16-claude-p-f-baseline-design.md.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class ClaudeResultParseError(ValueError):
@@ -111,3 +113,32 @@ def build_claude_argv(
         str(max_budget_usd),
         prompt,
     ]
+
+
+# ---- Tree materialization + readback ------------------------------------------
+
+_READBACK_IGNORE: tuple[str, ...] = (".git", "node_modules")
+
+
+def materialize_tree(tree: Mapping[str, str], dest: Path) -> None:
+    """Write a {posix-relpath: content} tree to disk under dest."""
+    for rel, content in tree.items():
+        path = dest / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
+def read_back_tree(
+    dest: Path, *, ignore: tuple[str, ...] = _READBACK_IGNORE
+) -> dict[str, str]:
+    """Read the produced tree back into {posix-relpath: content}, skipping any
+    path under an ignored top-level dir (.git, node_modules)."""
+    out: dict[str, str] = {}
+    for path in sorted(dest.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(dest)
+        if rel.parts[0] in ignore:
+            continue
+        out[rel.as_posix()] = path.read_text()
+    return out
