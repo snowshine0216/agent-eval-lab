@@ -9,6 +9,7 @@ from agent_eval_lab.runners.config import (
 def test_registry_covers_the_design_provider_lineup() -> None:
     assert set(PROVIDERS) == {
         "deepseek",
+        "dashscope",
         "glm",
         "minimax",
         "openrouter",
@@ -52,6 +53,15 @@ def test_local_model_id_matches_ollama_served_name() -> None:
     # ollama /v1/models serves the full HF id; a mismatch 404s the chat endpoint
     # (the prior "qwen3-8b" never served inference).
     assert PROVIDERS["local"].model_id == "Qwen/Qwen3-8B"
+
+
+def test_dashscope_qwen_max_provider_is_wired() -> None:
+    ds = PROVIDERS["dashscope"]
+    # base_url is the literal compatible-mode path (== DASHSCOPE_BASE_URL value).
+    assert ds.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert ds.api_key_env == "DASHSCOPE_API_KEY"  # only the key is read from env
+    assert ds.model_id == "qwen3.7-max"
+    assert ds.proxy_env is None  # domestic — never proxied
 
 
 def test_siliconflow_qwen_ladder_provider_is_wired() -> None:

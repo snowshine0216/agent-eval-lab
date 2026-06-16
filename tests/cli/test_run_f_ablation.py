@@ -8,12 +8,12 @@ from agent_eval_lab.experiments.ablation_order import ablation_run_order
 from agent_eval_lab.experiments.f_ablation_spec import ABLATION_SEED
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 
-# The committed default roster (3 models, F-ablation-v2). Driver reads args.roster.
+# The committed default roster (3 models, F-ablation-v3). Driver reads args.roster.
 _ROSTER = Path(__file__).resolve().parents[2] / "f-ablation-roster.toml"
 _MODELS = (
     "deepseek:deepseek-v4-pro",
     "minimax:MiniMax-M3",
-    "siliconflow:Qwen/Qwen3.6-35B-A3B",
+    "dashscope:qwen3.7-max",
 )
 # 3 models × 3 bases × 4 arms × k=5 = 180 units (was 240 with the 4-model roster).
 _N_UNITS = len(_MODELS) * 3 * 4 * 5
@@ -75,7 +75,7 @@ def test_dry_run_writes_order_and_makes_zero_run_fn_calls(tmp_path, monkeypatch)
     # 4 arms × 3 models × 3 bases × 5 reps = 180 units recorded, none executed.
     assert len(payload["realized_order"]) == _N_UNITS == 180
     # the sidecar records the resolved roster identity so the run is auditable.
-    assert payload["experiment_id"] == "F-ablation-v2"
+    assert payload["experiment_id"] == "F-ablation-v3"
     assert payload["spec_hash"]  # non-empty frozen hash
     assert not list(tmp_path.glob("runs-ablation-*-F.jsonl"))  # no run artifacts
 

@@ -56,6 +56,18 @@ PROVIDERS: Mapping[str, ProviderConfig] = {
         api_key_env="SILICONFLOW_API_KEY",
         model_id="Qwen/Qwen3.5-397B-A17B",
     ),
+    "dashscope": ProviderConfig(
+        # Alibaba DashScope's OpenAI-compatible endpoint. base_url is the literal
+        # value of the DASHSCOPE_BASE_URL env var (the compatible-mode path) — kept
+        # in code like every other provider so only the key is read from the env.
+        # The default model is the flagship Qwen reasoning rung; reasoning_tokens
+        # count against max_tokens, so F runs must budget generously (cf. the 512
+        # MLX-truncation incident). Domestic — never proxied.
+        id="dashscope",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key_env="DASHSCOPE_API_KEY",
+        model_id="qwen3.7-max",
+    ),
     "minimax": ProviderConfig(
         id="minimax",
         base_url="https://api.minimaxi.com/v1",

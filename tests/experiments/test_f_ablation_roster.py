@@ -14,22 +14,22 @@ from agent_eval_lab.experiments.f_ablation_roster import (
 _DEFAULT_ROSTER = Path(__file__).resolve().parents[2] / "f-ablation-roster.toml"
 
 
-def test_committed_default_is_the_three_model_v2_roster():
+def test_committed_default_is_the_three_model_v3_roster():
     roster = load_f_ablation_roster(_DEFAULT_ROSTER)
     assert isinstance(roster, FAblationRoster)
-    assert roster.experiment_id == "F-ablation-v2"
+    assert roster.experiment_id == "F-ablation-v3"
     assert [c.condition_id for c in roster.conditions] == [
         "deepseek:deepseek-v4-pro",
         "minimax:MiniMax-M3",
-        "siliconflow:Qwen/Qwen3.6-35B-A3B",
+        "dashscope:qwen3.7-max",
     ]
-    # GLM is no longer in the roster.
+    # GLM is no longer in the roster; v3 swapped the SiliconFlow Qwen rung for
+    # DashScope's qwen3.7-max, so neither legacy provider is referenced.
     assert all("glm" not in c.condition_id for c in roster.conditions)
-    # the PROVISIONAL Qwen rung is still labelled (spec Roster note).
-    qwen = next(
-        c for c in roster.conditions if c.condition_id.startswith("siliconflow")
-    )
-    assert "PROVISIONAL" in qwen.label
+    assert all("siliconflow" not in c.condition_id for c in roster.conditions)
+    # the Qwen rung is now the DashScope flagship.
+    qwen = next(c for c in roster.conditions if c.condition_id.startswith("dashscope"))
+    assert qwen.label == "qwen3.7-max (dashscope)"
 
 
 def _write(tmp_path: Path, body: str) -> Path:
