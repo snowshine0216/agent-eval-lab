@@ -6,11 +6,12 @@ node-graded integration test (gated on node>=20 + the local golden store + repo)
 proves a golden-fix trajectory passes end to end.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from agent_eval_lab.datasets.f_tasks import build_f_tasks
+from agent_eval_lab.datasets.f_tasks import build_f_task_arms, build_f_tasks
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.f_candidate import (
@@ -81,6 +82,21 @@ def _traj_with_files(files: dict[str, str], *, run_index: int = 0) -> Trajectory
     )
 
 
+def _flagged_task(*, factor_p: bool, factor_v: bool) -> Task:
+    base = _fake_task()
+    state = {**base.initial_state, "factor_p": factor_p, "factor_v": factor_v}
+    if factor_v:
+        return replace(
+            base,
+            input=TaskInput(
+                messages=base.input.messages,
+                available_tools=("bash", "run_tests"),
+            ),
+            initial_state=state,
+        )
+    return replace(base, initial_state=state)
+
+
 # ---- make_edit_task -------------------------------------------------------
 
 
@@ -113,6 +129,158 @@ def test_make_edit_task_does_not_mutate_source_or_base_tree() -> None:
     make_edit_task(src, base_tree=base)
     assert base == {"a.js": "x\n"}
     assert src.input.available_tools == ("bash",)
+
+
+def test_factor_p_block_present_only_on_prompt_and_both_arms() -> None:
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    def sys_of(task: Task) -> str:
+        edit = make_edit_task(task, base_tree={"a.js": "x\n"})
+        return next(m for m in edit.input.messages if m.role == "system").content
+
+    # P arms: block present
+    assert _FACTOR_P_BLOCK in sys_of(_flagged_task(factor_p=True, factor_v=False))
+    assert _FACTOR_P_BLOCK in sys_of(_flagged_task(factor_p=True, factor_v=True))
+    # non-P arms: block absent, base _EDIT_SYSTEM unmodified
+    assert _FACTOR_P_BLOCK not in sys_of(_flagged_task(factor_p=False, factor_v=False))
+    assert _FACTOR_P_BLOCK not in sys_of(_flagged_task(factor_p=False, factor_v=True))
+
+
+def test_factor_p_block_uses_visible_tests_vocabulary() -> None:
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    assert "visible tests" in _FACTOR_P_BLOCK
+    assert "public tests" not in _FACTOR_P_BLOCK
+
+
+def test_make_edit_task_without_flag_keeps_unmodified_edit_system() -> None:
+    # a task with NO factor_p key (e.g. an un-armed task) gets the bare _EDIT_SYSTEM
+    from agent_eval_lab.runners.f_candidate import _FACTOR_P_BLOCK
+
+    edit = make_edit_task(_fake_task(), base_tree={"a.js": "x\n"})
+    sys = next(m for m in edit.input.messages if m.role == "system").content
+    assert _FACTOR_P_BLOCK not in sys
+
+
+def test_make_edit_task_offers_run_tests_only_on_v_arms() -> None:
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    non_v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    assert "run_tests" in v_edit.input.available_tools
+    # edit tools still all present on V arm (run_tests is ADDED, not swapped)
+    for name in F_EDIT_TOOL_NAMES:
+        assert name in v_edit.input.available_tools
+    assert "run_tests" not in non_v_edit.input.available_tools
+
+
+# ---- build_candidate_tree context_paths enrichment (pure, no repo) --------
+
+
+def _task_with_context(context_paths: tuple[str, ...]) -> Task:
+    base = _fake_task()
+    return replace(
+        base,
+        initial_state={
+            "repo": "x",
+            "candidate_base_sha": "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505",
+            "target_paths": ("src/a.js",),
+            "context_paths": context_paths,
+        },
+    )
+
+
+def test_build_candidate_tree_seeds_context_paths(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    # stub the SHA reader used by BOTH the prefix path and the enrichment
+    monkeypatch.setattr(fc, "_git_show", lambda repo, rel: f"// {rel}\n")
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": f"// {a[0][-1].split(':')[-1]}\n"})(),
+    )
+    task = _task_with_context(("sib/One.js", "sib/Two.js"))
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    # target path + both context paths are present; pkg.json still seeded
+    assert "src/a.js" in tree
+    assert tree["sib/One.js"] == "// sib/One.js\n"
+    assert tree["sib/Two.js"] == "// sib/Two.js\n"
+    assert tree["tests/wdio/package.json"] == '{"type":"module"}\n'
+
+
+def test_build_candidate_tree_empty_context_paths_is_minimal(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    monkeypatch.setattr(fc, "_git_show", lambda repo, rel: f"// {rel}\n")
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "x\n"})(),
+    )
+    task = _task_with_context(())
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    # no context paths -> only target + pkg.json (production-shape)
+    assert set(tree) == {"src/a.js", "tests/wdio/package.json"}
+
+
+def test_build_candidate_tree_missing_context_key_defaults_to_none(monkeypatch) -> None:
+    # production build_f_tasks sets NO context_paths key -> must not raise
+    import agent_eval_lab.runners.f_candidate as fc
+    import agent_eval_lab.runners.f_run as fr
+
+    monkeypatch.setattr(
+        fr.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "x\n"})(),
+    )
+    base = _fake_task()
+    task = replace(
+        base,
+        initial_state={
+            "repo": "x",
+            "candidate_base_sha": "5b0c13a6bc9e7b9a3c60083da511f3efd0d39505",
+            "target_paths": ("src/a.js",),
+        },
+    )
+    tree = fc.build_candidate_tree(task, repo=Path("/nonexistent"))
+    assert set(tree) == {"src/a.js", "tests/wdio/package.json"}
+
+
+# ---- seeded_held_out_disjoint predicate (pure, §10.4) ---------------------
+
+
+def test_seeded_held_out_disjoint_true_for_disjoint_paths() -> None:
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/utils/failure-analysis/report-to-allure.js",)
+    held_out = {
+        "tests/wdio/utils/failure-analysis/__tests__/report-to-allure.test.js": "x"
+    }
+    assert seeded_held_out_disjoint(seeded, held_out) is True
+
+
+def test_seeded_held_out_disjoint_allows_identical_displaced_path() -> None:
+    # identical spelling (e.g. tests/wdio/package.json in both) is a DISPLACEMENT,
+    # not a prefix_collision -> disjoint=True (the overlay overwrites, no error).
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/package.json", "src/a.js")
+    held_out = {"tests/wdio/package.json": "{}", "a.test.js": "x"}
+    assert seeded_held_out_disjoint(seeded, held_out) is True
+
+
+def test_seeded_held_out_disjoint_false_on_canonical_prefix_collision() -> None:
+    # same canonical prefix, different spelling (case) -> collision -> not disjoint
+    from agent_eval_lab.runners.f_candidate import seeded_held_out_disjoint
+
+    seeded = ("tests/wdio/Foo.js",)
+    held_out = {"tests/wdio/foo.js/held.test.js": "x"}
+    assert seeded_held_out_disjoint(seeded, held_out) is False
 
 
 # ---- run_f_candidate (stubbed model) --------------------------------------
@@ -207,6 +375,311 @@ def test_run_f_candidate_masks_provider_error_and_voids_under_k() -> None:
     assert o.void is True  # only 2 < k=5 clean trials -> INCOMPLETE
 
 
+def test_run_uid_is_task_scoped(monkeypatch) -> None:
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    captured: list[str] = []
+
+    def fake_run_single(**kwargs):
+        captured.append(kwargs["run_uid"])
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="deepseek:deepseek-v4-pro",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    edit = make_edit_task(
+        _flagged_task(factor_p=True, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    run_fn(edit, 3)
+    # {condition_id}__{task_id}__{run_index:04d} — derive task_id from the arm
+    assert captured == [f"deepseek:deepseek-v4-pro__{edit.id}__0003"]
+    assert "__f__" not in captured[0]  # the old literal is gone
+
+
+def test_run_uid_collision_free_across_arms_in_one_condition(monkeypatch) -> None:
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    seen: list[str] = []
+
+    def fake_run_single(**kwargs):
+        seen.append(kwargs["run_uid"])
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    # simulate the 12 task-arms (3 bases x 4 arms) x k=5 in one condition's space
+    arm_ids = [
+        f"f-{b}-{a}"
+        for b in ("f1", "f2", "f3")
+        for a in ("bare", "prompt", "feedback", "both")
+    ]
+    for aid in arm_ids:
+        # a minimal edit-task carrying the arm id; tree/flags irrelevant to the uid
+        edit = replace(
+            _fake_task(),
+            id=aid,
+            initial_state={**_fake_task().initial_state, "files": {}},
+        )
+        for k in range(5):
+            run_fn(edit, k)
+    assert len(seen) == 60  # 12 arms x k=5
+    assert len(set(seen)) == 60  # all distinct -> no collision in the run space
+
+
+def test_make_f_run_fn_routes_v_arm_to_sandboxed_executor_on_macos(monkeypatch) -> None:
+    """On macOS+sandbox-exec a V arm runs the loop with a sandboxed executor and
+    the V (node-accurate) registry — NOT executor=None, NOT NotImplementedError."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS_V
+
+    monkeypatch.setattr(fc, "darwin_sandbox_available", lambda: True)
+    monkeypatch.setattr(fc, "node_install_paths", lambda: ("/x/node", "/x"))
+    captured: dict = {}
+
+    def fake_run_single(**kwargs):
+        captured["executor"] = kwargs["executor"]
+        captured["registry"] = kwargs["registry"]
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    run_fn(v_edit, 0)
+    assert captured["executor"] is not None  # routed to the sandboxed executor
+    assert captured["registry"] is CODE_WORLD_TOOLS_V  # node-accurate V registry
+
+
+def test_make_f_run_fn_skips_v_arm_off_macos(monkeypatch) -> None:
+    """Off macOS (CI), real V execution skips — make_f_run_fn raises the skip
+    guard (executor cannot be the real sandbox; fake executor is injected in
+    unit tests, not here)."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    monkeypatch.setattr(fc, "darwin_sandbox_available", lambda: False)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    v_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=True), base_tree={"a.js": "x\n"}
+    )
+    with pytest.raises(NotImplementedError, match="macOS"):
+        run_fn(v_edit, 0)
+
+
+def test_make_f_run_fn_bare_arm_stays_executor_none(monkeypatch) -> None:
+    """bare/prompt (factor_v falsey) always run executor=None + the base registry."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+    from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
+
+    captured: dict = {}
+
+    def fake_run_single(**kwargs):
+        captured["executor"] = kwargs["executor"]
+        captured["registry"] = kwargs["registry"]
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    bare_edit = make_edit_task(
+        _flagged_task(factor_p=False, factor_v=False), base_tree={"a.js": "x\n"}
+    )
+    run_fn(bare_edit, 0)
+    assert captured["executor"] is None
+    assert captured["registry"] is CODE_WORLD_TOOLS
+
+
+def test_make_f_run_fn_runs_bare_and_prompt_arms_today(monkeypatch) -> None:
+    """bare/prompt (factor_v=False) stay fully runnable in 003."""
+    import httpx
+
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    def fake_run_single(**kwargs):
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+    cfg = ProviderConfig(
+        id="local", base_url="http://x/v1", api_key_env="", model_id="m"
+    )
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+    )
+    run_fn = fc.make_f_run_fn(
+        config=cfg,
+        http_client=client,
+        temperature=0.0,
+        max_tokens=64,
+        condition_id="c",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    for flags in ((False, False), (True, False)):  # bare, prompt
+        edit = make_edit_task(
+            _flagged_task(factor_p=flags[0], factor_v=flags[1]),
+            base_tree={"a.js": "x\n"},
+        )
+        traj = run_fn(edit, 0)
+        assert traj.stop_reason == "completed_natural"
+
+
+def test_make_f_run_fn_forwards_max_rounds(monkeypatch) -> None:
+    import agent_eval_lab.runners.f_candidate as fc
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.config import ProviderConfig
+
+    _config = ProviderConfig(
+        id="local", base_url="http://localhost:11434/v1", api_key_env="", model_id="m"
+    )
+    import httpx
+
+    def _noop_handler(r):
+        return httpx.Response(200, json={})
+
+    _client = httpx.Client(transport=httpx.MockTransport(_noop_handler))
+
+    captured = {}
+
+    def fake_run_single(**kwargs):
+        captured["max_rounds"] = kwargs.get("max_rounds")
+        captured["safety_cap"] = kwargs.get("safety_cap")
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=kwargs["run_index"],
+            stop_reason="completed_natural",
+        )
+
+    monkeypatch.setattr(fc, "run_single", fake_run_single)
+
+    run_fn = fc.make_f_run_fn(
+        config=_config,
+        http_client=_client,
+        temperature=0.0,
+        max_tokens=4096,
+        condition_id="cond__bare",
+        safety_cap=200,
+        max_rounds=40,
+    )
+    run_fn(_fake_task(), 0)
+    assert captured["max_rounds"] == 40
+    assert captured["safety_cap"] == 200
+
+
 # ---- build_candidate_tree (integration: real repo at pinned base) ---------
 
 
@@ -231,6 +704,21 @@ def test_build_candidate_tree_f3_includes_causal_layer_minus_held_out() -> None:
     assert f"{fa}/signal.js" in tree
     assert f"{fa}/__tests__/correlate.test.js" in tree
     # the held-out golden grading test is NEVER seeded into the candidate tree
+    assert f"{fa}/__tests__/report-to-allure.test.js" not in tree
+
+
+@requires_node
+def test_build_candidate_tree_armed_f3_routes_to_f3_tree() -> None:
+    # Regression for B1: armed F3 ids (f-f3-bare, etc.) must route to
+    # _f3_candidate_tree, not fall through to prefix_candidate_tree.
+    # Would FAIL before the "or task.id.startswith('f-f3-')" dispatch fix.
+    [t] = [t for t in build_f_task_arms(evaluator_store=_STORE) if t.id == "f-f3-bare"]
+    tree = build_candidate_tree(t, repo=_REPO)
+    fa = "tests/wdio/utils/failure-analysis"
+    # same causal-layer assertions as the un-armed F3 test above
+    assert f"{fa}/report-to-allure.js" in tree
+    assert f"{fa}/signal.js" in tree
+    assert f"{fa}/__tests__/correlate.test.js" in tree
     assert f"{fa}/__tests__/report-to-allure.test.js" not in tree
 
 
@@ -283,3 +771,15 @@ def test_run_f_candidate_unedited_base_fails_f1() -> None:
         )
     )
     assert outcomes[0].valid_runs[0].grade.passed is False
+
+
+def test_grade_f_attempt_wraps_grade_into_a_run_result():
+    from agent_eval_lab.runners.f_candidate import grade_f_attempt
+
+    task = _fake_task()
+    traj = _traj_with_files({"a.js": "// edited"}, run_index=2)
+    result = grade_f_attempt(task, traj, condition_id="prov:m", run_index=2)
+    assert result.task_id == "t1"
+    assert result.condition_id == "prov:m"
+    assert result.run_index == 2
+    assert result.trajectory is traj

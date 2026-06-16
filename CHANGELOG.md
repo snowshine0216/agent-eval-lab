@@ -5,6 +5,143 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.2.6 — 2026-06-15
+
+### Added — run-f-ablation driver + frozen f_ablation_spec (harness-rounds-f-ablation step 6, code only)
+
+- **Seeded block-randomized run order** (`experiments/ablation_order.py`): pure `ablation_run_order(seed,
+  models, base_tasks, k)` interleaves the four arms within each `(model, base-task, repetition)` block
+  (so provider drift/time can't masquerade as a P/V effect), covering each `(model × 12 task-arm × k)`
+  unit exactly once (240 at k=5). Deterministic (seeded RNG, no wall-clock).
+- **Frozen `experiments/f_ablation_spec.py`**: a separate ExperimentSpec (4-model roster) + an
+  `AblationPolicy` (40-round F policy, 12 arms, seed) frozen by its own sha256 over `canonical_json` —
+  distinct from production `m1_spec` (which keeps F=20); the committed M1 frozen spec is untouched
+  (`verify_spec_hash` still passes). The ablation family is descriptive (`correction="none"`, no Holm —
+  §D.2; `MultiplicityFamily.correction` widened to `Literal["holm","none"]`).
+- **`run-f-ablation` CLI driver**: executes attempts in the frozen order across (model × task-arm × rep)
+  — arm encoded in `task_id` — using the 12 task-arms (003), enriched trees (004), and the Factor V
+  sandbox routing (005); writes **one artifact per condition** (`runs-ablation-{slug}-F.jsonl`, all 12
+  arms inside) + a realized-order sidecar (atomic write). Crash-safe: validates task_id coverage upfront,
+  streams per-attempt, catches transport/git errors, and preserves partial results + the sidecar on
+  abort. A `--dry-run` writes only the realized order with zero provider calls.
+- **No paid execution**: the driver calls a provider only on an explicit user invocation; all tests
+  inject a fake run_fn. The pilot (≈24) + full 240-attempt run and the descriptive report stay deferred
+  (the user triggers the run via this driver).
+
+## v0.2.5 — 2026-06-15
+
+### Added — Factor V confined-execution sandbox (harness-rounds-f-ablation step 5)
+
+- **Confined `node --test` execution** (`runners/sandboxed_node_edge.py`): a new edge runs the model's
+  own authored tests (`tests/authored/`) under a macOS `sandbox-exec` seatbelt profile that is
+  **deny-default with an explicit read-allowlist** (candidate temp tree + node install dir + enumerated
+  system paths only), `(deny network*)`, and write-only-in-tree — so model JS cannot read the held-out
+  oracle (`evaluator-only/`) and exfiltrate it (the in-trajectory stdout-leak channel). The read
+  allowlist (not a broad allow) is the boundary; `file-read-metadata` is scoped (no golden size/mtime
+  oracle); the node install dir is asserted disjoint from `evaluator-only/`. The trusted oracle path
+  (`runners/node_edge.py`) and the frozen `truncate_output` contract are untouched. macOS-only by
+  design (Darwin + sandbox-exec probe); CI injects a fake executor.
+- **`make_authored_test_executor`** runs the fixed `node --test tests/authored/` (model-supplied
+  commands rejected; reserved-path provenance + sandbox security boundary), wired into `make_f_run_fn`
+  so V arms route to it on macOS (off-macOS raises; `bare`/`prompt` keep `executor=None`).
+- **Versioned V feedback record** (`records/node_feedback.py`): distinct `NodeFeedbackResult` +
+  **tail-aware** rendering (node failure summary prints at the end), leaving the oracle's head-truncated
+  `ExecutionResult` byte-stable. V-specific node-accurate `run_tests` ToolDef (`CODE_WORLD_TOOLS_V`);
+  the shared pytest-worded ToolDef is unchanged.
+- A macOS integration test asserts the sandbox **blocks** an `evaluator-only/` read + a network call and
+  still runs a benign in-tree authored test. ADR-0016.
+
+## v0.2.4 — 2026-06-15
+
+### Added — F candidate-tree enrichment + overlay-disjointness (harness-rounds-f-ablation step 4)
+
+- **Curated `context_paths` on the 12 F ablation arms** (`datasets/f_tasks.py`): each base seeds a
+  curated context set — materialized **byte-identically across all four arms** from the pinned base
+  SHA (`5b0c13a6`; m2021 never read) — so Factor P's "read the siblings / read the source" directives
+  are non-vacuous. F1: `Alert.js`/`SearchBox.js`/`Panel.js` (the `waitFor*({timeout,timeoutMsg})`
+  convention); F2: `failure-analysis/index.js` (the `{signal, confidence}` return shape readable from
+  source); F3: none (its causal layer is already broad). The held-out golden tests (D19) and any
+  visible test asserting the discriminating behavior are excluded (§11.6). Production `build_f_tasks`
+  carries no `context_paths` — its trees stay minimal.
+- **`build_candidate_tree` seeds `context_paths`** (`runners/f_candidate.py`) from the pinned SHA on
+  top of the existing target-path / F3-causal-layer logic.
+- **Overlay-disjointness invariant** (`runners/f_candidate.py`, `tests/runners/test_f_overlay_disjoint.py`):
+  new pure predicate `seeded_held_out_disjoint` (reuses `tools/code_world.prefix_collision`, not
+  reimplemented) + a §10.4 unit test asserting, for every F task's `NodeExecutionSpec(s)`, that
+  seeded (candidate-visible) paths are disjoint from held-out oracle paths — so enrichment can never
+  silently turn an arm's runs into `tree_collision`.
+
+## v0.2.3 — 2026-06-15
+
+### Added — F harness-factor ablation: arm-as-task + Factor P (harness-rounds-f-ablation step 3)
+
+- **12 F task-arms** (`datasets/f_tasks.py`): new `build_f_task_arms` fans each of the 3 base F
+  tasks into 4 arms (`bare`/`prompt`/`feedback`/`both`) as **distinct `task_id`s** (the M2
+  arm-as-task pattern), so the ablation rides the data model the codebase already has — **no**
+  `arm_id`, `ArmDef`, `tool_set_hash`, `ConditionDef`/`ExperimentSpec`, or report-join change. The
+  four arms of a base share one held-out `VerificationSpec` (same object) and byte-identical
+  tree-driving `initial_state`, differing only by `factor_p`/`factor_v` flags and `available_tools`.
+  Each arm carries the 40-round ablation `metadata.max_rounds` (resolvable via `resolve_max_rounds`).
+- **Factor P** (`runners/f_candidate.py`): a discrete, attributable `_FACTOR_P_BLOCK` (context-
+  gathering nudges; "visible tests" vocabulary) appended to `_EDIT_SYSTEM` inside `make_edit_task`,
+  gated by `initial_state["factor_p"]` — applied to `prompt`/`both` arms only.
+- **Factor V tool surface** (deferred executor): `feedback`/`both` arms declare the `run_tests`
+  tool; the sandboxed executor is item 005, so `make_f_run_fn` raises `NotImplementedError` if a V
+  arm is driven live — `bare`/`prompt` stay fully runnable.
+
+### Changed
+
+- **Task-scoped `run_uid`** (`runners/f_candidate.py`, `records/trajectory.py`): F `run_uid` is now
+  `{condition_id}__{task_id}__{run_index:04d}` (was the `__f__` literal), so 12 task-arms sharing a
+  condition's run space cannot collide.
+
+### Fixed
+
+- **F3 candidate-tree dispatch** (`runners/f_candidate.py`): `build_candidate_tree` now matches the
+  armed F3 ids (`f-f3-*`), not just the bare `f-f3`, so armed F3 arms get the failure-analysis causal
+  layer instead of silently falling through to the prefix tree (would have produced corrupt 0-scores).
+- **`ruff check` clean** over the whole repo: wrapped two pre-existing long-line lint errors
+  (`tests/runners/test_dset_run.py`, `tests/runners/test_loop.py`) so CI's `ruff check .` passes.
+
+## v0.2.2 — 2026-06-15
+
+### Added — per-domain `max_rounds` turn-bound + recorded policy fields (harness-rounds-f-ablation step 2)
+
+- **`max_rounds` turn-bound** (`runners/loop.py`): `run_single` gains `max_rounds: int | None`
+  (default `None` ⇒ unchanged), checked at the **end** of each iteration beside `safety_cap` so the
+  turn's work is kept; a `max_rounds` stop means the model was still editing at the cap. New
+  `"max_rounds"` `stop_reason` literal. A round-capped run on an unhealthy post-probe now correctly
+  records `env_unhealthy` (validity mask). `safety_cap` is demoted to a backstop; the runner-level
+  `max_steps` argument is superseded (ADR-0017).
+- **Recorded policy on every trajectory** (`records/trajectory.py`, `records/serialize.py`):
+  `Trajectory` gains `max_rounds`, `safety_cap`, `max_rounds_bound`, all round-tripped with safe
+  defaults so any artifact proves whether it ran at 20 or 40.
+- **Per-domain config** (`runners/round_budget.py`): default `max_rounds = {"F": 20, "D": 50}` with a
+  per-task `metadata.max_rounds` override (task > domain; non-positive rejected). Threaded into
+  `make_f_run_fn` and `dset_run` (which now records the configured `safety_cap`); B is config-only.
+- **Aggregation split** (`experiments/aggregate.py`, §D.3): resource use (tokens/cost) summed over
+  all runs incl. capped; time-to-completion (rounds/wall-time) right-censored; `n_censored` now counts
+  `safety_cap_bound OR max_rounds_bound`.
+- Retires the item-001 carry-forwards: serialize round-trips `max_rounds_bound` (CF1) and the censor /
+  classifier now read it via direct attribute access (CF2).
+
+## v0.2.1 — 2026-06-15
+
+### Changed — fc-v4 classifier + pass^k censoring (harness-rounds-f-ablation step 1)
+
+- **Classifier `fc-v3 → fc-v4`** (`reports/classify.py`): `first_execution_evidence` now accepts a
+  `node_execution` grader leg so failing node-F runs classify as `agent_failure / oracle_red` instead
+  of the catch-all `other_miss`; the budget override fires on the loop's real stop reasons
+  (`max_steps` + `safety_cap` + `max_rounds`); the row-1 `passed` short-circuit is guarded with
+  `and not cap_bound` so a graded-passed-but-budget-capped run classifies as the new
+  `agent_failure / budget_exhausted` subcategory (closed vocabulary 19 → 20). ADR-0013 amended.
+- **`pass^k` honors its declared `censoring_policy="failure"`** (`metrics/reliability.py`):
+  `pass_pow_k` / `task_reliability` (and the bootstrap-CI + Fisher-F paths that route through them)
+  count a run as a pass iff `grade.passed AND NOT (safety_cap_bound OR max_rounds_bound)`;
+  `max_rounds_bound` is read defensively (the producing field lands in a later step). Verified to move
+  **zero** historical pass^k numbers (no committed record is `passed AND capped`); only taxonomy
+  outputs move (e.g. `other_miss → oracle_red`), as intended.
+
 ## v0.2.0 — 2026-06-15
 
 ### Added — D-set resume: interrupted runs continue without re-running banked tasks

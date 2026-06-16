@@ -1,4 +1,4 @@
-"""Pure, total fc-v3 failure classification (ADR-0013): derived, never stored.
+"""Pure, total fc-v4 failure classification (ADR-0013): derived, never stored.
 
 Maps every graded RunResult to exactly one of passed | task_failure |
 agent_failure | harness_failure | environment_failure plus one closed
@@ -32,6 +32,22 @@ fc-v3 changes from fc-v2
   ``runner_flagged``. Env-free (F-set) runs and all legacy v1 artifacts are
   unaffected (``stop_reason != "env_unhealthy"`` → ``_classify_environment``
   returns None → fc-v2 chain runs unchanged). Pure/total/versioned (ADR-0013).
+
+fc-v4 changes from fc-v3
+-------------------------
+- ``node_execution`` leaf: ``first_execution_evidence`` now matches the
+  ``"node_execution"`` grader_id (the F-set node oracle, same evidence shape as
+  ``"execution"``), so a failing node-F run classifies as ``agent_failure /
+  oracle_red`` instead of the catch-all ``other_miss`` (Part E.1).
+- ``budget_exhausted`` (agent_failure): a NEW subcategory for runs that hit a
+  budget cap — ``stop_reason in {safety_cap, max_rounds}`` or the
+  ``safety_cap_bound`` / ``max_rounds_bound`` flags. It outranks the row-1
+  ``passed`` short-circuit (a graded-pass that was capped is NOT a reliable
+  pass — consistent with §D.1) and the oracle-status rows. Legacy ``max_steps``
+  keeps its ``step_exhaustion`` bucket (a truncation, not a budget cap).
+  ``max_rounds_bound`` is read via direct attribute access on the Trajectory
+  dataclass (a real field as of item 002); old records without the field are
+  unaffected via the dataclass default False (Part E.2/E.3).
 """
 
 from collections.abc import Mapping, Sequence
@@ -41,7 +57,7 @@ from typing import Any, Literal
 from agent_eval_lab.records.grade import RunResult
 from agent_eval_lab.records.trajectory import NO_CHOICES_ERROR, PROVIDER_ERROR
 
-CLASSIFIER_VERSION = "fc-v3"
+CLASSIFIER_VERSION = "fc-v4"
 
 Category = Literal[
     "passed",
@@ -51,9 +67,9 @@ Category = Literal[
     "environment_failure",  # fc-v3: env-validity failure (D21), peer to the rest
 ]
 
-# Closed at 19 values (fc-v3 adds pre_probe_failed, post_probe_failed,
-# runner_flagged); versioned with the classifier.  Downstream Weeks 9-10
-# mining joins on (classifier_version, category, subcategory) (ADR-0013).
+# Closed at 20 values (fc-v4 adds budget_exhausted; fc-v3 added pre_probe_failed,
+# post_probe_failed, runner_flagged); versioned with the classifier.  Downstream
+# Weeks 9-10 mining joins on (classifier_version, category, subcategory) (ADR-0013).
 Subcategory = Literal[
     "provider_response",
     "malformed_reply",
@@ -67,6 +83,7 @@ Subcategory = Literal[
     "forbidden_action",
     "step_limit_exceeded",
     "step_exhaustion",
+    "budget_exhausted",  # fc-v4: run hit a budget cap (safety_cap / max_rounds)
     "oracle_timeout",
     "oracle_red",
     "oracle_error",
@@ -101,17 +118,36 @@ def _classification(
     )
 
 
+_CAP_STOP_REASONS = frozenset({"safety_cap", "max_rounds"})
+
+
+def _cap_bound(run: RunResult) -> bool:
+    """fc-v4: did the run hit a budget cap? (safety_cap / max_rounds, §D.1/§E).
+
+    Reads the safety_cap_bound and max_rounds_bound flags (both real Trajectory
+    fields as of item 002) and the two cap stop reasons. Legacy max_steps is a
+    TRUNCATION (step_exhaustion), NOT a budget cap (D2), so it is deliberately
+    excluded here.
+    """
+    traj = run.trajectory
+    return (
+        traj.safety_cap_bound
+        or traj.max_rounds_bound
+        or traj.stop_reason in _CAP_STOP_REASONS
+    )
+
+
 def first_execution_evidence(
     evidence: Mapping[str, Any], grader_id: object
 ) -> Mapping[str, Any] | None:
-    """The first execution leg's evidence, in declared order (grill Q9).
+    """The first execution leg's evidence, in declared order (grill Q9; fc-v4 node).
 
     Walks the plain dicts the JSONL round-trip yields: the grade's own
     evidence when it is the execution grader's, recursing `sub_results`
     entries (each a {"grader_id", "evidence", ...} dict) for all_of —
     including nested all_of, walked in declared order.
     """
-    if grader_id == "execution":
+    if grader_id in ("execution", "node_execution"):
         return evidence
     if grader_id != "all_of":
         return None
@@ -131,8 +167,9 @@ def first_execution_evidence(
 
 
 def classify_run(run: RunResult) -> RunClassification:
-    """fc-v3: priority-ordered, first-match-wins, total — never raises."""
-    if run.grade.passed:  # row 1 wins first, even over a recorded parse_failure
+    """fc-v4: priority-ordered, first-match-wins, total — never raises."""
+    cap_bound = _cap_bound(run)
+    if run.grade.passed and not cap_bound:  # row 1; fc-v4 E.3: capped ≠ "passed"
         return _classification("passed", None, "grade.passed")
     parse_failure = run.trajectory.parse_failure
     if run.trajectory.stop_reason == "parse_failure" and parse_failure is None:
@@ -153,7 +190,7 @@ def classify_run(run: RunResult) -> RunClassification:
     early = _classify_execution_evidence(exec_ev)  # rows 4-9
     if early is not None:
         return early
-    return _classify_grade_and_budget(run, exec_ev)  # rows 10-16
+    return _classify_grade_and_budget(run, exec_ev, cap_bound)  # rows 10-16
 
 
 def _classify_environment(run: RunResult) -> RunClassification | None:
@@ -284,7 +321,7 @@ _SUITE_STATUS_ROWS: Mapping[str, Subcategory] = {
 
 
 def _classify_grade_and_budget(
-    run: RunResult, exec_ev: Mapping[str, Any] | None
+    run: RunResult, exec_ev: Mapping[str, Any] | None, cap_bound: bool
 ) -> RunClassification:
     reason = run.grade.failure_reason
     if reason == "forbidden_action":  # row 10
@@ -296,6 +333,13 @@ def _classify_grade_and_budget(
             "agent_failure",
             "step_limit_exceeded",
             "failure_reason=step_limit_exceeded",
+        )
+    if cap_bound:  # fc-v4 E.2: budget cap (safety_cap / max_rounds) outranks oracle
+        return _classification(
+            "agent_failure",
+            "budget_exhausted",
+            f"budget cap hit (stop_reason={run.trajectory.stop_reason!r}, "
+            f"safety_cap_bound={run.trajectory.safety_cap_bound})",
         )
     if run.trajectory.stop_reason == "max_steps":  # row 12 outranks rows 13-15
         return _classification(

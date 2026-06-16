@@ -81,3 +81,41 @@ classifier version bump. fc-v2 (`reports/classify.py`, `CLASSIFIER_VERSION =
 All committed run artifacts from the coding-agent-eval slice were re-rendered
 under fc-v2; the Weeks 3-4 workspace-world reports are unaffected (no
 `max_tokens` field, no execution grading, no path that reaches the None-guard).
+
+## fc-v4 amendment (2026-06-15)
+
+The harness-rounds/F-ablation phase (design 2026-06-15) requires two declared-
+but-unenforced contracts to be honoured in the reporting layer, mandating a
+classifier version bump (item 001). fc-v4 (`reports/classify.py`,
+`CLASSIFIER_VERSION = "fc-v4"`) changes exactly three rows relative to fc-v3 and
+adds one closed-vocabulary value:
+
+- **`node_execution` leaf fix (Row E.1):** `first_execution_evidence` now
+  matches the `"node_execution"` grader_id, not only `"execution"`. The F-set
+  node oracle (`graders/node_execution.py`) emits the identical evidence shape
+  (`execution`/`status`/`counts`), so a failing node-F run now classifies as
+  `agent_failure / oracle_red` instead of the catch-all `other_miss`. Verified
+  against a real failing node-F record's evidence shape.
+- **New subcategory `budget_exhausted` (agent_failure) (Rows E.2/E.3):** a run
+  that hit a budget cap — `stop_reason in {safety_cap, max_rounds}` or the
+  `safety_cap_bound` / `max_rounds_bound` flags — classifies as
+  `agent_failure / budget_exhausted`. It guards the row-1 `passed`
+  short-circuit (a graded-pass that was capped is NOT a reliable pass,
+  consistent with the §D.1 `pass^k` censor) and outranks the oracle-status rows.
+  `max_rounds_bound` is read defensively (default `False`); it arrives on the
+  trajectory record in item 002, so item 001 lands standalone and every existing
+  record (which lacks the field) is unaffected. The closed `Subcategory`
+  vocabulary grows 19 → 20.
+- **Legacy `max_steps` is unchanged:** it keeps its `step_exhaustion` bucket. A
+  `max_steps` stop is a *turn truncation* (the loop hard-stopped mid-turn),
+  semantically distinct from an end-of-round *budget cap*; the documented fc-v1
+  judgment row ("`max_steps` outranks oracle statuses") still holds.
+
+Re-rendering the committed M1 reports under fc-v4 moves taxonomy outputs (failing
+node-F runs leave `other_miss`; any cap-bound run enters `budget_exhausted`) but
+moves **zero `pass^k` numbers**: of the committed historical records, none both
+graded-passed and were budget-capped (proven by
+`tests/metrics/test_reliability_historical.py`). The Weeks 3-4 / code-repair
+workspace-world reports are unaffected (no `node_execution` grader, no cap-bound
+runs). Downstream mining keeps joining on
+`(classifier_version, category, subcategory)`.

@@ -21,6 +21,10 @@ from agent_eval_lab.records.execution import (
     ExecutionResult,
     execution_result_to_dict,
 )
+from agent_eval_lab.records.node_feedback import (
+    NodeFeedbackResult,
+    node_feedback_result_to_dict,
+)
 from agent_eval_lab.records.trajectory import (
     NO_CHOICES_ERROR,
     PROVIDER_ERROR,
@@ -45,12 +49,16 @@ from agent_eval_lab.tools.workspace import ToolDef, apply
 
 Effect = ExecutionRequest | BashRequest
 ApplyFn = Callable[..., tuple[Mapping[str, Any], "ToolOutcome | Effect"]]
-Executor = Callable[["Effect"], "ExecutionResult | BashResult"]
+Executor = Callable[["Effect"], "ExecutionResult | BashResult | NodeFeedbackResult"]
 
 
-def _serialize_effect_result(result: "ExecutionResult | BashResult") -> dict:
+def _serialize_effect_result(
+    result: "ExecutionResult | BashResult | NodeFeedbackResult",
+) -> dict:
     if isinstance(result, BashResult):
         return bash_result_to_dict(result)
+    if isinstance(result, NodeFeedbackResult):
+        return node_feedback_result_to_dict(result)
     return execution_result_to_dict(result)
 
 
@@ -91,6 +99,7 @@ def run_single(
     executor: Executor | None = None,
     run_uid: str | None = None,
     safety_cap: int = 200,
+    max_rounds: int | None = None,
     health_probe_fn: "Callable[[], EnvHealth] | None" = None,
 ) -> Trajectory:
     state = dict(task.initial_state or {})
@@ -109,6 +118,7 @@ def run_single(
     parse_failure: ParseFailure | None = None
     stop_reason = "completed_natural"
     safety_cap_bound = False
+    max_rounds_bound = False
 
     # Health probe (pre)
     pre_health = health_probe_fn() if health_probe_fn is not None else None
@@ -179,6 +189,10 @@ def run_single(
             stop_reason = "safety_cap"
             safety_cap_bound = True
             break
+        if max_rounds is not None and rounds >= max_rounds:
+            stop_reason = "max_rounds"
+            max_rounds_bound = True
+            break
 
     # Health probe (post)
     post_health = health_probe_fn() if health_probe_fn is not None else None
@@ -192,6 +206,7 @@ def run_single(
         if not post_health.post_healthy and stop_reason in (
             "completed_natural",
             "safety_cap",
+            "max_rounds",
         ):
             stop_reason = "env_unhealthy"
     else:
@@ -213,6 +228,9 @@ def run_single(
         wall_time_s=latency_s,
         tool_call_counts=tool_call_counts,
         safety_cap_bound=safety_cap_bound,
+        max_rounds=max_rounds,
+        safety_cap=safety_cap,
+        max_rounds_bound=max_rounds_bound,
         env_health=env_health,
         run_uid=run_uid,
     )

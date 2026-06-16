@@ -123,6 +123,9 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
         "wall_time_s": trajectory.wall_time_s,
         "tool_call_counts": dict(trajectory.tool_call_counts),
         "safety_cap_bound": trajectory.safety_cap_bound,
+        "max_rounds": trajectory.max_rounds,
+        "safety_cap": trajectory.safety_cap,
+        "max_rounds_bound": trajectory.max_rounds_bound,
         "env_health": (
             None
             if trajectory.env_health is None
@@ -176,6 +179,9 @@ def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
         wall_time_s=data.get("wall_time_s", 0.0),
         tool_call_counts=data.get("tool_call_counts", {}),
         safety_cap_bound=data.get("safety_cap_bound", False),
+        max_rounds=data.get("max_rounds"),
+        safety_cap=data.get("safety_cap"),
+        max_rounds_bound=data.get("max_rounds_bound", False),
         env_health=(None if env_health is None else env_health_from_dict(env_health)),
         run_uid=data.get("run_uid"),
     )

@@ -269,7 +269,7 @@ def test_sections_render_in_spec_order() -> None:
         "## Per-condition reliability",
         "## Per-tier pass^3",
         "## Per-capability pass^3",
-        "## Failure classification (fc-v3)",
+        "## Failure classification (fc-v4)",
         "## Task-defect candidates",
         "## Cost and latency",
         "## Context: prior baselines (workspace_tool_use v1/v2)",

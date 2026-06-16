@@ -105,7 +105,7 @@ def test_spec_hash_and_provenance_carried():
     )
     assert report.spec_hash == spec.spec_hash
     assert report.dataset_snapshot_hash == "ds"
-    assert report.classifier_version == "fc-v3"
+    assert report.classifier_version == "fc-v4"
 
 
 def test_deterministic_for_same_inputs():

@@ -1,0 +1,155 @@
+# PROGRESS — harness-rounds-f-ablation (infra)
+
+Mode: backlog · Project type: non-web · PR shape: A · Feature branch: `autodev/harness-rounds-f-ablation-feature`
+
+Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused gate
+
+| id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
+|----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-001` | ✅ `2fd47fb` | ✅ `items/001-drift.md` | ✅ [#26](https://github.com/snowshine0216/agent-eval-lab/pull/26) | ✅ `items/001-verify.md` | ✅ `items/001-review.md` PASS-WITH-NITS | ✅ `items/001-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds | ✅ `a2a4be1` |
+| 002 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-002` | ✅ `7a5e822` | ✅ `items/002-drift.md` | ✅ [#27](https://github.com/snowshine0216/agent-eval-lab/pull/27) | ✅ `items/002-verify.md` | ✅ `items/002-review.md` PASS-WITH-NITS (1 fix round) | ✅ `items/002-pr-review.md` PASS-WITH-NITS | ✅ 1 round | ✅ `420cc69` |
+| 003 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-003` | ✅ `d43f5e1` | ✅ `items/003-drift.md` | ✅ [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28) | ✅ `items/003-verify.md` | ✅ `items/003-review.md` PASS-WITH-NITS (pre-push fix round) | ✅ `items/003-pr-review.md` PASS-WITH-NITS | ✅ 1 round (2 nits) | ✅ `40e4f26` |
+| 004 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-004` | ✅ `a8c1ec5` | ✅ `items/004-drift.md` | ✅ [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29) | ✅ `items/004-verify.md` | ✅ `items/004-review.md` PASS-WITH-NITS (2 fixed pre-push) | ✅ `items/004-pr-review.md` PASS-WITH-NITS | ✅ 0 rounds (2 nits accepted) | ✅ `51a422a` |
+| 005 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-005` | ✅ `e6c282e` | ✅ `items/005-drift.md` | ✅ [#30](https://github.com/snowshine0216/agent-eval-lab/pull/30) | ✅ `items/005-verify.md` | ✅ `items/005-review.md` PASS-WITH-NITS (security: 4 fixed pre-push, 0 P0 escape) | ✅ `items/005-pr-review.md` PASS-WITH-NITS (no new security hole) | ✅ 0 rounds (4 nits accepted) | ✅ `c837cde` |
+| 006 | ✅ | ⏭️ | ✅ | ✅ `claude/harness-rounds-f-ablation-006` | ✅ `da5c966` | ✅ `items/006-drift.md` | ✅ [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31) | ✅ `items/006-verify.md` | ✅ `items/006-review.md` PASS-WITH-NITS (crash-safety + honesty fixed pre-push, 0 accidental spend) | ✅ `items/006-pr-review.md` PASS-WITH-NITS (reviewed via gh pr diff — no connector) | ✅ 0 rounds (3 nits accepted) | ✅ `0b83ebf` |
+
+**Column note:** this is a **non-web** run, so the post-ship XOR resolves to **verify** (no `qa`
+column). `grill` is ⏭️ for every item per the user's authoring override (MASTER-PLAN.md). `spec` is
+authored by extraction (brainstorming subagent skipped) — ✅ means the extract exists with
+Goal + Acceptance.
+
+## ⏸ PAUSED at 2/6 — resume guide (next session)
+
+**Status:** items 001 + 002 merged into the feature branch; items **003–006 not started**. Paused at
+the user's request (2026-06-15) to resume in a fresh session. Feature branch is clean, green
+(1021 passed / 17 skipped), pushed; no leftover (secret + stray `learning/` removed & gitignored).
+
+**To resume** (the run is resumable from disk — `.autodev-current` points here):
+1. `git switch autodev/harness-rounds-f-ablation-feature && git pull` (head was `b69e403`).
+2. Re-invoke `/autodev docs/2026-06-15-harness-rounds-f-ablation` (or continue manually). Mode=backlog,
+   non-web, PR shape A, skip brainstorm+grill per the original user override (see MASTER-PLAN.md).
+3. Next item = **003** (Arm-as-task + Factor P). Then 004 (tree enrichment), 005 (V seatbelt sandbox —
+   security-sensitive, macOS-only), 006 (run-f-ablation driver + frozen f_ablation_spec). Item order
+   is locked in MASTER-PLAN.md from design Part G. Step-6 paid execution + step-7 report stay OUT
+   (SKIPPED.md).
+4. Per-item loop: extract spec → Opus plan → branch `claude/harness-rounds-f-ablation-00N` → Sonnet
+   impl → drift → /ship (base=feature, **stage only own files — no broad `git add`**) → /verify +
+   /code-review → fix → squash-merge → sync local feature.
+5. **Carry-forward into item 003+ planning:** none open from 002 (CF1/CF2 retired). Watch the F
+   resolver-bypass note (002-review.md) — item 003 introduces F task-arms, so revisit whether per-task
+   F `max_rounds` should route through `resolve_max_rounds`.
+
+**⚠️ Action for the user:** rotate the OpenRouter API key that was in `.env.bak.1781491343` (push
+protection blocked it; never reached GitHub, but it was committed locally then purged).
+
+## Item titles
+- **001** — fc-v4 classifier + pass^k censoring + re-emit reports (Part G step 1)
+- **002** — `max_rounds` plumbing + recorded policy fields (Part G step 2)
+- **003** — Arm-as-task + Factor P (Part G step 3)
+- **004** — Candidate-tree enrichment + visible/held-out curation (Part G step 4)
+- **005** — Factor V confined-execution sandbox (Part G step 5)
+- **006** — `run-f-ablation` driver + freeze `f_ablation_spec` (Part G step 6, code only)
+
+## Run-level (Phase 3)
+| gate | status |
+|------|--------|
+| run-doc-sync | ✅ `run-doc-sync.md` PASS |
+| run-final-verify | ✅ `run-final-verify.md` PASS |
+| run-close-out | ✅ feature→main PR [#32](https://github.com/snowshine0216/agent-eval-lab/pull/32) opened (not merged) |
+
+## Log
+- 2026-06-15 — **Item 006 MERGED** (PR [#31](https://github.com/snowshine0216/agent-eval-lab/pull/31)
+  squash → `0b83ebf`). run-f-ablation driver + frozen f_ablation_spec (CODE ONLY): pure seeded
+  `ablation_run_order` (240 units, arms interleaved per block), frozen `f_ablation_spec` + separate
+  `AblationPolicy` hash (M1 untouched), `run-f-ablation` CLI driver (one artifact/condition +
+  realized-order sidecar, --dry-run, injected run_fn). v0.2.6; 1095 green. **No accidental paid
+  execution** (3 reviewers + CLEAN adversarial). Ship review caught a latent defect (driver lost all
+  240 paid results on a mid-run error) → fixed pre-push (`2728c95`): crash-safe streaming +
+  upfront task_id-coverage check + atomic sidecar + honest `correction="none"`. **6/6 items MERGED →
+  proceeding to Phase 3** (run-doc-sync, run-final-verify, close-out, feature→main PR). The paid pilot
+  + full 240-attempt run + the descriptive report stay OUT (SKIPPED.md) — user triggers via this driver.
+- 2026-06-15 — **Item 005 MERGED** (PR [#30](https://github.com/snowshine0216/agent-eval-lab/pull/30)
+  squash → `c837cde`). Factor V confined-execution seatbelt sandbox: `runners/sandboxed_node_edge.py`
+  (deny-default + enumerated read-allowlist + deny-network + write-in-tree), `make_authored_test_executor`
+  (fixed `node --test tests/authored/`), Darwin-gated routing in `make_f_run_fn`, distinct
+  `NodeFeedbackResult` + tail-aware rendering, V-specific ToolDef; oracle path + `truncate_output`
+  byte-identical. v0.2.5; 1074 green. **Security review = 15 adversarial vectors, 0 P0 escape** (all
+  golden-read/network-exfil BLOCKED, empirically on this macOS host); 4 hardening fixes pre-push
+  (scoped file-read-metadata size-oracle, NODE_BIN guard, inline `-p`, infra-error handling); pr-review
+  found no new hole. ADR-0016. **Resume next = item 006** (run-f-ablation driver + frozen f_ablation_spec,
+  code only — NO paid run). ⚠️ Two user parallel-work artifacts preserved on disk (untracked/unstaged):
+  the m1-report-enhancement draft + a CONTEXT.md "out-of-scope edit" glossary diff — see the excision note below.
+- 2026-06-15 — ⚠️ **Stray commit excised from 005 branch.** An unrelated draft
+  `docs/superpowers/specs/2026-06-15-m1-report-enhancement-design.md` (commit `ec1cbe7`, the user's
+  git identity, "M1 report enhancement — awaiting owner review") landed mid-branch (between the 005
+  impl-PROGRESS and drift commits) — NOT authored by autodev and not part of item 005. To keep the
+  005 PR scoped, it was rebased out of the branch (`git rebase --onto ec1cbe7^ ec1cbe7`, branch was
+  local-only/unpushed) and **the draft restored to disk untracked** (preserved, lost nothing; also in
+  git history at `ec1cbe7` + /tmp backup). **User action:** commit that draft wherever you intend it
+  (it is NOT in any branch now). drift verdict commit replayed as `99e9c4b`.
+- 2026-06-15 — **Item 004 MERGED** (PR [#29](https://github.com/snowshine0216/agent-eval-lab/pull/29)
+  squash → `51a422a`). Candidate-tree enrichment + overlay-disjointness: curated `context_paths` on
+  the 12 ablation arms (F1 waitFor* siblings, F2 analyzeFailure source, F3 none — held-out goldens +
+  split-asserting tests excluded), `build_candidate_tree` seeds them, pure `seeded_held_out_disjoint`
+  (reuses `prefix_collision`) + §10.4 invariant test over every F NodeExecutionSpec. v0.2.4; 1046
+  green; repo-gated tree tests pass locally (all 15 F tasks disjoint). Ship review: 0 P0, 2 P1 fixed
+  pre-push; F2-source-readable + CI-skip-of-repo-test accepted by design. pr-review PASS-WITH-NITS
+  (2 cosmetic, accepted). **Resume next = item 005** (Factor V confined-execution sandbox — macOS-only,
+  security-sensitive, ADR-0016).
+- 2026-06-15 — **Item 003 MERGED** (PR [#28](https://github.com/snowshine0216/agent-eval-lab/pull/28)
+  squash → `40e4f26`). Arm-as-task + Factor P: 12 F task-arms (3×4) as distinct `task_id`s (M2
+  pattern), Factor-P prompt block in `make_edit_task` (gated by `initial_state["factor_p"]`),
+  task-scoped `run_uid`; V tool surface declared with executor deferred to 005 (NotImplementedError
+  live-guard); no `arm_id`/spec change (frozen M1 specs still verify). v0.2.3; 1033 tests green;
+  ruff check+format clean whole-repo. **Ship steps 8+9 caught a latent P0** (`build_candidate_tree`
+  F3 dispatch missed armed ids → would corrupt F3 arm scores) + CI-red `ruff check` on new tests
+  (and 2 pre-existing E501s from 002) → fixed pre-push (`8900c1f`). pr-review PASS-WITH-NITS (4 nits;
+  2 fixed, 2 accepted). **Resume next = item 004** (candidate-tree enrichment + overlay-disjointness).
+- 2026-06-15 — **Resumed** from pause (fresh session). Items 003–006 picked up; 003 done.
+- 2026-06-15 — **PAUSED at 2/6 per user.** Feature branch `autodev/harness-rounds-f-ablation-feature`
+  clean + green (1021 passed) at `b69e403`, left open (NOT merged to main — only 2/6 done, no opt-in).
+  Untracked + gitignored stray `learning/` study artifacts swept in by a broad `git add`. Resume guide
+  above. Items 003–006 not started.
+- 2026-06-15 — Intake: mode=backlog, non-web, PR shape A. User-locked scope (infra, steps 1–6 code;
+  paid run + report deferred) and authoring (skip brainstorm+grill). Synthesized feature branch
+  `autodev/harness-rounds-f-ablation-feature` off `main` (main protected, no opt-in). Design
+  artifacts (spec, ADR-0016, ADR-0017, CONTEXT.md glossary, uv.lock version sync) committed as run setup.
+- 2026-06-15 — **Item 002 MERGED** (PR #27 squash → `420cc69`). max_rounds turn-bound + recorded
+  policy fields; v0.2.2; 1021 tests green; CF1/CF2 retired. Review found+fixed 2 latent bugs (dset_run
+  safety_cap thread; env_unhealthy override incl. max_rounds) in 1 fix round; pr-review PASS-WITH-NITS.
+  ⚠️ **SECURITY:** impl step's broad `git add` swept `.env.bak.1781491343` (OpenRouter key) into a
+  commit; **push protection blocked it — never reached GitHub**; branch history rewritten to purge it;
+  `.env.bak*`/`*.bak` gitignored. **User should rotate that OpenRouter key.** For items 003–006, impl
+  subagents instructed to stage only their own files (no broad `git add`).
+- 2026-06-15 — **Item 001 MERGED** (PR #26 squash → `a2a4be1`). fc-v4 classifier + pass^k censoring;
+  993 tests green; 0 pass^k moves verified; v0.2.1. Review PASS-WITH-NITS, verify PASS, pr-review
+  PASS-WITH-NITS, fix 0 rounds. **Carry-forward to 002:** serialize.py must round-trip
+  `max_rounds_bound` (else capped runs silently deserialize uncapped) + swap defensive `getattr` for a
+  real field (CF1/CF2 in `items/001-review.md`).
+
+## Final status block (filled at close-out)
+- **Run complete: 6/6 IN items MERGED** into the feature branch (Part G steps 1–6, infra/code).
+  001 #26 `a2a4be1` · 002 #27 `420cc69` · 003 #28 `40e4f26` · 004 #29 `51a422a` · 005 #30 `c837cde` ·
+  006 #31 `0b83ebf`. Final feature head: `1eca397` (+ this close-out commit). v0.2.6.
+- Feature branch: `autodev/harness-rounds-f-ablation-feature`
+- **Feature-branch PR: [#32](https://github.com/snowshine0216/agent-eval-lab/pull/32)** (feature→`main`, **opened, NOT merged** — review surface)
+- Merged into protected branch: **no** (PR left open for user review; `main` protected, no opt-in)
+- **Phase 3:** workflow-completeness audit PASS (6/6 ship+drift+verify+review+pr-review; grill ⏭️ per
+  user authoring override; qa=0 non-web XOR; all verdict markers valid) · doc-sync PASS · final-verify
+  PASS · cross-branch diff additive-only (no deletions) · suite 1095 passed / 18 skipped / 0 failed ·
+  ruff clean.
+- **SKIPPED (OUT-scope, deferred — see SKIPPED.md):** step-6 *execution* (pilot ≈24 + full 240-attempt
+  paid run; trigger via `run-f-ablation`), step-7 descriptive report, Part F held-out F4–F6.
+- **Notable in-flow fixes:** 003 latent-P0 F3 dispatch + CI-red ruff; 005 sandbox metadata-oracle +
+  NODE_BIN injection (15 adversarial escape vectors all blocked); 006 paid-run driver crash-safety.
+
+### ⚠️ User action items
+- **Rotate the OpenRouter API key** that was in `.env.bak.1781491343` (item-002 incident; push
+  protection blocked it — never reached GitHub, but committed locally then purged).
+- **Your parallel worktree edits during this run** were preserved, never staged into any autodev PR:
+  - `docs/superpowers/specs/2026-06-15-m1-report-enhancement-design.md` (your draft; rebased off the
+    005 branch, left untracked on disk; backup `/tmp/m1-report-enhancement-design.md`).
+  - `src/agent_eval_lab/reports/validation.py` + `tests/reports/test_validation.py` (uncommitted,
+    self-consistent — restored after each merge-sync via stash; commit them where you intend).
+  - A CONTEXT.md "out-of-scope edit" glossary diff backup at `/tmp/context-out-of-scope-edit-glossary.diff`
+    (if your committed CONTEXT.md already has it, ignore).

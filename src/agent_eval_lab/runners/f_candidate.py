@@ -34,8 +34,17 @@ from agent_eval_lab.runners.f_run import CANDIDATE_BASE_SHA, prefix_candidate_tr
 from agent_eval_lab.runners.loop import run_single
 from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
 from agent_eval_lab.runners.node_oracle_edge import precompute_node_verdicts
+from agent_eval_lab.runners.sandboxed_node_edge import (
+    darwin_sandbox_available,
+    make_authored_test_executor,
+    node_install_paths,
+)
 from agent_eval_lab.tasks.schema import Task, TaskInput
-from agent_eval_lab.tools.code_world import CODE_WORLD_TOOLS
+from agent_eval_lab.tools.code_world import (
+    CODE_WORLD_TOOLS,
+    CODE_WORLD_TOOLS_V,
+    prefix_collision,
+)
 from agent_eval_lab.tools.code_world import apply as code_world_apply
 
 # The edit tools the candidate gets (a subset of code-world): inspect + edit only.
@@ -56,6 +65,22 @@ _EDIT_SYSTEM = (
     "write_file. Change ONLY what the task requires; leave every other file and "
     "layer untouched. Do not attempt to run tests. When the edit is complete, reply "
     "with a one-line summary and stop."
+)
+
+# Factor P — context-gathering prompt nudges (item 003 §B.3). A discrete,
+# attributable block appended to _EDIT_SYSTEM on the `prompt` and `both` arms
+# ONLY (gated by initial_state["factor_p"] in make_edit_task). Glossary: it says
+# "visible tests", never "public tests" (§11.4). bare/feedback keep the
+# unmodified _EDIT_SYSTEM.
+_FACTOR_P_BLOCK = (
+    "Before editing, gather context. Read the full body of any method that a call "
+    "or assertion you touch depends on — do not assume its contract from its name. "
+    "Before adding a method, read the sibling methods in the same file so your "
+    "addition matches their shape and conventions. Read the local conventions for "
+    "this layer (its README, config, or nearest CLAUDE.md) before you write. Read "
+    "the entire target file and the full set of visible tests that exercise it "
+    "before your first edit. Change only what the task requires; leave every other "
+    "file and layer untouched."
 )
 
 
@@ -104,27 +129,69 @@ def build_candidate_tree(task: Task, *, repo: Path) -> dict[str, str]:
 
     F1/F2 are self-contained in their target paths; F3 additionally needs the
     failure-analysis causal layer present so the held-out guard tests can run.
+
+    Ablation arms (item 004 §B.5) additionally carry `initial_state['context_paths']`
+    — a curated context set (siblings + readable source) materialized identically
+    across all four arms from the pinned SHA so Factor P's read-the-context directives
+    are non-vacuous. Production `build_f_tasks` sets no context_paths, so its trees
+    stay minimal. The held-out golden grading test is never seeded (D19); the
+    overlay-disjointness invariant (§10.4, seeded_held_out_disjoint) guarantees a
+    context path can never collide with a held-out path.
     """
-    if task.id == "f-f3":
+    if task.id == "f-f3" or task.id.startswith("f-f3-"):
         return _f3_candidate_tree(task, repo=repo)
-    return dict(prefix_candidate_tree(task, repo=repo))
+    tree = dict(prefix_candidate_tree(task, repo=repo))
+    # prefix_candidate_tree already asserted initial_state is not None, so a direct
+    # read here is safe; a future None becomes a loud AttributeError rather than a
+    # silent un-enriched arm (house style — cf. 002 CF2). Production tasks have no
+    # context_paths key, so .get(...) correctly yields the minimal tree.
+    for rel in task.initial_state.get("context_paths", ()):
+        tree[rel] = _git_show(repo, rel)
+    return tree
+
+
+def seeded_held_out_disjoint(
+    seeded_paths: Sequence[str], held_out_files: Mapping[str, str]
+) -> bool:
+    """True iff no seeded (candidate-visible) path collides with any held-out
+    oracle path under `prefix_collision` (§10.4).
+
+    Pure. The held-out node oracle overlays `held_out_files` over the candidate
+    base tree at grade time; `overlay_node_oracle` raises NodeOverlayCollision ->
+    `tree_collision` error if a seeded path canonically prefix-collides with a
+    held-out path. Identical spellings are DISPLACEMENTS (overwrite allowed), not
+    collisions, so they are disjoint. Reuses the project's single collision
+    predicate (tools/code_world.prefix_collision) — never reimplemented."""
+    return not any(
+        prefix_collision(seeded, oracle)
+        for seeded in seeded_paths
+        for oracle in held_out_files
+    )
 
 
 def make_edit_task(task: Task, *, base_tree: Mapping[str, str]) -> Task:
     """Recast an F task as a code-world edit task: swap the prose `bash` tool for
     the pure file-edit tools and seed the produced tree into `files`. The held-out
-    verification and task identity are preserved verbatim."""
+    verification and task identity are preserved verbatim.
+
+    Factor P (item 003 §B.3): if initial_state["factor_p"] is truthy, append the
+    attributable _FACTOR_P_BLOCK to the rebuilt _EDIT_SYSTEM. Factor V (§B.2): if
+    initial_state["factor_v"] is truthy, additionally offer the run_tests tool name
+    (its executor is item 005 — make_f_run_fn binds executor=None and refuses to
+    drive a live V arm until then)."""
+    state = task.initial_state or {}
+    system = _EDIT_SYSTEM.format(tools=", ".join(F_EDIT_TOOL_NAMES))
+    if state.get("factor_p"):
+        system = f"{system}\n\n{_FACTOR_P_BLOCK}"
+    tools = F_EDIT_TOOL_NAMES + (("run_tests",) if state.get("factor_v") else ())
     user = next((m for m in task.input.messages if m.role == "user"), None)
-    messages = (
-        MessageTurn(
-            role="system",
-            content=_EDIT_SYSTEM.format(tools=", ".join(F_EDIT_TOOL_NAMES)),
-        ),
-    ) + ((user,) if user is not None else ())
-    initial_state = {**(task.initial_state or {}), "files": dict(base_tree)}
+    messages = (MessageTurn(role="system", content=system),) + (
+        (user,) if user is not None else ()
+    )
+    initial_state = {**state, "files": dict(base_tree)}
     return replace(
         task,
-        input=TaskInput(messages=messages, available_tools=F_EDIT_TOOL_NAMES),
+        input=TaskInput(messages=messages, available_tools=tools),
         initial_state=initial_state,
     )
 
@@ -137,23 +204,44 @@ def make_f_run_fn(
     max_tokens: int,
     condition_id: str,
     safety_cap: int = 60,
+    max_rounds: int | None = None,
 ) -> Callable[[Task, int], Trajectory]:
     """Build the per-attempt model driver for one arm: run the code-world edit
-    loop (no executor — the edit tools are pure; run_tests is not offered)."""
+    loop. A V arm is routed to the sandboxed `make_authored_test_executor` on
+    macOS; off-macOS real V execution is refused (macOS-local-only, §B.4).
+    bare/prompt stay executor=None + CODE_WORLD_TOOLS."""
 
     def run_fn(edit_task: Task, run_index: int) -> Trajectory:
+        is_v = bool((edit_task.initial_state or {}).get("factor_v"))
+        if is_v and not darwin_sandbox_available():
+            # Real Factor V execution is macOS-local-only by design (§B.4): the
+            # seatbelt confined-execution boundary is Darwin-only. On a non-macOS
+            # host (CI) we cannot run a real V arm; unit tests inject a fake
+            # executor instead. Refuse rather than silently run a no-op V loop.
+            raise NotImplementedError(
+                "Factor V real execution requires macOS + sandbox-exec "
+                f"(arm {edit_task.id!r}); CI injects a fake executor"
+            )
+        if is_v:
+            node_bin, node_dir = node_install_paths()
+            executor = make_authored_test_executor(node_bin=node_bin, node_dir=node_dir)
+            registry = CODE_WORLD_TOOLS_V
+        else:
+            executor = None
+            registry = CODE_WORLD_TOOLS
         return run_single(
             task=edit_task,
-            registry=CODE_WORLD_TOOLS,
+            registry=registry,
             config=config,
             http_client=http_client,
             run_index=run_index,
             temperature=temperature,
             max_tokens=max_tokens,
             apply_fn=code_world_apply,
-            executor=None,
-            run_uid=f"{condition_id}__f__{run_index:04d}",
+            executor=executor,
+            run_uid=f"{condition_id}__{edit_task.id}__{run_index:04d}",
             safety_cap=safety_cap,
+            max_rounds=max_rounds,
         )
 
     return run_fn
@@ -176,6 +264,17 @@ def _grade(task: Task, trajectory: Trajectory, *, condition_id: str, run_index: 
         trajectory=trajectory,
         grade=grade,
     )
+
+
+def grade_f_attempt(
+    task: Task, trajectory: Trajectory, *, condition_id: str, run_index: int
+) -> RunResult:
+    """Public grade for ONE F attempt — the held-out node oracle over the model's
+    produced tree, wrapped in a RunResult. Used by the 006 run-f-ablation driver,
+    which schedules attempts at (model × arm × rep) granularity and so cannot use
+    run_f_candidate (it drives whole tasks). Thin pass-through to _grade; no new
+    behavior."""
+    return _grade(task, trajectory, condition_id=condition_id, run_index=run_index)
 
 
 def run_f_candidate(

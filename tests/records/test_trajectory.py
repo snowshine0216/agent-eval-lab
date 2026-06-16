@@ -134,3 +134,26 @@ def test_v1_compat_preserves_legacy_max_steps_stop_reason() -> None:
     t = Trajectory.v1_compat(legacy)
     assert t.stop_reason == "max_steps"
     assert t.schema_version == "1"
+
+
+def test_trajectory_accepts_max_rounds_stop_reason() -> None:
+    assert _trajectory(stop_reason="max_rounds").stop_reason == "max_rounds"
+
+
+def test_trajectory_round_policy_fields_default_safely() -> None:
+    t = _trajectory(stop_reason="completed_natural")
+    assert t.max_rounds is None
+    assert t.safety_cap is None
+    assert t.max_rounds_bound is False
+
+
+def test_trajectory_records_round_policy_fields() -> None:
+    t = _trajectory(
+        stop_reason="max_rounds",
+        max_rounds=20,
+        safety_cap=200,
+        max_rounds_bound=True,
+    )
+    assert t.max_rounds == 20
+    assert t.safety_cap == 200
+    assert t.max_rounds_bound is True

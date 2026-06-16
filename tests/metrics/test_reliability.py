@@ -5,6 +5,8 @@ from agent_eval_lab.metrics.reliability import (
     mean_latency_s,
     pass_at_1,
     pass_pow_k,
+    pass_pow_k_bootstrap_ci,
+    task_reliability,
     token_totals,
 )
 from agent_eval_lab.records.grade import GradeResult, RunResult
@@ -16,6 +18,7 @@ def _run(
     run_index: int,
     passed: bool,
     failure_reason: str | None = None,
+    safety_cap_bound: bool = False,
 ) -> RunResult:
     return RunResult(
         task_id=task_id,
@@ -26,6 +29,7 @@ def _run(
             usage=Usage(prompt_tokens=100, completion_tokens=20, latency_s=0.5),
             run_index=run_index,
             stop_reason="completed",
+            safety_cap_bound=safety_cap_bound,
         ),
         grade=GradeResult(
             grader_id="ast_tool_match",
@@ -190,3 +194,89 @@ def test_pass_pow_k_by_tier_filters_results() -> None:
     assert by_tier["T1"] == pytest.approx(1.0)
     assert by_tier["T3"] == pytest.approx(0.5)
     assert "T2" not in by_tier  # tiers with no results are omitted
+
+
+def test_pass_pow_k_censors_a_capped_pass() -> None:
+    # Task X: both runs grade-passed, but one is safety_cap_bound → NOT reliable.
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    assert pass_pow_k(results) == 0.0
+
+
+def test_task_reliability_censors_a_capped_pass() -> None:
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    assert task_reliability(results) == {"x": False}
+
+
+def test_pass_pow_k_uncapped_all_pass_is_reliable() -> None:
+    results = (_run("x", 0, True), _run("x", 1, True))
+    assert pass_pow_k(results) == 1.0
+
+
+def test_bootstrap_ci_inherits_the_censor() -> None:
+    # A capped pass drags the point estimate to 0.0 through task_reliability.
+    results = (
+        _run("x", 0, True),
+        _run("x", 1, True, safety_cap_bound=True),
+    )
+    ci = pass_pow_k_bootstrap_ci(results, n_resamples=200, seed=1, alpha=0.05)
+    assert ci.point == 0.0
+
+
+def test_max_rounds_bound_field_now_present_on_trajectory() -> None:
+    # item 002: max_rounds_bound is now a real Trajectory field (default False).
+    # This replaces the former "field absent" test — the field is always present.
+    results = (_run("x", 0, True), _run("x", 1, True))
+    assert hasattr(results[0].trajectory, "max_rounds_bound")
+    assert results[0].trajectory.max_rounds_bound is False
+    assert pass_pow_k(results) == 1.0
+
+
+def _run_with_max_rounds(*, passed: bool, max_rounds_bound: bool) -> RunResult:
+    from agent_eval_lab.records.turns import MessageTurn
+
+    traj = Trajectory(
+        turns=(MessageTurn(role="assistant", content="x"),),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="max_rounds" if max_rounds_bound else "completed_natural",
+        rounds=20,
+        max_rounds_bound=max_rounds_bound,
+    )
+    return RunResult(
+        task_id="t",
+        condition_id="c",
+        run_index=0,
+        trajectory=traj,
+        grade=GradeResult(
+            grader_id="g",
+            passed=passed,
+            score=1.0,
+            evidence={},
+        ),
+    )
+
+
+def test_graded_pass_but_max_rounds_capped_is_censored() -> None:
+    # A graded-correct-but-capped run is NOT a reliable pass^k pass (§D.1).
+    results = [_run_with_max_rounds(passed=True, max_rounds_bound=True)]
+    assert pass_pow_k(results) == 0.0
+
+
+def test_graded_pass_uncapped_passes() -> None:
+    results = [_run_with_max_rounds(passed=True, max_rounds_bound=False)]
+    assert pass_pow_k(results) == 1.0
+
+
+def test_comparisons_fisher_path_inherits_censor() -> None:
+    # comparisons.run_planned_comparisons computes the F (Fisher) success count
+    # from task_reliability — a capped pass must drop the success count to 0.
+    from agent_eval_lab.metrics.reliability import task_reliability as tr
+
+    capped = (_run("x", 0, True), _run("x", 1, True, safety_cap_bound=True))
+    assert sum(tr(capped).values()) == 0

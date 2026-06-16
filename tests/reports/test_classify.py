@@ -29,6 +29,7 @@ def _run(
     parse_error=None,
     completion_tokens=5,
     max_tokens=None,
+    safety_cap_bound=False,
 ) -> RunResult:
     """Synthetic RunResult mimicking the JSONL round-trip (plain dicts).
 
@@ -55,6 +56,7 @@ def _run(
             ),
             final_state={"files": {}},
             max_tokens=max_tokens,
+            safety_cap_bound=safety_cap_bound,
         ),
         grade=GradeResult(
             grader_id=grader_id,
@@ -303,9 +305,10 @@ def test_subcategory_vocabulary_is_closed_at_15() -> None:
 # fc-v2 additions ──────────────────────────────────────────────────────────────
 
 
-def test_classifier_version_is_fc_v3() -> None:
-    """The classifier version label is fc-v3 after the env_failure bump (item 001)."""
-    assert CLASSIFIER_VERSION == "fc-v3"
+def test_classifier_version_is_fc_v4() -> None:
+    """The classifier version label is fc-v4 after the budget_exhausted +
+    node_execution-leaf bump (item 001)."""
+    assert CLASSIFIER_VERSION == "fc-v4"
 
 
 def test_token_budget_exhausted_classification() -> None:
@@ -391,8 +394,8 @@ def _env_run(*, stop_reason="env_unhealthy", env_health=None, passed=False):
     )
 
 
-def test_fc_v3_version_label() -> None:
-    assert CLASSIFIER_VERSION == "fc-v3"
+def test_fc_v4_version_label() -> None:
+    assert CLASSIFIER_VERSION == "fc-v4"
 
 
 def test_environment_failure_is_a_category() -> None:
@@ -459,9 +462,10 @@ def test_env_check_runs_after_parse_but_before_execution_grading() -> None:
     assert c.category == "harness_failure"
 
 
-def test_subcategory_vocabulary_is_closed_at_19_after_fc_v3() -> None:
-    """fc-v3 adds pre_probe_failed | post_probe_failed | runner_flagged."""
-    assert len(get_args(Subcategory)) == 19
+def test_subcategory_vocabulary_is_closed_at_20_after_fc_v4() -> None:
+    """fc-v4 adds budget_exhausted (fc-v3 added the three env subcategories)."""
+    assert len(get_args(Subcategory)) == 20
+    assert "budget_exhausted" in get_args(Subcategory)
     for sub in ("pre_probe_failed", "post_probe_failed", "runner_flagged"):
         assert sub in get_args(Subcategory)
 
@@ -476,3 +480,119 @@ def test_provider_error_maps_to_harness_provider_response() -> None:
     c = classify_run(run)
     assert c.category == "harness_failure"
     assert c.subcategory == "provider_response"
+
+
+# fc-v4 Row E.1 — node_execution leaf fix ─────────────────────────────────────
+
+
+def _node_exec_run_evidence(status, counts=None):
+    # The node_execution grader emits the SAME evidence shape as the execution
+    # grader (graders/node_execution.py::_interpret).
+    return {
+        "execution": "run",
+        "status": status,
+        "exit_code": 1,
+        "counts": counts or {"passed": 1, "failed": 4, "errors": 0, "skipped": 0},
+        "tests": [],
+        "stdout": "",
+        "stderr": "",
+        "execution_hash": "h",
+        "displaced_paths": [],
+    }
+
+
+def test_e1_failing_node_execution_leg_is_oracle_red() -> None:
+    # Real node-F shape: top grade is all_of with one node_execution sub-result.
+    evidence = {
+        "sub_results": [
+            {
+                "grader_id": "node_execution",
+                "passed": False,
+                "failure_reason": None,
+                "evidence": _node_exec_run_evidence("failed"),
+            }
+        ]
+    }
+    run = _run(grader_id="all_of", evidence=evidence)
+    _is(classify_run(run), "agent_failure", "oracle_red")
+
+
+def test_e1_top_level_node_execution_grader_is_found() -> None:
+    # A top-level node_execution grade (not wrapped in all_of) is also matched.
+    run = _run(grader_id="node_execution", evidence=_node_exec_run_evidence("failed"))
+    _is(classify_run(run), "agent_failure", "oracle_red")
+
+
+def test_e1_first_execution_evidence_matches_node_execution() -> None:
+    ev = _node_exec_run_evidence("failed")
+    assert first_execution_evidence(ev, "node_execution") is ev
+
+
+# fc-v4 Rows E.2 + E.3 — budget-cap override + row-1 guard ──────────────────────
+
+
+def test_e3_passed_but_safety_cap_bound_is_budget_exhausted() -> None:
+    # Row-1 guard: a graded-pass that was budget-capped is NOT "passed".
+    run = _run(passed=True, safety_cap_bound=True)
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e3_passed_but_max_rounds_stop_is_budget_exhausted() -> None:
+    run = _run(passed=True, stop_reason="max_rounds")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_safety_cap_run_is_budget_exhausted() -> None:
+    # A failing run that hit the safety cap outranks its red oracle.
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="safety_cap")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_safety_cap_bound_flag_is_budget_exhausted() -> None:
+    run = _run(evidence=_exec_run_evidence("failed"), safety_cap_bound=True)
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_failing_max_rounds_run_is_budget_exhausted() -> None:
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="max_rounds")
+    _is(classify_run(run), "agent_failure", "budget_exhausted")
+
+
+def test_e2_legacy_max_steps_still_step_exhaustion() -> None:
+    # D2: legacy max_steps keeps its truncation bucket (backward compatible).
+    run = _run(evidence=_exec_run_evidence("failed"), stop_reason="max_steps")
+    _is(classify_run(run), "agent_failure", "step_exhaustion")
+
+
+def test_e3_passed_uncapped_still_passes() -> None:
+    _is(classify_run(_run(passed=True)), "passed", None)
+
+
+def test_passed_but_max_rounds_capped_classifies_budget_exhausted() -> None:
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.reports.classify import classify_run
+
+    traj = Trajectory(
+        turns=(MessageTurn(role="assistant", content="x"),),
+        usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.1),
+        run_index=0,
+        stop_reason="max_rounds",
+        rounds=20,
+        max_rounds_bound=True,
+    )
+    run = RunResult(
+        task_id="t",
+        condition_id="c",
+        run_index=0,
+        trajectory=traj,
+        grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
+    )
+    result = classify_run(run)
+    # budget_exhausted is a SUBCATEGORY under category "agent_failure"
+    # (classify.py: RunClassification has .category + .subcategory; fc-v4 row at
+    # _classify_grade_and_budget — a passed=True+cap_bound run falls through the
+    # row-1 guard `if run.grade.passed and not cap_bound` into the cap branch).
+    assert result.category == "agent_failure"
+    assert result.subcategory == "budget_exhausted"

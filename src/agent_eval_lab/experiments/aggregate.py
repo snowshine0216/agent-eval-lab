@@ -107,7 +107,8 @@ class EfficiencySummary:
     median_rounds: float
     total_tokens: int
     median_wall_time_s: float
-    n_censored: int  # valid runs with safety_cap_bound=True (right-censored, D35)
+    n_censored: int  # valid runs right-censored by a budget cap
+    # (safety_cap_bound OR max_rounds_bound, §D.3/D35)
     n_runs: int
 
 
@@ -122,11 +123,18 @@ def efficiency_summary(*, outcomes: Sequence[ReplacementOutcome]) -> EfficiencyS
             n_runs=0,
         )
     prompt, completion = token_totals(runs)
+    # §D.3 split: total_tokens is summed over ALL runs (resource is spent even on
+    # capped runs); median_rounds / median_wall_time_s are time-to-completion and
+    # are right-censored — they are LOWER BOUNDS once n_censored > 0.
     return EfficiencySummary(
         median_rounds=median(r.trajectory.rounds for r in runs),
         total_tokens=prompt + completion,
         median_wall_time_s=median(r.trajectory.wall_time_s for r in runs),
-        n_censored=sum(1 for r in runs if r.trajectory.safety_cap_bound),
+        n_censored=sum(
+            1
+            for r in runs
+            if r.trajectory.safety_cap_bound or r.trajectory.max_rounds_bound
+        ),
         n_runs=len(runs),
     )
 
