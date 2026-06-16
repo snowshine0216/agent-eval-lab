@@ -58,9 +58,23 @@ The subprocess must be vanilla Claude Code, not "Claude + the owner's setup":
 - No MCP servers configured for the subprocess.
 
 Model id: **`claude-sonnet-4-6`** (the owner's "sonnet6"; there is no "Sonnet 6").
-Auth: the subprocess inherits the session's `ANTHROPIC_BASE_URL` + OAuth, so cost
-is billed to the owner's Claude subscription. `claude -p --output-format json`
-reports `total_cost_usd`, which we record per attempt.
+
+### Billing / cost model (decided)
+
+The subprocess inherits the session's `ANTHROPIC_BASE_URL` + **OAuth
+(subscription, Pro/Max)** auth — there is no `ANTHROPIC_API_KEY`. Consequences,
+which differ fundamentally from the v2 roster's pay-per-token API keys:
+
+- A `claude -p` run incurs **no separate per-token dollar charge**; it consumes
+  the owner's **Claude usage quota / rate limits**. A 30-attempt agentic run
+  (esp. `natural` mode) can eat a meaningful chunk of quota — hence smoke-first.
+- `total_cost_usd` from `--output-format json` is the **API-equivalent computed
+  cost**, recorded per attempt as an **efficiency metric** (comparable to the v2
+  models' real spend), **not** an actual charge.
+- `--max-budget-usd` is therefore a weak/secondary lever (a computed-cost stop
+  that may be a no-op under OAuth); the **300s wall-clock timeout + attempt
+  count** are the real safeguards. The report states Claude's cost column is
+  quota-metered (API-equivalent), not billed dollars.
 
 ## Architecture
 
