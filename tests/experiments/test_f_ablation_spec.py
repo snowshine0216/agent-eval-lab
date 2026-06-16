@@ -10,6 +10,7 @@ from agent_eval_lab.experiments.f_ablation_spec import (
     freeze_ablation_policy,
 )
 from agent_eval_lab.experiments.m1_spec import build_m1_spec
+from agent_eval_lab.experiments.schema import ConditionDef
 from agent_eval_lab.experiments.spec_hash import (
     canonical_json,
     freeze_spec,
@@ -26,19 +27,28 @@ requires_store = pytest.mark.skipif(
     reason="local web-dossier golden store required",
 )
 
+# The roster is now an explicit input (it lives in f-ablation-roster.toml, parsed
+# by load_f_ablation_roster). The builder is pure: it carries whatever conditions
+# + experiment_id it is given. These two stand in for a parsed roster.
+_CONDS = (
+    ConditionDef(condition_id="deepseek:deepseek-v4-pro", label="deepseek"),
+    ConditionDef(condition_id="minimax:MiniMax-M3", label="minimax"),
+)
 
-def test_roster_is_the_four_design_models():
-    spec = build_f_ablation_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
-    ids = [c.condition_id for c in spec.conditions]
-    assert ids == [
-        "deepseek:deepseek-v4-pro",
-        "glm:Pro/zai-org/GLM-5.1",
-        "minimax:MiniMax-M3",
-        "siliconflow:Qwen/Qwen3.6-35B-A3B",
-    ]
-    # the PROVISIONAL roster member is labelled (spec Roster note)
-    qwen = next(c for c in spec.conditions if c.condition_id.startswith("siliconflow"))
-    assert "PROVISIONAL" in qwen.label
+
+def _build(experiment_id: str = "F-ablation-v2"):
+    return build_f_ablation_spec(
+        conditions=_CONDS,
+        experiment_id=experiment_id,
+        dataset_snapshot_hash="ds",
+        pricing_snapshot_hash="pr",
+    )
+
+
+def test_builder_carries_the_given_conditions_and_experiment_id():
+    spec = _build()
+    assert tuple(spec.conditions) == _CONDS
+    assert spec.experiment_id == "F-ablation-v2"
 
 
 def test_policy_records_40_rounds_12_arms_and_seed():
@@ -69,12 +79,10 @@ def test_policy_task_arm_ids_match_dataset_builder():
 
 
 def test_spec_freezes_and_verifies_independently_of_m1():
-    spec = freeze_spec(
-        build_f_ablation_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
-    )
+    spec = freeze_spec(_build())
     assert spec.spec_hash != ""
     assert verify_spec_hash(spec)
-    assert spec.experiment_id == "F-ablation-v1"
+    assert spec.experiment_id == "F-ablation-v2"
 
 
 def test_freeze_ablation_policy_is_deterministic_and_hashes_the_seed():
@@ -96,13 +104,9 @@ def test_building_the_ablation_spec_does_not_touch_m1():
     m1 = freeze_spec(
         build_m1_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
     )
-    _ = freeze_spec(
-        build_f_ablation_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
-    )
+    _ = freeze_spec(_build())
     assert verify_spec_hash(m1)
     # the two specs are different experiments with different hashes
-    abl = freeze_spec(
-        build_f_ablation_spec(dataset_snapshot_hash="ds", pricing_snapshot_hash="pr")
-    )
+    abl = freeze_spec(_build())
     assert abl.spec_hash != m1.spec_hash
     assert abl.experiment_id != m1.experiment_id

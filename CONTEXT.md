@@ -227,6 +227,21 @@ _Avoid_: "treatment", "sub-condition" (an arm is not a `condition_id`); a new
 `arm_id` record field or an `@arm`-suffixed `condition_id` (the `task_id` already
 carries it; the latter also breaks the `provider:model` pricing key).
 
+**F-ablation roster**:
+The ordered set of `condition_id`s the F-set ablation compares — *which* models
+compete, distinct from the frozen *methodology* (k, seed, the 40-round cap, the
+2×2 `ARMS`, the descriptive metrics, which stay in code). The roster lives in the
+committed `f-ablation-roster.toml` (`experiment_id` + an ordered `[[model]]`
+array), parsed by `f_ablation_roster.load_f_ablation_roster` into a frozen
+`FAblationRoster`; `build_f_ablation_spec` is pure over it. Add/remove a model =
+a TOML edit (no code change); `experiment_id` is bumped per roster change so each
+comparison has a distinct frozen identity (`F-ablation-v2` = deepseek, minimax,
+Qwen3.6-35B → 180 attempts). The run's realized-order sidecar records
+`experiment_id` + `spec_hash` so the comparison is auditable from artifacts
+(ADR-0019). Entry order is significant — it seeds `ablation_run_order`.
+_Avoid_: hard-coding the roster in `f_ablation_spec` (the pre-v2 `_CONDITIONS`
+constant — removed); "the 4-model roster" (now config-driven, currently 3).
+
 **review (task)**:
 The `metadata.review` field (`"passed:<rubric-version>"`) that rides each
 append-only row as its *machine-checkable, frozen* proof the task passed the

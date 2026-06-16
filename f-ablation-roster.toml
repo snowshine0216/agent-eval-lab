@@ -1,0 +1,28 @@
+# F-set ablation roster (§B.6) — the version-controlled source of truth for WHICH
+# models the F-ablation compares. This is SEPARATE from the frozen methodology
+# (k, seed, the uniform 40-round cap, the 2×2 arms, metrics) which stays in code
+# (experiments/f_ablation_spec.py) so it keeps verifying.
+#
+# To add or remove a model: add/delete a [[model]] entry below — NO code change.
+# Bump `experiment_id` whenever the comparison changes so every frozen spec_hash
+# stays auditable (each run records experiment_id + spec_hash in its
+# realized-order sidecar). `condition_id` is `provider:model`; the provider must
+# be registered in runners/config.py PROVIDERS (validated at load — a typo never
+# reaches a paid run). Entry ORDER is significant: it feeds the seeded
+# ablation_run_order, so reordering changes the realized execution order.
+
+experiment_id = "F-ablation-v2"
+
+[[model]]
+condition_id = "deepseek:deepseek-v4-pro"
+label = "deepseek"
+
+[[model]]
+condition_id = "minimax:MiniMax-M3"
+label = "minimax"
+
+[[model]]
+# The within-family Qwen rung on SiliconFlow's OpenAI-compatible API; the id is
+# the PROVISIONAL siliconflow rung (labelled — spec Roster note).
+condition_id = "siliconflow:Qwen/Qwen3.6-35B-A3B"
+label = "qwen3.6-35b (PROVISIONAL)"
