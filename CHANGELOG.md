@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.3.1 — 2026-06-16
+
+### Fixed
+
+- **An incapable node / oracle-execution error in the F3 held-out `node --test` oracle no
+  longer silently scores as a model FAIL.** On node < 20 the `--test-reporter=junit` flag is
+  rejected (`bad option`, exit 9) and the run is classified `status="error"`; the prior pipeline
+  graded that as an ordinary 0-score FAIL, which silently scored 180 attempts 0/180 in the
+  f-ablation-v2 run (`reports/agentic-v1/f-ablation-v2/INCIDENT-node-v16.md`). Such a run now
+  routes to **env-invalid** (masked from `pass^k`, VOID under D34) — loudly excluded rather than
+  counted as a model failure. This is a defense-in-depth backstop independent of the F CLI
+  fail-fast guards.
+
+### Changed
+
+- **`is_env_invalid_run` (records/grade.py) now recognizes two env-invalid sources**:
+  provider-side (a `chat_completion` HTTP rejection / empty `choices` on the trajectory, as
+  before) **and** oracle-side — a grader stamps `env_invalid` on its own evidence when the
+  grading harness itself could not run. The classifier recurses `AllOf` `sub_results` to find the
+  marker (real F verifications always wrap their `NodeExecutionSpec`(s) in an `AllOf`, so the
+  marker is nested). New pure predicate `is_incapable_node_result` (graders/node_execution.py):
+  `status="error"` + `exit_code == 9` + zero tests. A genuine model failure (import/load crash,
+  exit 1) and a `tree_collision` stay real FAILs — never masked. No D/B-set behavior changes
+  (only the node grader emits the marker). Documented in ADR-0018; ADR-0015's "no VOID" refined.
+
 ## v0.3.0 — 2026-06-16
 
 ### Added — M1 report enhancement: overview rollup + deterministic per-domain subreports
