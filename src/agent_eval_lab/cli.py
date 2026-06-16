@@ -1473,10 +1473,9 @@ def _real_claude_factory():
             )
 
         def workdir_factory():
-            return (
-                Path(tempfile.mkdtemp(prefix="claude-f-")),
-                Path(tempfile.mkdtemp(prefix="claude-home-")),
-            )
+            # Real HOME is kept (auth resolves via $HOME); vanilla isolation is via
+            # --safe-mode in build_claude_argv, so no clean-home temp dir is created.
+            return Path(tempfile.mkdtemp(prefix="claude-f-"))
 
         return make_claude_run_fn(
             model=model,

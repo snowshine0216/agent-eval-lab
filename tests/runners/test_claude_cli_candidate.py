@@ -1,5 +1,6 @@
 # tests/runners/test_claude_cli_candidate.py
 import json
+import os
 import subprocess as _sp
 from dataclasses import dataclass as _dc
 from pathlib import Path
@@ -150,6 +151,9 @@ def test_argv_edit_only_denies_bash_and_disables_skills():
     assert argv[0] == "claude"
     assert "-p" in argv
     assert "--output-format" in argv and "json" in argv
+    # Vanilla isolation: --safe-mode disables CLAUDE.md/skills/plugins/hooks/MCP
+    # (auth still works); --disable-slash-commands is belt-and-suspenders.
+    assert "--safe-mode" in argv
     assert "--disable-slash-commands" in argv
     assert "--model" in argv and "claude-sonnet-4-6" in argv
     # Bash denied on edit-only; Read/Edit/Write allowed.
@@ -235,10 +239,8 @@ def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
 
     def fake_workdir():
         wd = tmp_path / "wd"
-        home = tmp_path / "home"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="claude-sonnet-4-6",
@@ -255,9 +257,11 @@ def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
     assert traj.usage.completion_tokens == 5
     assert traj.rounds == 4
     assert traj.parse_failure is None
-    # Ran in the workdir under a clean HOME; prompt carried the user message.
+    # Ran in the workdir under the REAL HOME (auth resolves via $HOME); --safe-mode
+    # provides the vanilla isolation; prompt carried the user message.
     assert captured["cwd"] == str(tmp_path / "wd")
-    assert captured["home"] == str(tmp_path / "home")
+    assert captured["home"] == os.environ.get("HOME")
+    assert "--safe-mode" in captured["argv"]
     assert captured["argv"][-1] == "Fix the bug in a.js"
 
 
@@ -266,10 +270,9 @@ def test_run_fn_nonzero_exit_is_env_invalid(tmp_path):
         return _FakeCompleted(stdout="", returncode=1)
 
     def fake_workdir():
-        wd, home = tmp_path / "wd2", tmp_path / "home2"
+        wd = tmp_path / "wd2"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -289,10 +292,9 @@ def test_run_fn_timeout_is_env_invalid(tmp_path):
         raise _sp.TimeoutExpired(cmd=argv, timeout=timeout)
 
     def fake_workdir():
-        wd, home = tmp_path / "wd3", tmp_path / "home3"
+        wd = tmp_path / "wd3"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -317,10 +319,9 @@ def test_run_fn_is_error_true_is_env_invalid(tmp_path):
         )
 
     def fake_workdir():
-        wd, home = tmp_path / "wd_err", tmp_path / "home_err"
+        wd = tmp_path / "wd_err"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -340,10 +341,9 @@ def test_run_fn_unparseable_stdout_is_env_invalid(tmp_path):
         return _FakeCompleted(stdout="not valid json {")
 
     def fake_workdir():
-        wd, home = tmp_path / "wd_pe", tmp_path / "home_pe"
+        wd = tmp_path / "wd_pe"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -370,10 +370,9 @@ def test_run_fn_unreadable_produced_tree_is_env_invalid(tmp_path):
         return _FakeCompleted(stdout=_result_json())
 
     def fake_workdir():
-        wd, home = tmp_path / "wd_bin", tmp_path / "home_bin"
+        wd = tmp_path / "wd_bin"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -388,17 +387,15 @@ def test_run_fn_unreadable_produced_tree_is_env_invalid(tmp_path):
     assert traj.parse_failure.error == PROVIDER_ERROR
 
 
-# ---- pr-review nit 1: temp workdir/home must not leak across a 30-run ----------
+# ---- pr-review nit 1: temp workdir must not leak across a 30-run ---------------
 
 
-def test_run_fn_cleans_up_workdir_and_home(tmp_path):
+def test_run_fn_cleans_up_workdir(tmp_path):
     wd = tmp_path / "wd_clean"
-    home = tmp_path / "home_clean"
 
     def fake_workdir():
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     def fake_subprocess(argv, *, cwd, env, timeout):
         (Path(cwd) / "a.js").write_text("fixed\n")
@@ -415,9 +412,8 @@ def test_run_fn_cleans_up_workdir_and_home(tmp_path):
     traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
     # Read-back happened before cleanup (produced tree is captured in memory).
     assert traj.final_state["files"] == {"a.js": "fixed\n"}
-    # Temp dirs are removed so a 30-attempt run does not leak hundreds of dirs.
+    # The temp workdir is removed so a 30-attempt run does not leak tree copies.
     assert not wd.exists()
-    assert not home.exists()
 
 
 # ---- Fix 4a: nonzero-exit env-invalid carries stderr for debuggability ---------
@@ -428,10 +424,9 @@ def test_run_fn_nonzero_exit_carries_stderr_in_raw(tmp_path):
         return _FakeCompleted(stdout="", returncode=2, stderr="boom: auth failed")
 
     def fake_workdir():
-        wd, home = tmp_path / "wd_se", tmp_path / "home_se"
+        wd = tmp_path / "wd_se"
         wd.mkdir()
-        home.mkdir()
-        return wd, home
+        return wd
 
     run_fn = make_claude_run_fn(
         model="m",
@@ -446,11 +441,10 @@ def test_run_fn_nonzero_exit_carries_stderr_in_raw(tmp_path):
     assert "boom: auth failed" in traj.parse_failure.raw
 
 
-# ---- Fix 2: _sanitized_env strips contaminating vars, keeps auth/PATH/HOME -----
+# ---- _sanitized_env strips contaminating vars, PRESERVES HOME/auth/PATH --------
 
 
-def test_sanitized_env_strips_contaminating_keys_and_sets_clean_home(tmp_path):
-    clean_home = tmp_path / "clean_home"
+def test_sanitized_env_strips_contaminating_keys_preserves_home_and_auth():
     base_env = {
         "HOME": "/original/home",
         "PATH": "/usr/bin:/bin",
@@ -458,12 +452,12 @@ def test_sanitized_env_strips_contaminating_keys_and_sets_clean_home(tmp_path):
         "CLAUDE_CODE_OAUTH_TOKEN": "oauth-abc",
         **{k: "contaminated" for k in _CONTAMINATING_ENV_KEYS},
     }
-    result = _sanitized_env(base_env, clean_home)
+    result = _sanitized_env(base_env)
     # Contaminating vars are gone.
     for key in _CONTAMINATING_ENV_KEYS:
         assert key not in result, f"{key!r} should have been stripped"
-    # HOME is set to the clean dir.
-    assert result["HOME"] == str(clean_home)
+    # HOME is PRESERVED (auth resolves via $HOME; isolation is via --safe-mode).
+    assert result["HOME"] == "/original/home"
     # Auth keys survive.
     assert result["ANTHROPIC_API_KEY"] == "sk-test-123"
     assert result["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-abc"
