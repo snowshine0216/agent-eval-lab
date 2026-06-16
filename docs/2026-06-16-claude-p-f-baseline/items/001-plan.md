@@ -559,6 +559,7 @@ Expected: FAIL with `ImportError` (`make_claude_run_fn` undefined).
 
 Add imports: `import os`, `import subprocess`, `from collections.abc import Callable`, and
 `from agent_eval_lab.records.trajectory import PROVIDER_ERROR, ParseFailure, Trajectory, Usage`.
+[**Implementation note:** `os`/`subprocess`/`Callable` land at top-of-module; `records.trajectory` and `runners.multi_run` land mid-file with `# noqa: E402` suppressors immediately before the run_fn section. No circular import; ruff passes. Functionally identical to top-of-module placement.]
 Append:
 
 ```python
