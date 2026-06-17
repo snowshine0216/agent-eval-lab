@@ -1,3 +1,5 @@
+import pytest
+
 from agent_eval_lab.records.trajectory import Trajectory, Usage
 from agent_eval_lab.runners.b_candidate_chat import make_b_chat_run_fn
 from agent_eval_lab.tasks.schema import Task, TaskInput
@@ -108,3 +110,45 @@ def test_chat_run_fn_closes_the_executor(tmp_path) -> None:
     )
     run_fn(_task(), 0, "save0")
     assert closed  # the per-trial executor was closed even on the happy path
+
+
+def test_chat_run_fn_raises_on_task_with_no_user_message(tmp_path) -> None:
+    """P1-1: a task with no user-role message must raise ValueError, not silently
+    render an empty prompt."""
+    from agent_eval_lab.records.turns import MessageTurn
+    from agent_eval_lab.tasks.schema import AllOf, TaskMetadata
+
+    no_user_task = Task(
+        id="b-b1-noskill",
+        capability="browser_mstr",
+        input=TaskInput(
+            messages=(MessageTurn(role="system", content="only system"),),
+            available_tools=("bash",),
+        ),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="held_out", version="b-domain-v1", provenance="test"
+        ),
+        initial_state={"task_key": "B-1"},
+    )
+
+    def _never_run_single(**kw):
+        raise AssertionError("run_single should not be called")
+
+    run_fn = make_b_chat_run_fn(
+        config=object(),
+        http_client=object(),
+        temperature=0.0,
+        max_tokens=4096,
+        condition_id="c",
+        login=("u", "bxu"),
+        folder="/f",
+        workdir_root=tmp_path,
+        executor_factory=lambda *, session_id, workdir: (
+            lambda req: None,
+            lambda: None,
+        ),
+        run_single_fn=_never_run_single,
+    )
+    with pytest.raises(ValueError, match="no user message"):
+        run_fn(no_user_task, 0, "save0")

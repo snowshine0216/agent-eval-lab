@@ -48,6 +48,37 @@ def test_verdict_sheet_carries_checklist_and_blank_verdict_column() -> None:
     assert "verdict" in header
 
 
+def test_verdict_sheet_csv_quoting_survives_comma_in_field() -> None:
+    """P1-2: a field containing a comma (e.g. a folder path that includes a comma)
+    must be quoted correctly so the CSV parses back to the right column count."""
+    import csv as csv_mod
+    import io
+
+    trial = _trial(
+        task_id="b-b1-noskill",
+        save_name="s0",
+        stop_reason="completed_natural",
+        rounds=3,
+    )
+    # Patch the folder via a fresh BTrial with a comma in the folder value.
+    trial_with_comma = BTrial(
+        run_uid=trial.run_uid,
+        condition_id=trial.condition_id,
+        task_id=trial.task_id,
+        save_name=trial.save_name,
+        folder="/Candidate/bxu,extra",  # comma in folder
+        trajectory=trial.trajectory,
+        invalid=trial.invalid,
+        invalid_reason=trial.invalid_reason,
+    )
+    _, csv_text = emit_verdict_sheet([trial_with_comma])
+    reader = csv_mod.reader(io.StringIO(csv_text))
+    n_cols = len(next(reader))  # header row column count
+    for row in reader:
+        if row:  # skip blank trailing line
+            assert len(row) == n_cols, f"column count mismatch: {row!r}"
+
+
 def test_verdict_sheet_flags_max_rounds_censored_distinctly() -> None:
     md, csv = emit_verdict_sheet(
         [

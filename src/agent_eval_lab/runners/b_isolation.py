@@ -16,10 +16,11 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def save_name_from_run_uid(run_uid: str) -> str:
-    """Derive the isolated save-name `<model>-<condition>-<run_id>` from run_uid
-    (D20). run_uid is f"{condition_id}__{run_index:04d}"; condition_id may carry a
-    colon (provider:model), so non-name-safe chars are slugged to '-'. The result
-    is unique per (condition, run_index) — the isolation guarantee."""
+    """Derive the isolated save-name from run_uid (D20). run_uid has the 3-part
+    form f"{condition_id}__{task_id}__{run_index:04d}" (e.g.
+    "dashscope:qwen3.7-max__b-b1-noskill__0002"); condition_id may carry a colon
+    (provider:model), so non-name-safe chars are slugged to '-'. The result is
+    unique per (condition, task, run_index) — the isolation guarantee."""
     if not run_uid:
         raise ValueError("run_uid must be non-empty to derive a save-name (D20)")
     return _SLUG_RE.sub("-", run_uid).strip("-")

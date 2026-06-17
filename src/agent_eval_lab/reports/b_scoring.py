@@ -12,6 +12,8 @@ sheet shows tokens + any per-run total_cost_usd for at-a-glance review.
 
 from __future__ import annotations
 
+import csv
+import io
 from collections.abc import Sequence
 
 from agent_eval_lab.records.b_trial import BTrial
@@ -81,6 +83,8 @@ def emit_verdict_sheet(trials: Sequence[BTrial]) -> tuple[str, str]:
     body = "\n".join("| " + " | ".join(r) + " |" for r in rows)
     markdown = f"{_CHECKLIST}\n## Evidence rows\n\n{header}\n{sep}\n{body}\n"
 
-    csv_lines = [",".join(_COLUMNS)] + [",".join(r) for r in rows]
-    csv = "\n".join(csv_lines) + "\n"
-    return markdown, csv
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_COLUMNS)
+    writer.writerows(rows)
+    return markdown, buf.getvalue()

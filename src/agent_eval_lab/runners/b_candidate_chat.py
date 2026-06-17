@@ -37,7 +37,9 @@ def _render_task(
     """Re-render the user message with the per-trial save-name/login/folder; keep
     the system message (and any skill-arm injection) verbatim."""
     user = next((m for m in task.input.messages if m.role == "user"), None)
-    base_user = user.content if user is not None else ""
+    if user is None:
+        raise ValueError("B task has no user message")
+    base_user = user.content
     rendered_user = render_b_prompt(
         base_user, save_name=save_name, login=login, folder=folder
     )

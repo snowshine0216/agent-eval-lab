@@ -42,3 +42,5 @@ Report (Phase 3, pure):
 OUT of scope (owner-deferred, spec §9): the live MstrReadbackClient / automated readback /
 exact-grid compare; OS-level claude -p confinement; the paid sweep itself. B-1 is a one-task
 contingency (point summary, never a bootstrap CI).
+
+**Known limitation:** a `claude -p` `--max-budget-usd` exhaustion exits cleanly with `is_error=False` and is recorded as `completed_natural` (not censored), because `ClaudeRunMeta` exposes no budget signal and the F-baseline driver behaves identically; calibrate-first mitigates premature caps.
