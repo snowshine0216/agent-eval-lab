@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Evidence / notes:
 - **001-spec** ✅ — [items/001-spec.md](items/001-spec.md) (user-provided, verbatim copy).
