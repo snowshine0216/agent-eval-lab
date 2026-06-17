@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ✅ #44 | ⏳ | ✅ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ✅ #44 | ✅ | ✅ | ✅ | ✅ 0 rounds | ⏳ |
 
 Evidence / notes:
 - **001-spec** ✅ — [items/001-spec.md](items/001-spec.md) (user-provided, verbatim copy).
@@ -16,4 +16,7 @@ Evidence / notes:
   - Deviation noted for drift: added `[project.scripts] agent-eval-lab = "agent_eval_lab.cli:main"` to `pyproject.toml` (additive console entry to satisfy the plan's final-verification `agent-eval-lab --help`; the existing `python -m agent_eval_lab.cli` path is unchanged).
 - **001-ship** ✅ — [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44) (base `feat/b-set-live-spike`, Mode A). v0.6.0 bump; [items/001-ship.md](items/001-ship.md).
 - **001-review** ✅ — [items/001-review.md](items/001-review.md) — `/ship` steps 8+9; 2 P0 + 4 P1 found & fixed pre-PR; re-review CONFIRMED-CLEAN → Verdict PASS.
+- **001-verify** ✅ — [items/001-verify.md](items/001-verify.md) — PASS: 1251 tests green; `report-b` e2e renders `pass_at_1`/skill-delta; `run-b` fail-fast confirmed.
+- **001-pr-review** ✅ — [items/001-pr-review.md](items/001-pr-review.md) — PASS-WITH-NITS (4 nits, 0 bugs/blockers) on [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44).
+- **001-fix** ✅ 0 rounds — [items/001-fix.md](items/001-fix.md) — exit contract met first pass; review blockers were fixed pre-PR; 4 pr-review nits accepted non-blocking.
 - **verify** column (not QA) — non-web project; post-ship verifier is `/verify`.
