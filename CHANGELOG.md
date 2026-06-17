@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.0 — 2026-06-17
+
+### Added
+
+- **B-1 live spike (`run-b` / `report-b`) — human-scored MicroStrategy Library browser-automation
+  eval.** A standalone per-model `run-b` CLI drives each candidate (qwen-max / deepseek / MiniMax over
+  the chat-browse loop, plus `claude -p` as a subprocess peer) to build the B-1 report live via
+  `playwright-cli`, records a grade-less `BTrial` per trial with full efficiency fields
+  (rounds/tokens/cost/wall-time), and emits a verdict sheet carrying the B-1 definition-match checklist
+  for owner review. A pure `report-b` joins the owner verdicts with the recorded trials to produce the
+  headline `pass_at_1` + secondary `pass_pow_3` + efficiency + skill-delta, with `claude -p` flagged on
+  its own efficiency axis (ADR-0021). The spike is unregistered/descriptive — build + tests + runbook
+  now; the live 24-run sweep is owner-deferred (spec §12).
+- New modules: `records/b_trial.py` (frozen grade-less `BTrial`), `runners/b_live.py` (per-arm k-valid
+  trial lifecycle), `runners/b_candidate_chat.py` + `runners/b_candidate_claude.py` (injected candidate
+  drivers), `reports/b_scoring.py` (verdict-sheet emitter), `reports/b_report.py` (owner-verdict join).
+- A `[project.scripts]` console entry (`agent-eval-lab`) so the CLI is invokable directly (the existing
+  `python -m agent_eval_lab.cli` path is unchanged).
+
+### Changed
+
+- **`run_trials_k_valid` extracted from `run_task_k_valid`** (behavior-preserving) so the D34
+  VOID/replacement arithmetic lives in exactly one place and `b_live` can reuse it.
+- `bash_edge.parse_argv` now rejects `file:`-scheme arguments — closes the chat-loop candidate's one
+  residual `file://`-navigation read-the-store vector (integrity boundary §7).
+- `[candidate] folder` (the B save target) is now read from the evaluator config; `run-b` fails fast
+  when a required `[candidate]` field (`url` / `folder` / `password`) is missing before any live trial.
+
 ## v0.5.1 — 2026-06-17
 
 ### Fixed
