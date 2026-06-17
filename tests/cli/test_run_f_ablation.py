@@ -6,7 +6,12 @@ import httpx
 from agent_eval_lab.cli import _run_f_ablation_command
 from agent_eval_lab.experiments.ablation_order import ablation_run_order
 from agent_eval_lab.experiments.f_ablation_spec import ABLATION_SEED
-from agent_eval_lab.records.trajectory import Trajectory, Usage
+from agent_eval_lab.records.trajectory import (
+    PROVIDER_ERROR,
+    ParseFailure,
+    Trajectory,
+    Usage,
+)
 
 # The committed default roster (3 models, F-ablation-v3). Driver reads args.roster.
 _ROSTER = Path(__file__).resolve().parents[2] / "f-ablation-roster.toml"
@@ -26,6 +31,18 @@ def _fake_traj(run_index: int) -> Trajectory:
         usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
         run_index=run_index,
         stop_reason="completed_natural",
+    )
+
+
+def _provider_error_traj(run_index: int, *, status: int, body: str) -> Trajectory:
+    """A trajectory the loop would record for a /chat/completions HTTP rejection:
+    a PROVIDER_ERROR parse_failure whose raw carries the status (no network)."""
+    return Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1, completion_tokens=0, latency_s=0.0),
+        run_index=run_index,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(raw=f"HTTP {status}: {body}", error=PROVIDER_ERROR),
     )
 
 
@@ -405,3 +422,85 @@ def test_task_id_skew_is_caught_before_any_run_fn_call(tmp_path, monkeypatch):
     )
     assert rc == 1
     assert calls == [], "run_fn must NOT be called when task_id skew is detected"
+
+
+def test_provider_auth_quota_403_aborts_run_and_preserves_partial_results(
+    tmp_path, monkeypatch
+):
+    """The qwen3.7-max VOID-freetier incident: a 403 quota rejection must fail-fast.
+    As soon as the loop returns the first auth/quota PROVIDER_ERROR, the driver
+    aborts (rc 1) — preserving completed rows + the realized-order sidecar — instead
+    of grinding through the remaining ~174 dead attempts and emitting a false 0.000.
+    The dead 403 attempt itself is NOT written (mirrors the TransportError path)."""
+    calls: list = []
+    _OK_BEFORE = 5
+
+    def _factory(*, condition_id: str, **_):
+        def run_fn(edit_task, run_index: int) -> Trajectory:
+            calls.append((condition_id, edit_task.id, run_index))
+            if len(calls) > _OK_BEFORE:
+                return _provider_error_traj(
+                    run_index,
+                    status=403,
+                    body='{"code":"AllocationQuota.FreeTierOnly"}',
+                )
+            return _fake_traj(run_index)
+
+        return run_fn
+
+    monkeypatch.setattr(
+        "agent_eval_lab.cli._ablation_arm_tasks", lambda store: _stub_arm_tasks()
+    )
+    monkeypatch.setattr(
+        "agent_eval_lab.cli.build_candidate_tree",
+        lambda task, repo: {"x.js": "// base"},
+    )
+    rc = _run_f_ablation_command(
+        _Args(tmp_path, dry_run=False),
+        http_client=None,
+        run_fn_factory=_factory,
+    )
+    assert rc != 0  # aborts non-zero on the auth/quota block
+    # Stopped at the first 403 — did NOT consume the whole 180-unit order.
+    assert len(calls) == _OK_BEFORE + 1 == 6
+    sidecars = list(tmp_path.glob("*.realized-order.json"))
+    assert len(sidecars) == 1
+    realized = json.loads(sidecars[0].read_text())["realized_order"]
+    assert len(realized) == _OK_BEFORE  # the dead 403 attempt is not realized
+    all_rows = []
+    for art in tmp_path.glob("runs-ablation-*-F.jsonl"):
+        all_rows.extend(ln for ln in art.read_text().splitlines() if ln.strip())
+    assert len(all_rows) == _OK_BEFORE  # the dead 403 attempt is not written
+
+
+def test_provider_400_context_length_does_not_abort_run(tmp_path, monkeypatch):
+    """A 400 (per-request context-length) is NOT an account-global block: the run
+    must continue through the WHOLE seeded order — only auth/quota (401/403)
+    fail-fasts. Locks the scope boundary so a per-request error never aborts."""
+    calls: list = []
+
+    def _factory(*, condition_id: str, **_):
+        def run_fn(edit_task, run_index: int) -> Trajectory:
+            calls.append((condition_id, edit_task.id, run_index))
+            if len(calls) == 6:
+                return _provider_error_traj(
+                    run_index, status=400, body="maximum context length exceeded"
+                )
+            return _fake_traj(run_index)
+
+        return run_fn
+
+    monkeypatch.setattr(
+        "agent_eval_lab.cli._ablation_arm_tasks", lambda store: _stub_arm_tasks()
+    )
+    monkeypatch.setattr(
+        "agent_eval_lab.cli.build_candidate_tree",
+        lambda task, repo: {"x.js": "// base"},
+    )
+    rc = _run_f_ablation_command(
+        _Args(tmp_path, dry_run=False),
+        http_client=None,
+        run_fn_factory=_factory,
+    )
+    assert rc == 0  # a 400 is per-request — the run completes
+    assert len(calls) == _N_UNITS == 180  # ran the full order despite the 400

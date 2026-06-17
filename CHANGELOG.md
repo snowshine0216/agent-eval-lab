@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.5.1 — 2026-06-17
+
+### Fixed
+
+- **Provider auth/quota errors (HTTP 401/403) now fail-fast the F runs.** The runner
+  records a rejected `/chat/completions` call as a `PROVIDER_ERROR` parse-failure and
+  keeps going — correct for a per-request 400, but wrong for an **account-global**
+  block. The first DashScope `qwen3.7-max` F-ablation run went 62% VOID on HTTP 403
+  `AllocationQuota.FreeTierOnly` (free-tier exhaustion), recording 37/60 dead
+  attempts before anyone noticed; pass@1 read **0.000 — an artifact, not a
+  measurement** (same shape as the node-v16 silent all-FAIL). A new pure predicate
+  `runners/loop.py::provider_auth_quota_status(trajectory)` returns the 401/403 status
+  iff the recorded `PROVIDER_ERROR` carries it (parsed from the `"HTTP {status}: …"`
+  prefix `_provider_error_raw` already writes, so producer and parser cannot drift).
+  Both `run-f-ablation` (`_run_f_ablation_command`) and `run-f` (`_run_f_command`) now
+  abort on the **first** auth/quota block — preserving completed JSONL rows + the
+  realized-order sidecar exactly as the existing `TransportError` abort path does —
+  and exit non-zero with a message naming the quota/auth cause. A 400 (per-request,
+  context length) and a 429 (transient, already client-retried) deliberately do **not**
+  abort. Classification of the underlying `PROVIDER_ERROR` is unchanged; defense in
+  depth, `is_env_invalid_run` still masks any auth/quota row out of pass^k. See
+  [ADR-0020](docs/adr/0020-provider-auth-quota-errors-fail-fast-the-f-run.md).
+
 ## v0.5.0 — 2026-06-17
 
 ### Fixed

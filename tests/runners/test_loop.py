@@ -703,3 +703,101 @@ def test_serialize_effect_result_handles_node_feedback() -> None:
     assert d["record"] == "node_feedback"
     assert d["status"] == "failed"
     assert d["schema_version"] == 1
+
+
+# --- provider_auth_quota_status: the pure fail-fast predicate --------------------
+def _status_handler(status: int, body: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, text=body)
+
+    return handler
+
+
+def _run_against_status(status: int, body: str):
+    client = httpx.Client(transport=httpx.MockTransport(_status_handler(status, body)))
+    return run_single(
+        task=TASK,
+        registry=WORKSPACE_TOOLS,
+        config=CONFIG,
+        http_client=client,
+        run_index=0,
+        temperature=0.0,
+        max_tokens=4096,
+    )
+
+
+def test_provider_auth_quota_status_returns_403_for_quota_exhaustion() -> None:
+    """A 403 (e.g. DashScope AllocationQuota.FreeTierOnly) recorded by the loop is
+    surfaced as the fail-fast status — read back from the SAME parse_failure the
+    loop wrote, so producer and parser cannot drift."""
+    from agent_eval_lab.runners.loop import provider_auth_quota_status
+
+    traj = _run_against_status(403, '{"code":"AllocationQuota.FreeTierOnly"}')
+    assert provider_auth_quota_status(traj) == 403
+
+
+def test_provider_auth_quota_status_returns_401_for_bad_key() -> None:
+    from agent_eval_lab.runners.loop import provider_auth_quota_status
+
+    traj = _run_against_status(401, "invalid api key")
+    assert provider_auth_quota_status(traj) == 401
+
+
+def test_provider_auth_quota_status_ignores_400_context_length() -> None:
+    """A 400 is per-request (context length), NOT an account-global block — it must
+    not fail-fast the whole run, only this attempt."""
+    from agent_eval_lab.runners.loop import provider_auth_quota_status
+
+    traj = _run_against_status(400, "maximum context length exceeded")
+    assert provider_auth_quota_status(traj) is None
+
+
+def test_provider_auth_quota_status_ignores_429_rate_limit() -> None:
+    """429 is transient (already client-retried); a surfaced 429 is not a global
+    auth/quota block, so it must not abort the run."""
+    from agent_eval_lab.records.trajectory import (
+        PROVIDER_ERROR,
+        ParseFailure,
+        Trajectory,
+        Usage,
+    )
+    from agent_eval_lab.runners.loop import provider_auth_quota_status
+
+    traj = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(raw="HTTP 429: rate limited", error=PROVIDER_ERROR),
+    )
+    assert provider_auth_quota_status(traj) is None
+
+
+def test_provider_auth_quota_status_is_none_for_clean_and_non_provider_failures() -> (
+    None
+):
+    from agent_eval_lab.records.trajectory import (
+        NO_CHOICES_ERROR,
+        ParseFailure,
+        Trajectory,
+        Usage,
+    )
+    from agent_eval_lab.runners.loop import provider_auth_quota_status
+
+    clean = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed_natural",
+    )
+    assert provider_auth_quota_status(clean) is None
+
+    # NO_CHOICES is a provider envelope quirk, not an auth/quota block.
+    no_choices = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="parse_failure",
+        parse_failure=ParseFailure(raw="{}", error=NO_CHOICES_ERROR),
+    )
+    assert provider_auth_quota_status(no_choices) is None
