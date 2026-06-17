@@ -184,6 +184,74 @@ def test_run_b_missing_candidate_folder_returns_nonzero_and_never_calls_factory(
     assert not list(out.glob("trials-b-*.jsonl")) if out.exists() else True
 
 
+def test_run_b_missing_storage_state_file_fails_fast_and_never_calls_factory(
+    tmp_path,
+) -> None:
+    """A [candidate] storage_state pointing at a non-existent file must fail-fast
+    (rc=2) before any trial runs. Otherwise the candidate silently opens
+    UNauthenticated, lands on the MSTR login page, and every trial censors —
+    miscounted as a model FAIL instead of a setup error (ADR-0022; the §7 store
+    relocation makes a stale/moved path very plausible)."""
+    from agent_eval_lab import cli
+
+    toml = tmp_path / "evaluator-bad-ss.toml"
+    toml.write_text(
+        """
+[store]
+path = "{store}"
+[health_probe]
+url = "https://lab/auth"
+username = "eval"
+password = "x"
+[skill]
+strategy_test_path = "{skill}"
+[candidate]
+url = "https://lab/app"
+username = "bxu"
+password = "secret"
+folder = "/Candidate/bxu"
+storage_state = "{missing}"
+[runner]
+safety_cap = 200
+k_valid = 3
+max_invalid_rate = 0.4
+[oracle.b_set]
+readback = "playwright-cli"
+project_id = "P1"
+[oracle.b_set.goldens]
+"b-b1" = "obj1"
+""".format(
+            store=tmp_path / "store",
+            skill=tmp_path / "skill.md",
+            missing=tmp_path / "does-not-exist" / "bxu-auth.json",
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "skill.md").write_text("# stripped skill\n", encoding="utf-8")
+    out = tmp_path / "out"
+
+    factory_calls: list = []
+
+    def fake_factory(*, arm, condition_id, folder, login):
+        factory_calls.append(arm)
+        return lambda task, run_index, save_name: _ok(run_index)
+
+    args = argparse.Namespace(
+        provider="dashscope",
+        model="qwen3.7-max",
+        evaluator_config=toml,
+        out=out,
+        arm="both",
+        temperature=0.0,
+        max_tokens=4096,
+        driver="chat",
+    )
+    rc = cli._run_b_command(args, candidate_run_fn_factory=fake_factory)
+    assert rc != 0
+    assert factory_calls == []
+    assert not list(out.glob("trials-b-*.jsonl")) if out.exists() else True
+
+
 def _provider_auth_traj(run_index):
     """A trajectory that provider_auth_quota_status recognises as a 403 block."""
     return Trajectory(

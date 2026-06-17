@@ -25,6 +25,7 @@ from agent_eval_lab.records.turns import MessageTurn
 from agent_eval_lab.runners.bash_edge import make_bash_executor
 from agent_eval_lab.runners.config import ProviderConfig
 from agent_eval_lab.runners.loop import run_single
+from agent_eval_lab.runners.playwright_config import render_playwright_cli_config
 from agent_eval_lab.tasks.schema import Task, TaskInput
 from agent_eval_lab.tools.browse import BROWSE_TOOLS, apply_browse
 
@@ -63,6 +64,7 @@ def make_b_chat_run_fn(
     login: tuple[str, str],
     folder: str,
     workdir_root: Path,
+    storage_state_path: str | None = None,
     max_rounds: int = B_MAX_ROUNDS,
     executor_factory: Callable[
         ..., tuple[Callable, Callable[[], None]]
@@ -75,6 +77,15 @@ def make_b_chat_run_fn(
         rendered = _render_task(task, save_name=save_name, login=login, folder=folder)
         workdir = workdir_root / f"b-work-{save_name}"
         executor, close = executor_factory(session_id=save_name, workdir=workdir)
+        # Pin cert-ignore + pre-saved bxu auth BEFORE the browse loop: playwright-cli
+        # auto-loads .playwright/cli.config.json from its CWD (this workdir), so the
+        # candidate's first `open` lands in an already-authenticated MSTR app (§6.2).
+        cfg_dir = workdir / ".playwright"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / "cli.config.json").write_text(
+            render_playwright_cli_config(storage_state_path=storage_state_path),
+            encoding="utf-8",
+        )
         try:
             return run_single_fn(
                 task=rendered,

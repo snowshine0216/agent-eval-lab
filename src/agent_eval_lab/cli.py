@@ -1687,6 +1687,9 @@ def _real_b_candidate_factory(*, cfg, config, args, cond, login, folder):
                 workdir_factory=lambda: Path(tempfile.mkdtemp()),
                 login=login,
                 folder=folder,
+                storage_state_path=cfg.candidate.storage_state,
+                max_budget_usd=getattr(args, "max_budget_usd", 1.0),
+                timeout_s=getattr(args, "claude_timeout", 600),
             )
         # chat driver
         client = httpx.Client(
@@ -1701,6 +1704,8 @@ def _real_b_candidate_factory(*, cfg, config, args, cond, login, folder):
             login=login,
             folder=folder,
             workdir_root=Path(cfg.store.path) / "b-work",
+            storage_state_path=cfg.candidate.storage_state,
+            max_rounds=getattr(args, "max_rounds", 50),
         )
 
     return factory
@@ -1741,6 +1746,22 @@ def _run_b_command(args, candidate_run_fn_factory=None) -> int:
                 "evaluator.toml and retry.",
                 file=sys.stderr,
             )
+        return 2
+
+    # If a pre-saved storageState is configured, the file MUST exist before any
+    # trial runs. A missing/moved/expired auth file would otherwise silently open
+    # an UNauthenticated session — the candidate lands on the MSTR login page and
+    # every trial censors, miscounted as a model FAIL rather than a setup error
+    # (ADR-0022; the §7 store relocation makes a stale path very plausible).
+    ss = (cfg.candidate.storage_state or "").strip()
+    if ss and not Path(ss).is_file():
+        print(
+            f"error: [candidate] storage_state points to {ss!r}, which does not "
+            "exist. Regenerate the bxu login (playwright-cli state-save) per "
+            "ADR-0022 before the run — an authenticated session is a hard "
+            "precondition; a missing file would silently run UNauthenticated.",
+            file=sys.stderr,
+        )
         return 2
 
     arms = ["noskill", "skill"] if args.arm == "both" else [args.arm]
@@ -2078,6 +2099,14 @@ def _build_parser() -> argparse.ArgumentParser:
     rb.add_argument("--driver", choices=["chat", "claude"], default="chat")
     rb.add_argument("--temperature", type=float, default=0.0)
     rb.add_argument("--max-tokens", type=int, default=4096)
+    # Chat-driver browse-loop round cap (spec decision 6 default = 50). Raise per the
+    # calibrate-first protocol when a trial censors mid-build far from Save; the runner
+    # safety_cap stays the absolute backstop.
+    rb.add_argument("--max-rounds", type=int, default=50)
+    # claude -p driver only: per-trial budget + subprocess timeout (the claude path has
+    # no round cap — budget + timeout bound it). Raised from $1/600s for harder tasks.
+    rb.add_argument("--max-budget-usd", type=float, default=1.0)
+    rb.add_argument("--claude-timeout", type=int, default=600)
 
     rpb = subparsers.add_parser(
         "report-b",

@@ -129,6 +129,42 @@ project_id = "P1"
     assert cfg.candidate.password == "secret"
 
 
+def test_candidate_storage_state_is_read_when_present(tmp_path) -> None:
+    """The pre-saved bxu auth file (storageState) lets the live browse path open
+    an already-authenticated MSTR app (spec §6.2)."""
+    from agent_eval_lab.experiments.evaluator_config import load_evaluator_config
+
+    toml = tmp_path / "evaluator.toml"
+    toml.write_text(
+        """
+[store]
+path = "/tmp/store"
+[health_probe]
+url = "https://lab/auth"
+username = "eval"
+password = "x"
+[skill]
+strategy_test_path = "/tmp/skill.md"
+[candidate]
+username = "bxu"
+password = "secret"
+storage_state = "/store/bxu-auth.json"
+[runner]
+safety_cap = 200
+k_valid = 3
+max_invalid_rate = 0.4
+[oracle.b_set]
+readback = "playwright-cli"
+project_id = "P1"
+[oracle.b_set.goldens]
+"b-b1" = "obj1"
+""",
+        encoding="utf-8",
+    )
+    cfg = load_evaluator_config(toml)
+    assert cfg.candidate.storage_state == "/store/bxu-auth.json"
+
+
 def test_candidate_folder_defaults_to_none_when_absent(tmp_path) -> None:
     from agent_eval_lab.experiments.evaluator_config import load_evaluator_config
 
@@ -160,3 +196,4 @@ project_id = "P1"
     )
     cfg = load_evaluator_config(toml)
     assert cfg.candidate.folder is None
+    assert cfg.candidate.storage_state is None

@@ -28,6 +28,7 @@ from agent_eval_lab.runners.claude_cli_candidate import (
     _sanitized_env,
     parse_claude_result,
 )
+from agent_eval_lab.runners.playwright_config import render_playwright_cli_config
 
 _B_SYSTEM = (
     "You are automating the MicroStrategy Library web UI with playwright-cli (a "
@@ -74,6 +75,7 @@ def make_b_claude_run_fn(
     workdir_factory: WorkdirFactory,
     login: tuple[str, str],
     folder: str,
+    storage_state_path: str | None = None,
     max_budget_usd: float = 1.0,
     timeout_s: int = 600,
 ) -> Callable[[object, int, str], Trajectory]:
@@ -89,6 +91,16 @@ def make_b_claude_run_fn(
             base_user = user.content
             prompt = render_b_prompt(
                 base_user, save_name=save_name, login=login, folder=folder
+            )
+            # Pin cert-ignore + pre-saved bxu auth in the agent's CWD: playwright-cli
+            # auto-loads .playwright/cli.config.json, so its first `open` lands in an
+            # already-authenticated MSTR app (§6.2). The agent is NOT OS-confined (§7),
+            # so the pre-saved credential is the disposable bxu test login only.
+            cfg_dir = workdir / ".playwright"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            (cfg_dir / "cli.config.json").write_text(
+                render_playwright_cli_config(storage_state_path=storage_state_path),
+                encoding="utf-8",
             )
             argv = _build_b_claude_argv(
                 model=model, prompt=prompt, max_budget_usd=max_budget_usd
