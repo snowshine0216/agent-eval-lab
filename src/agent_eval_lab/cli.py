@@ -1669,9 +1669,21 @@ def _real_b_candidate_factory(*, cfg, config, args, cond, login, folder):
 
     def factory(*, arm, condition_id, folder, login):
         if getattr(args, "driver", "chat") == "claude":
+            import subprocess as _sp
+
+            def _run_subprocess(argv, *, cwd, env, timeout):
+                return _sp.run(
+                    argv,
+                    cwd=cwd,
+                    env=env,
+                    timeout=timeout,
+                    capture_output=True,
+                    text=True,
+                )
+
             return make_b_claude_run_fn(
                 model=args.model or config.model_id,
-                run_subprocess=subprocess.run,
+                run_subprocess=_run_subprocess,
                 workdir_factory=lambda: Path(tempfile.mkdtemp()),
                 login=login,
                 folder=folder,
@@ -1711,6 +1723,25 @@ def _run_b_command(args, candidate_run_fn_factory=None) -> int:
     if args.model:
         config = replace(config, model_id=args.model)
     cond = condition_id(config)
+
+    # Fail-fast: all three [candidate] fields are required for a live run (spec §12).
+    # The config loader keeps them Optional for non-run-b consumers; validate here.
+    missing = []
+    if not (cfg.candidate.url or "").strip():
+        missing.append("url")
+    if not (cfg.candidate.folder or "").strip():
+        missing.append("folder")
+    if not (cfg.candidate.password or "").strip():
+        missing.append("password")
+    if missing:
+        for key in missing:
+            print(
+                f"error: [candidate] {key!r} is required for a live run-b but is "
+                "missing or empty in the evaluator config (spec §12). Set it in "
+                "evaluator.toml and retry.",
+                file=sys.stderr,
+            )
+        return 2
 
     arms = ["noskill", "skill"] if args.arm == "both" else [args.arm]
     arm_tasks = _build_b_arm_tasks(cfg)
@@ -1803,6 +1834,19 @@ def _run_report_b(args) -> int:
         for line in Path(path).read_text(encoding="utf-8").splitlines():
             if line.strip():
                 trials.append(b_trial_from_dict(json.loads(line)))
+    # Dedupe by run_uid (keep LAST occurrence) — protects against concatenated
+    # JSONL files where the same run was re-exported. Warn so the owner notices.
+    seen: dict[str, int] = {}
+    for i, t in enumerate(trials):
+        seen[t.run_uid] = i
+    n_dupes = len(trials) - len(seen)
+    if n_dupes > 0:
+        print(
+            f"warning: {n_dupes} duplicate run_uid(s) detected in the trial files; "
+            "keeping the last occurrence of each. Check for overlapping JSONL exports.",
+            file=sys.stderr,
+        )
+        trials = [trials[i] for i in sorted(seen.values())]
     verdicts = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
     _, prices = _load_prices(args.prices)
     report = report_b(trials, verdicts, pricing=prices)

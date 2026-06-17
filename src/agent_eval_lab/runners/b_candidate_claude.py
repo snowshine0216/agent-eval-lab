@@ -84,7 +84,9 @@ def make_b_claude_run_fn(
         workdir = workdir_factory()
         try:
             user = next((m for m in task.input.messages if m.role == "user"), None)
-            base_user = user.content if user is not None else ""
+            if user is None:
+                raise ValueError("B task has no user message")
+            base_user = user.content
             prompt = render_b_prompt(
                 base_user, save_name=save_name, login=login, folder=folder
             )
@@ -98,16 +100,21 @@ def make_b_claude_run_fn(
                 )
             except subprocess.TimeoutExpired:
                 return _env_invalid_trajectory(run_index, raw="timeout")
-            if getattr(completed, "returncode", 0) != 0:
+            # A missing/None returncode means the subprocess object is malformed
+            # (e.g. bare subprocess.run without capture_output=True) — treat as
+            # env-invalid rather than routing None stdout to parse_claude_result.
+            rc = getattr(completed, "returncode", None)
+            stdout = getattr(completed, "stdout", None)
+            if rc != 0 or stdout is None:
                 return _env_invalid_trajectory(
                     run_index,
                     raw=(
-                        f"stdout: {getattr(completed, 'stdout', '')}\n"
+                        f"stdout: {stdout!r}\n"
                         f"stderr: {getattr(completed, 'stderr', '')}"
                     ),
                 )
             try:
-                meta = parse_claude_result(completed.stdout)
+                meta = parse_claude_result(stdout)
             except ClaudeResultParseError as exc:
                 return _env_invalid_trajectory(run_index, raw=str(exc))
             if meta.is_error:
