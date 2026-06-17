@@ -133,6 +133,17 @@ into the prompt/session. The candidate account `bxu` must itself be unable to re
 objects (owner-confirmed precondition). Even though the spike's human grade does not consume
 the golden, the boundary stays intact so future automated runs inherit it.
 
+**Shared candidate account (decided 2026-06-17).** All models and both arms log in with the
+**single** least-priv `[candidate]` account (`bxu`); isolation is by the **unique per-trial
+save-name** (which encodes model + arm + trial — e.g. `dashscope-qwen3.7-max__noskill__0002`),
+not by a distinct account per model. This is D19/D20-consistent (least-priv + can't-read-goldens
++ per-run isolation — *not* per-model accounts) and keeps every saved object collision-free and
+attributable for the owner's manual review. Consequences: (1) `run-b` invocations are run
+**sequentially** — never two models in parallel on the one login (concurrent MSTR sessions for
+one user can collide on save/prompt state); (2) each trial still opens a **fresh playwright-cli
+browser session** so a mandatory-prompt answer never bleeds between trials; (3) the shared
+folder accumulates every trial's object — desirable for review, attributable by name.
+
 ## 8. Testing
 
 Everything is unit-tested with **no live MSTR and no live provider**:
