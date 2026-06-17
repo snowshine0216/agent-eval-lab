@@ -53,6 +53,29 @@ def _task(*, task_id: str, messages: tuple[MessageTurn, ...], verification) -> T
     )
 
 
+def render_b_prompt(
+    base_user: str,
+    *,
+    save_name: str,
+    login: tuple[str, str],
+    folder: str,
+) -> str:
+    """Inject the per-trial save-name + candidate login (app URL / username) +
+    target folder into the static B-1 user prompt (spec §6.2). PURE.
+
+    `login` is (app_url, username); there is DELIBERATELY no password parameter —
+    the credential is handed to the live browser session out-of-band and NEVER
+    enters the model context (§7 integrity boundary / TRAP 2)."""
+    app_url, username = login
+    return (
+        f"{base_user}\n\n"
+        f"Log in to the MicroStrategy Library app at {app_url} as user "
+        f"{username!r} (the session is already authenticated for you; do not ask "
+        f"for or print credentials). Save the report to the folder {folder!r} "
+        f"under EXACTLY the unique name {save_name!r}."
+    )
+
+
 def build_b_tasks(*, golden_dir: Path, strategy_test_path: Path) -> tuple[Task, ...]:
     """Return the B-1 arm pair (noskill, skill). The same held-out ReadbackSpec
     grades both arms; the only difference is the injected stripped skill."""

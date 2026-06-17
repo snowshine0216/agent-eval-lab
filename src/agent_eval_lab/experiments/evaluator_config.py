@@ -48,6 +48,7 @@ class CandidateConfig:
     url: str | None = None
     username: str
     password: str
+    folder: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -172,6 +173,7 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
             url=str(candidate_sec["url"]) if "url" in candidate_sec else None,
             username=str(_require_key(candidate_sec, "username", "candidate")),
             password=str(_require_key(candidate_sec, "password", "candidate")),
+            folder=str(candidate_sec["folder"]) if "folder" in candidate_sec else None,
         ),
         runner=RunnerConfig(
             safety_cap=int(_require_key(runner_sec, "safety_cap", "runner")),

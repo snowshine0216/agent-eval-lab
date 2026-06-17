@@ -266,6 +266,33 @@ def test_executor_heartbeat_failure_never_breaks_a_command(tmp_path):
         close()
 
 
+def test_parse_argv_rejects_file_scheme_navigation() -> None:
+    from agent_eval_lab.runners.bash_edge import parse_argv
+
+    assert parse_argv("playwright-cli -s=x open file:///etc/passwd") is None
+    assert parse_argv("playwright-cli open file://localhost/evaluator.toml") is None
+    # Case-insensitive: FILE:// is also refused.
+    assert parse_argv("playwright-cli open FILE:///x") is None
+
+
+def test_parse_argv_still_allows_http_and_arrow_functions() -> None:
+    from agent_eval_lab.runners.bash_edge import parse_argv
+
+    assert parse_argv("playwright-cli -s=x open https://lab/app") == [
+        "playwright-cli",
+        "-s=x",
+        "open",
+        "https://lab/app",
+    ]
+    # The existing arrow-function eval must keep parsing (no false positive).
+    assert parse_argv('playwright-cli -s=x eval "() => document.body.innerText"') == [
+        "playwright-cli",
+        "-s=x",
+        "eval",
+        "() => document.body.innerText",
+    ]
+
+
 @requires_playwright_cli
 def test_close_reaps_a_real_playwright_daemon(tmp_path):
     # The real regression guard (local-only): an `open` spawns a persistent

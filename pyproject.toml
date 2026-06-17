@@ -1,6 +1,6 @@
 [project]
 name = "agent-eval-lab"
-version = "0.5.1"
+version = "0.6.0"
 description = "A portfolio-driven laboratory for reproducible AI agent evaluations"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,6 +10,9 @@ dependencies = [
     "httpx>=0.27",
     "jsonschema>=4.21",
 ]
+
+[project.scripts]
+agent-eval-lab = "agent_eval_lab.cli:main"
 
 [dependency-groups]
 dev = [
