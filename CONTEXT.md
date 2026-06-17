@@ -235,8 +235,9 @@ committed `f-ablation-roster.toml` (`experiment_id` + an ordered `[[model]]`
 array), parsed by `f_ablation_roster.load_f_ablation_roster` into a frozen
 `FAblationRoster`; `build_f_ablation_spec` is pure over it. Add/remove a model =
 a TOML edit (no code change); `experiment_id` is bumped per roster change so each
-comparison has a distinct frozen identity (`F-ablation-v2` = deepseek, minimax,
-Qwen3.6-35B → 180 attempts). The run's realized-order sidecar records
+comparison has a distinct frozen identity (currently `F-ablation-v3` = deepseek,
+minimax, `dashscope:qwen3.7-max` → 180 attempts; v2 used the provisional SiliconFlow
+Qwen3.6-35B rung). The run's realized-order sidecar records
 `experiment_id` + `spec_hash` so the comparison is auditable from artifacts
 (ADR-0019). Entry order is significant — it seeds `ablation_run_order`.
 _Avoid_: hard-coding the roster in `f_ablation_spec` (the pre-v2 `_CONDITIONS`

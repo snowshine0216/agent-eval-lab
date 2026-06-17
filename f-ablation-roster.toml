@@ -11,7 +11,7 @@
 # reaches a paid run). Entry ORDER is significant: it feeds the seeded
 # ablation_run_order, so reordering changes the realized execution order.
 
-experiment_id = "F-ablation-v2"
+experiment_id = "F-ablation-v3"
 
 [[model]]
 condition_id = "deepseek:deepseek-v4-pro"
@@ -22,7 +22,8 @@ condition_id = "minimax:MiniMax-M3"
 label = "minimax"
 
 [[model]]
-# The within-family Qwen rung on SiliconFlow's OpenAI-compatible API; the id is
-# the PROVISIONAL siliconflow rung (labelled — spec Roster note).
-condition_id = "siliconflow:Qwen/Qwen3.6-35B-A3B"
-label = "qwen3.6-35b (PROVISIONAL)"
+# The Qwen rung now points at Alibaba DashScope's flagship reasoning model
+# (qwen3.7-max) via the `dashscope` provider (DASHSCOPE_BASE_URL/_API_KEY); it
+# replaces the provisional SiliconFlow Qwen3.6-35B rung in v2. v3 = this swap.
+condition_id = "dashscope:qwen3.7-max"
+label = "qwen3.7-max (dashscope)"

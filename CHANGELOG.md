@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.5.0 — 2026-06-17
 
 ### Fixed
 
@@ -14,6 +14,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   with `No module named agent_eval_lab.__main__`.
 
 ### Added
+
+- **DashScope provider + `qwen3.7-max`.** New `dashscope` provider in the `PROVIDERS` registry —
+  Alibaba DashScope's OpenAI-compatible endpoint, key read from `DASHSCOPE_API_KEY` at runtime —
+  making the flagship Qwen reasoning model `qwen3.7-max` available to every runner (`--provider
+  dashscope`, roster `condition_id`s). One registry entry, same pattern as the other providers;
+  live-verified (chat + tool-calls).
 
 - **Claude Code F-baseline (`run-f-claude-baseline`).** Runs vanilla Claude Code (`claude -p`,
   Sonnet 4.6, skills off) as the agent on the F1/F2/F3 repair tasks under two tool surfaces —
@@ -39,6 +45,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `None` for the token-metered B/D/M runners (whose cost is derived from token counts × `TokenPrice`,
   not reported per-run) and is omitted from their serialized records, keeping prior artifacts
   byte-identical. The owner-gated paid re-run that captures it is still pending.
+
+### Changed
+
+- **F-ablation roster → v3.** The roster's Qwen rung swaps the provisional SiliconFlow
+  `Qwen/Qwen3.6-35B-A3B` for `dashscope:qwen3.7-max`; `experiment_id` bumped `F-ablation-v2` →
+  `F-ablation-v3` (the comparison changed, so every frozen `spec_hash` stays auditable). deepseek
+  and minimax are unchanged. CONTEXT.md updated to describe the v3 roster.
 
 ## v0.4.0 — 2026-06-16
 
