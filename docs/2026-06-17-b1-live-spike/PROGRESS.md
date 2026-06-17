@@ -21,3 +21,30 @@ Evidence / notes:
 - **001-fix** ✅ 0 rounds — [items/001-fix.md](items/001-fix.md) — exit contract met first pass; review blockers were fixed pre-PR; 4 pr-review nits accepted non-blocking.
 - **001-merge** ✅ — [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44) squash-merged into `feat/b-set-live-spike` as `6bd8b9f`; sub-branch deleted. All pre-merge gates passed (non-protected base · drift PASS · verify PASS · review PASS · pr-review PASS-WITH-NITS).
 - **verify** column (not QA) — non-web project; post-ship verifier is `/verify`.
+
+---
+
+## Run close-out (Phase 3 — complete)
+
+**Status: COMPLETE.** Single item (spec mode, N=1) shipped, reviewed, verified, and merged.
+
+- **Items merged:** 1 / 1 — item 001 (B-1 live spike) via [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44) → squash `6bd8b9f`.
+- **Items SKIPPED / BLOCKED:** none. (Spec §9 deferrals — live readback, B-2…B-10, run-m1 integration, OS-level claude confinement, the paid sweep — are out of scope *inside* item 001, recorded in [SKIPPED.md](SKIPPED.md), not separate items.)
+- **Workflow-completeness audit:** PASS — ship/drift/review/pr-review/verify artifacts all present with correct verdict markers; qa absent (non-web XOR); grill absent (spec-mode ⏭️).
+- **Build/test sanity (merged feature branch):** `uv run pytest` → **1251 passed, 18 skipped**; `ruff check .` clean.
+- **Doc-sync:** PASS — [doc-sync.md](doc-sync.md) (CHANGELOG v0.6.0 + CONTEXT/ADR-0021 from grill + B1-LIVE-RUNBOOK; README intentionally not the home for per-spike commands).
+- **Run-level verify:** satisfied by the per-item 001-verify (N=1: the item IS the integrated feature — CLI smoke + `report-b` end-to-end on the merged code).
+- **Version:** v0.5.1 → **v0.6.0** (MINOR).
+
+### Close-out facts
+
+```
+Feature branch: feat/b-set-live-spike
+Feature-branch PR: https://github.com/snowshine0216/agent-eval-lab/pull/45  (feat/b-set-live-spike → main)
+Merged into protected branch: no (PR #45 left OPEN for user review — main is protected, no opt-in given)
+```
+
+### Follow-up work (owner / future)
+
+- Run the live B-1 sweep per [B1-LIVE-RUNBOOK.md](../2026-06-13-agentic-v1-domains-runs/B1-LIVE-RUNBOOK.md): set `[candidate]` creds, relocate the store, calibrate-first, then 24-run sweep + owner verdicts + `report-b`.
+- pr-review nits (non-blocking, [items/001-fix.md](items/001-fix.md)): claude budget-cap censoring (needs a budget signal in the shared claude building blocks), CLI `url or ""` dead-after-fail-fast, intent comments on `BArmOutcome.trials` / `_cost` 0.0.
