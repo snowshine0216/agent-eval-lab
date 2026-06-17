@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0 — 2026-06-17
+
+### Added
+
+- **B-set live candidate pre-authentication (ADR-0022).** The live browse path now authenticates
+  out-of-band via a pre-saved playwright `storageState` (the `bxu` login: `iSession`/`JSESSIONID`
+  cookies) injected through a per-trial `.playwright/cli.config.json`. A new pure renderer
+  (`runners/playwright_config.py`) emits that config with `ignoreHTTPSErrors` (the self-signed labs
+  cert) plus `storageState` when configured; **both** the chat and `claude -p` candidate drivers
+  write it into the session workdir before launch, so the candidate's first `open` lands in an
+  already-authenticated MSTR app (spec §6.2) — the credential never enters the model context (§7).
+  Adds `[candidate] storage_state` to the evaluator config.
+- **Round/budget controls for `run-b`.** `--max-rounds` raises the chat-driver browse-loop cap per
+  the calibrate-first protocol (default 50); `--max-budget-usd` / `--claude-timeout` bound the
+  `claude -p` arm (defaults $1 / 600s).
+
+### Fixed
+
+- **`run-b` fail-fasts when `[candidate] storage_state` points to a missing file** (rc=2, before any
+  trial). Previously a stale/moved/expired auth file silently opened an UNauthenticated session — the
+  candidate lands on the login page and every trial censors, miscounted as a model FAIL rather than a
+  setup error (the §7 store relocation makes a stale path very plausible).
+
+### Notes
+
+- First live B-1 execution (calibrate-first): the harness drives MSTR end-to-end, but **no candidate
+  completed B-1** in a feasible budget — deepseek (both arms, 150 rounds) stalls at source-cube
+  selection; `claude -p` (sonnet-4-6) hit a 20-min timeout without saving. The paid 24-run sweep was
+  **not** launched (owner decision). Findings:
+  [docs/2026-06-17-b1-live-spike/CALIBRATION-FINDINGS.md](docs/2026-06-17-b1-live-spike/CALIBRATION-FINDINGS.md).
+  Residual: the `claude -p` driver records no trajectory, so its run is unobservable from the
+  artifact (deferred follow-up).
+
 ## v0.6.0 — 2026-06-17
 
 ### Added

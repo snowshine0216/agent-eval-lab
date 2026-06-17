@@ -49,6 +49,9 @@ class CandidateConfig:
     username: str
     password: str
     folder: str | None = None
+    # Path to a pre-saved playwright storageState (bxu login: iSession/JSESSIONID
+    # cookies) so the live browse path opens an already-authenticated app (§6.2).
+    storage_state: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -174,6 +177,11 @@ def load_evaluator_config(path: Path) -> EvaluatorConfig:
             username=str(_require_key(candidate_sec, "username", "candidate")),
             password=str(_require_key(candidate_sec, "password", "candidate")),
             folder=str(candidate_sec["folder"]) if "folder" in candidate_sec else None,
+            storage_state=(
+                str(candidate_sec["storage_state"])
+                if "storage_state" in candidate_sec
+                else None
+            ),
         ),
         runner=RunnerConfig(
             safety_cap=int(_require_key(runner_sec, "safety_cap", "runner")),

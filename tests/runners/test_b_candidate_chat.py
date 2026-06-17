@@ -82,6 +82,53 @@ def test_chat_run_fn_wires_browse_loop_with_rendered_save_name(tmp_path) -> None
     )
 
 
+def test_chat_run_fn_writes_cli_config_into_workdir_before_browse(tmp_path) -> None:
+    """The per-trial workdir gets a .playwright/cli.config.json (cert-ignore +
+    pre-saved bxu storageState) BEFORE the browse loop, so the candidate's first
+    `open` lands in an already-authenticated MSTR app (spec §6.2 / calibration
+    2026-06-17). playwright-cli auto-loads it from the executor's CWD."""
+    import json
+
+    seen = {}
+
+    def fake_run_single(**kwargs):
+        # Config must already exist when the browse loop starts.
+        cfg_path = tmp_path / "b-work-save0" / ".playwright" / "cli.config.json"
+        seen["existed_before_browse"] = cfg_path.exists()
+        seen["content"] = (
+            json.loads(cfg_path.read_text()) if cfg_path.exists() else None
+        )
+        return Trajectory(
+            turns=(),
+            usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+            run_index=0,
+            stop_reason="completed_natural",
+        )
+
+    def fake_executor_factory(*, session_id, workdir):
+        return (lambda req: None), (lambda: None)
+
+    run_fn = make_b_chat_run_fn(
+        config=object(),
+        http_client=object(),
+        temperature=0.0,
+        max_tokens=4096,
+        condition_id="c",
+        login=("https://lab/app", "bxu"),
+        folder="/Candidate/bxu",
+        workdir_root=tmp_path,
+        storage_state_path="/store/bxu-auth.json",
+        executor_factory=fake_executor_factory,
+        run_single_fn=fake_run_single,
+    )
+    run_fn(_task(), 0, "save0")
+
+    assert seen["existed_before_browse"] is True
+    ctx = seen["content"]["browser"]["contextOptions"]
+    assert ctx["ignoreHTTPSErrors"] is True
+    assert ctx["storageState"] == "/store/bxu-auth.json"
+
+
 def test_chat_run_fn_closes_the_executor(tmp_path) -> None:
     closed = []
 

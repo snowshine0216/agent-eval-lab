@@ -71,6 +71,38 @@ def test_claude_run_fn_success_records_turns_and_cost(tmp_path) -> None:
     assert "Bash" in " ".join(captured["argv"])
 
 
+def test_claude_run_fn_writes_cli_config_into_workdir_before_launch(tmp_path) -> None:
+    """The claude -p agent drives playwright-cli via Bash; like the chat driver it
+    needs .playwright/cli.config.json (cert-ignore + pre-saved bxu storageState) in
+    its CWD BEFORE launch so its first `open` lands in an authenticated MSTR app
+    (calibration 2026-06-17). Without it claude hits ERR_CERT_AUTHORITY_INVALID."""
+    seen = {}
+
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        cfg = tmp_path / ".playwright" / "cli.config.json"
+        seen["existed"] = cfg.exists()
+        seen["content"] = json.loads(cfg.read_text()) if cfg.exists() else None
+        # The config only takes effect if claude's CWD is the workdir we wrote into
+        # (playwright-cli auto-loads .playwright/cli.config.json from CWD).
+        seen["cwd_matches"] = cwd == str(tmp_path)
+        return _FakeCompleted(stdout=_result_json())
+
+    run_fn = make_b_claude_run_fn(
+        model="claude-sonnet-4-6",
+        run_subprocess=fake_subprocess,
+        workdir_factory=lambda: tmp_path,
+        login=("https://lab/app", "bxu"),
+        folder="/Candidate/bxu",
+        storage_state_path="/store/bxu-auth.json",
+    )
+    run_fn(_task(), 0, "save0")
+    assert seen["existed"] is True
+    assert seen["cwd_matches"] is True
+    ctx = seen["content"]["browser"]["contextOptions"]
+    assert ctx["ignoreHTTPSErrors"] is True
+    assert ctx["storageState"] == "/store/bxu-auth.json"
+
+
 def test_claude_run_fn_nonzero_exit_is_env_invalid(tmp_path) -> None:
     def fake_subprocess(argv, *, cwd, env, timeout):
         return _FakeCompleted(stdout="", stderr="boom", returncode=1)
