@@ -147,52 +147,27 @@ def _is_invalid(
     return False
 
 
-def run_task_k_valid(
+def run_trials_k_valid(
     *,
-    task: Task,
-    registry: Mapping[str, ToolDef],
-    config: ProviderConfig,
-    http_client: httpx.Client,
+    trial_fn: "Callable[[int], RunResult]",
     k_valid: int,
     max_invalid_rate: float,
-    max_steps: int,
-    temperature: float,
-    max_tokens: int,
-    validity_fn: "Callable[[RunResult], bool] | None" = None,
-    health_probe_fn: "Callable[[], EnvHealth] | None" = None,
-    apply_fn: ApplyFn = workspace_apply,
-    executor: Executor | None = None,
-    safety_cap: int = 200,
-    max_rounds: int | None = None,
+    is_invalid_fn: "Callable[[RunResult], bool]",
 ) -> ReplacementOutcome:
-    """D34 replacement-trial loop: run until exactly k_valid valid trials.
+    """D34 replacement-trial arithmetic, generic over the trial producer.
 
-    A trial is invalid if its env was unhealthy or validity_fn returns False; on
-    invalid, a replacement runs immediately. If the running invalid-rate would
-    exceed max_invalid_rate before k_valid valid trials are obtained, return a
-    VOID outcome (never scored over fewer than k_valid valid runs)."""
-    condition = condition_id(config)
+    Run `trial_fn(attempt_index)` until exactly `k_valid` valid trials are banked;
+    a trial is invalid iff `is_invalid_fn(run)`. On invalid, a replacement runs
+    immediately. VOID when even the best achievable final invalid-rate would exceed
+    `max_invalid_rate` (the same predicate `run_task_k_valid` used) — never scored
+    over fewer than k_valid valid runs. The subtle VOID math lives ONLY here."""
     attempts: list[TrialAttempt] = []
     valid_runs: list[RunResult] = []
     invalid_count = 0
     attempt_index = 0
     while len(valid_runs) < k_valid:
-        run = _run_one(
-            task=task,
-            registry=registry,
-            config=config,
-            http_client=http_client,
-            run_index=attempt_index,
-            condition=condition,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            apply_fn=apply_fn,
-            executor=executor,
-            health_probe_fn=health_probe_fn,
-            safety_cap=safety_cap,
-            max_rounds=max_rounds,
-        )
-        invalid = _is_invalid(run, validity_fn)
+        run = trial_fn(attempt_index)
+        invalid = is_invalid_fn(run)
         attempts.append(
             TrialAttempt(attempt_index=attempt_index, valid=not invalid, run=run)
         )
@@ -220,4 +195,54 @@ def run_task_k_valid(
             )
     return ReplacementOutcome(
         valid_runs=tuple(valid_runs), attempts=tuple(attempts), void=False
+    )
+
+
+def run_task_k_valid(
+    *,
+    task: Task,
+    registry: Mapping[str, ToolDef],
+    config: ProviderConfig,
+    http_client: httpx.Client,
+    k_valid: int,
+    max_invalid_rate: float,
+    max_steps: int,
+    temperature: float,
+    max_tokens: int,
+    validity_fn: "Callable[[RunResult], bool] | None" = None,
+    health_probe_fn: "Callable[[], EnvHealth] | None" = None,
+    apply_fn: ApplyFn = workspace_apply,
+    executor: Executor | None = None,
+    safety_cap: int = 200,
+    max_rounds: int | None = None,
+) -> ReplacementOutcome:
+    """D34 replacement-trial loop: run until exactly k_valid valid trials.
+
+    Thin task-specific wrapper over run_trials_k_valid: the trial producer is a
+    `_run_one` per attempt_index, and invalidity is `_is_invalid` (env-unhealthy
+    OR validity_fn). The VOID arithmetic lives in run_trials_k_valid."""
+    condition = condition_id(config)
+
+    def trial_fn(attempt_index: int) -> RunResult:
+        return _run_one(
+            task=task,
+            registry=registry,
+            config=config,
+            http_client=http_client,
+            run_index=attempt_index,
+            condition=condition,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            apply_fn=apply_fn,
+            executor=executor,
+            health_probe_fn=health_probe_fn,
+            safety_cap=safety_cap,
+            max_rounds=max_rounds,
+        )
+
+    return run_trials_k_valid(
+        trial_fn=trial_fn,
+        k_valid=k_valid,
+        max_invalid_rate=max_invalid_rate,
+        is_invalid_fn=lambda run: _is_invalid(run, validity_fn),
     )
