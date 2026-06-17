@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ✅ #44 | ✅ | ✅ | ✅ | ✅ 0 rounds | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ✅ #44 | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 6bd8b9f |
 
 Evidence / notes:
 - **001-spec** ✅ — [items/001-spec.md](items/001-spec.md) (user-provided, verbatim copy).
@@ -19,4 +19,5 @@ Evidence / notes:
 - **001-verify** ✅ — [items/001-verify.md](items/001-verify.md) — PASS: 1251 tests green; `report-b` e2e renders `pass_at_1`/skill-delta; `run-b` fail-fast confirmed.
 - **001-pr-review** ✅ — [items/001-pr-review.md](items/001-pr-review.md) — PASS-WITH-NITS (4 nits, 0 bugs/blockers) on [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44).
 - **001-fix** ✅ 0 rounds — [items/001-fix.md](items/001-fix.md) — exit contract met first pass; review blockers were fixed pre-PR; 4 pr-review nits accepted non-blocking.
+- **001-merge** ✅ — [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44) squash-merged into `feat/b-set-live-spike` as `6bd8b9f`; sub-branch deleted. All pre-merge gates passed (non-protected base · drift PASS · verify PASS · review PASS · pr-review PASS-WITH-NITS).
 - **verify** column (not QA) — non-web project; post-ship verifier is `/verify`.
