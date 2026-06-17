@@ -563,6 +563,78 @@ def test_run_task_k_valid_forwards_max_rounds(monkeypatch) -> None:
     assert captured["safety_cap"] == 123
 
 
+def test_run_trials_k_valid_extracts_the_d34_arithmetic() -> None:
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.multi_run import run_trials_k_valid
+
+    def _run(idx: int) -> RunResult:
+        return RunResult(
+            task_id="t",
+            condition_id="c",
+            run_index=idx,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+                run_index=idx,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
+        )
+
+    made: list[int] = []
+
+    def trial_fn(attempt_index: int) -> RunResult:
+        made.append(attempt_index)
+        return _run(attempt_index)
+
+    # attempt 0 invalid, the rest valid -> one replacement, no VOID.
+    invalid_attempts = {0}
+
+    def is_invalid(run: RunResult) -> bool:
+        return run.run_index in invalid_attempts
+
+    outcome = run_trials_k_valid(
+        trial_fn=trial_fn,
+        k_valid=2,
+        max_invalid_rate=0.6,
+        is_invalid_fn=is_invalid,
+    )
+    assert outcome.void is False
+    assert len(outcome.valid_runs) == 2
+    assert [a.attempt_index for a in outcome.attempts] == [0, 1, 2]
+    assert made == [0, 1, 2]
+
+
+def test_run_trials_k_valid_voids_when_rate_exceeded() -> None:
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import Trajectory, Usage
+    from agent_eval_lab.runners.multi_run import run_trials_k_valid
+
+    def trial_fn(attempt_index: int) -> RunResult:
+        return RunResult(
+            task_id="t",
+            condition_id="c",
+            run_index=attempt_index,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+                run_index=attempt_index,
+                stop_reason="completed_natural",
+            ),
+            grade=GradeResult(grader_id="g", passed=True, score=1.0, evidence={}),
+        )
+
+    outcome = run_trials_k_valid(
+        trial_fn=trial_fn,
+        k_valid=2,
+        max_invalid_rate=0.4,
+        is_invalid_fn=lambda run: True,  # every trial invalid
+    )
+    assert outcome.void is True
+    assert len(outcome.valid_runs) < 2
+
+
 def test_run_task_k_threads_code_world_binding_to_run_single() -> None:
     """Criterion 3: a code-world task through run_task_k fulfills run_tests
     via the threaded executor and grades through the oracle edge."""

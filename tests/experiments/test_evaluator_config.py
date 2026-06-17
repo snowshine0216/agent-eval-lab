@@ -90,3 +90,73 @@ def test_load_evaluator_config_missing_section_raises(tmp_path: Path) -> None:
 def test_load_evaluator_config_file_not_found_raises() -> None:
     with pytest.raises(FileNotFoundError):
         load_evaluator_config(Path("/nonexistent/path/evaluator.toml"))
+
+
+def test_candidate_folder_is_read_when_present(tmp_path) -> None:
+    from agent_eval_lab.experiments.evaluator_config import load_evaluator_config
+
+    toml = tmp_path / "evaluator.toml"
+    toml.write_text(
+        """
+[store]
+path = "/tmp/store"
+[health_probe]
+url = "https://lab/auth"
+username = "eval"
+password = "x"
+[skill]
+strategy_test_path = "/tmp/skill.md"
+[candidate]
+url = "https://lab/MicroStrategyLibrary/app"
+username = "bxu"
+password = "secret"
+folder = "/Candidate/bxu"
+[runner]
+safety_cap = 200
+k_valid = 3
+max_invalid_rate = 0.4
+[oracle.b_set]
+readback = "playwright-cli"
+project_id = "P1"
+[oracle.b_set.goldens]
+"b-b1" = "obj1"
+""",
+        encoding="utf-8",
+    )
+    cfg = load_evaluator_config(toml)
+    assert cfg.candidate.folder == "/Candidate/bxu"
+    assert cfg.candidate.url == "https://lab/MicroStrategyLibrary/app"
+    assert cfg.candidate.password == "secret"
+
+
+def test_candidate_folder_defaults_to_none_when_absent(tmp_path) -> None:
+    from agent_eval_lab.experiments.evaluator_config import load_evaluator_config
+
+    toml = tmp_path / "evaluator.toml"
+    toml.write_text(
+        """
+[store]
+path = "/tmp/store"
+[health_probe]
+url = "https://lab/auth"
+username = "eval"
+password = "x"
+[skill]
+strategy_test_path = "/tmp/skill.md"
+[candidate]
+username = "bxu"
+password = "secret"
+[runner]
+safety_cap = 200
+k_valid = 3
+max_invalid_rate = 0.4
+[oracle.b_set]
+readback = "playwright-cli"
+project_id = "P1"
+[oracle.b_set.goldens]
+"b-b1" = "obj1"
+""",
+        encoding="utf-8",
+    )
+    cfg = load_evaluator_config(toml)
+    assert cfg.candidate.folder is None

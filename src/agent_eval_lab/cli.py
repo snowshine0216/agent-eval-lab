@@ -43,6 +43,7 @@ from agent_eval_lab.experiments.schema import (
 )
 from agent_eval_lab.experiments.spec_hash import freeze_spec as _freeze_spec_pure
 from agent_eval_lab.metrics.cost import TokenPrice
+from agent_eval_lab.records.b_trial import b_trial_to_dict
 from agent_eval_lab.records.grade import GradeResult, RunResult, is_env_invalid_run
 from agent_eval_lab.records.serialize import run_result_to_dict, trajectory_from_dict
 from agent_eval_lab.reports.baseline import build_baseline_report, render_markdown
@@ -1615,6 +1616,245 @@ def _run_f_claude_baseline_command(args, *, run_fn_factory=None) -> int:
     return 0
 
 
+_B_ARMS = {"noskill": "b-b1-noskill", "skill": "b-b1-skill"}
+
+
+def _make_live_b_task(task_id: str, messages: tuple) -> "Task":
+    """A B-1 arm Task for the LIVE path. verification is a minimal AllOf(specs=())
+    the live path never reads (Task.verification is non-optional; B grades by owner
+    verdict, not an automated spec). Mirrors datasets.b_tasks._task otherwise."""
+    from agent_eval_lab.tasks.schema import AllOf, TaskInput, TaskMetadata
+
+    return Task(
+        id=task_id,
+        capability="browser_mstr",
+        input=TaskInput(messages=messages, available_tools=("bash",)),
+        verification=AllOf(specs=()),
+        metadata=TaskMetadata(
+            split="held_out",
+            version="b-domain-v1",
+            provenance="source spec §4.3 exemplar B-1 (Tutorial Project)",
+        ),
+        initial_state={"task_key": "B-1"},
+    )
+
+
+def _build_b_arm_tasks(cfg) -> dict:
+    """Build the two B-1 arm Tasks (noskill, skill) for the LIVE path — no oracle
+    golden required (the spike grades by owner verdict, not an automated spec). The
+    skill arm injects the stripped strategy-test skill into the system prompt."""
+    from agent_eval_lab.datasets.b_tasks import _B1_USER, _SYSTEM
+    from agent_eval_lab.datasets.skill_loader import load_stripped_skill
+    from agent_eval_lab.records.turns import MessageTurn
+
+    base_messages = (
+        MessageTurn(role="system", content=_SYSTEM),
+        MessageTurn(role="user", content=_B1_USER),
+    )
+    skill_text = load_stripped_skill(Path(cfg.skill.strategy_test_path))
+    skill_messages = apply_system_prompt(base_messages, f"{_SYSTEM}\n\n{skill_text}")
+    return {
+        "b-b1-noskill": _make_live_b_task("b-b1-noskill", base_messages),
+        "b-b1-skill": _make_live_b_task("b-b1-skill", skill_messages),
+    }
+
+
+def _real_b_candidate_factory(*, cfg, config, args, cond, login, folder):
+    """Production candidate factory for run-b. Tests inject candidate_run_fn_factory
+    instead; this is never reached in the test suite."""
+    import tempfile
+
+    from agent_eval_lab.runners.b_candidate_chat import make_b_chat_run_fn
+    from agent_eval_lab.runners.b_candidate_claude import make_b_claude_run_fn
+
+    def factory(*, arm, condition_id, folder, login):
+        if getattr(args, "driver", "chat") == "claude":
+            import subprocess as _sp
+
+            def _run_subprocess(argv, *, cwd, env, timeout):
+                return _sp.run(
+                    argv,
+                    cwd=cwd,
+                    env=env,
+                    timeout=timeout,
+                    capture_output=True,
+                    text=True,
+                )
+
+            return make_b_claude_run_fn(
+                model=args.model or config.model_id,
+                run_subprocess=_run_subprocess,
+                workdir_factory=lambda: Path(tempfile.mkdtemp()),
+                login=login,
+                folder=folder,
+            )
+        # chat driver
+        client = httpx.Client(
+            timeout=120.0, trust_env=False, proxy=resolve_proxy(config, os.environ)
+        )
+        return make_b_chat_run_fn(
+            config=config,
+            http_client=client,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            condition_id=cond,
+            login=login,
+            folder=folder,
+            workdir_root=Path(cfg.store.path) / "b-work",
+        )
+
+    return factory
+
+
+def _run_b_command(args, candidate_run_fn_factory=None) -> int:
+    """EDGE: run ONE model over the B-1 arms LIVE (spec §11.8). Standalone per
+    model (run-f parity), NOT the run-m1 orchestrator. Writes a grade-less
+    trials-b-<slug>-<arm>.jsonl per arm (BTrial, ADR-0021) + a .void.json sidecar +
+    the verdict sheet for the owner. Live MSTR + provider are reached only by the
+    REAL candidate factory; tests inject candidate_run_fn_factory.
+
+    Shared-account note (§7): arms run SEQUENTIALLY on the single least-priv bxu
+    login; isolation is by the unique per-trial save-name."""
+    from agent_eval_lab.reports.b_scoring import emit_verdict_sheet
+    from agent_eval_lab.runners.b_live import run_b_arm
+
+    cfg = load_evaluator_config(args.evaluator_config)
+    config = PROVIDERS[args.provider]
+    if args.model:
+        config = replace(config, model_id=args.model)
+    cond = condition_id(config)
+
+    # Fail-fast: all three [candidate] fields are required for a live run (spec §12).
+    # The config loader keeps them Optional for non-run-b consumers; validate here.
+    missing = []
+    if not (cfg.candidate.url or "").strip():
+        missing.append("url")
+    if not (cfg.candidate.folder or "").strip():
+        missing.append("folder")
+    if not (cfg.candidate.password or "").strip():
+        missing.append("password")
+    if missing:
+        for key in missing:
+            print(
+                f"error: [candidate] {key!r} is required for a live run-b but is "
+                "missing or empty in the evaluator config (spec §12). Set it in "
+                "evaluator.toml and retry.",
+                file=sys.stderr,
+            )
+        return 2
+
+    arms = ["noskill", "skill"] if args.arm == "both" else [args.arm]
+    arm_tasks = _build_b_arm_tasks(cfg)
+
+    login = (cfg.candidate.url or "", cfg.candidate.username)
+    folder = cfg.candidate.folder or ""
+
+    factory = candidate_run_fn_factory or _real_b_candidate_factory(
+        cfg=cfg, config=config, args=args, cond=cond, login=login, folder=folder
+    )
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    all_trials = []
+    void_arms: list[str] = []
+    aborted = False
+    try:
+        for arm in arms:  # SEQUENTIAL (shared bxu login, §7)
+            task = arm_tasks[_B_ARMS[arm]]
+            run_fn = factory(arm=arm, condition_id=cond, folder=folder, login=login)
+            outcome = run_b_arm(
+                task=task,
+                condition_id=cond,
+                folder=folder,
+                candidate_run_fn=run_fn,
+                k_valid=cfg.runner.k_valid,
+                max_invalid_rate=cfg.runner.max_invalid_rate,
+            )
+            path = args.out / f"trials-b-{_slug(cond)}-{task.id}.jsonl"
+            with path.open("w") as fh:
+                fh.write(
+                    "".join(
+                        json.dumps(b_trial_to_dict(t)) + "\n"
+                        for t in outcome.all_trials
+                    )
+                )
+            path.with_suffix(".void.json").write_text(
+                json.dumps({"void": outcome.void, "arm": task.id}), encoding="utf-8"
+            )
+            all_trials.extend(outcome.all_trials)
+            if outcome.void:
+                void_arms.append(task.id)
+                print(
+                    f"[void] B arm {task.id}: fewer than k clean trials — provider "
+                    "errors masked (env-invalid); excluded (D34).",
+                    file=sys.stderr,
+                )
+            # Fail-fast on an account-global auth/quota block (HTTP 401/403).
+            block = next(
+                (
+                    s
+                    for t in outcome.all_trials
+                    if (s := provider_auth_quota_status(t.trajectory)) is not None
+                ),
+                None,
+            )
+            if block is not None:
+                print(
+                    f"error: provider auth/quota rejection (HTTP {block}) on arm "
+                    f"{task.id!r} — aborting before more dead trials (401/403 is an "
+                    "account-global block). Fix the key/quota and retry.",
+                    file=sys.stderr,
+                )
+                aborted = True
+                break
+    except httpx.TransportError as exc:
+        print(
+            f"error: cannot reach provider {config.id!r} at {config.base_url} "
+            f"({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        aborted = True
+    # Emit the verdict sheet over whatever trials were recorded (even on abort).
+    md, csv = emit_verdict_sheet(all_trials)
+    (args.out / f"b1-verdict-sheet-{_slug(cond)}.md").write_text(md, encoding="utf-8")
+    (args.out / f"b1-verdict-sheet-{_slug(cond)}.csv").write_text(csv, encoding="utf-8")
+    if aborted:
+        return 1
+    print(args.out / f"b1-verdict-sheet-{_slug(cond)}.md")
+    return 0
+
+
+def _run_report_b(args) -> int:
+    """PURE consumer: trials-b-*.jsonl (BTrial) + owner-verdicts JSON + pricing ->
+    the B-1 report. Mirrors report-m1's pure shape (spec §11.10)."""
+    from agent_eval_lab.records.b_trial import b_trial_from_dict
+    from agent_eval_lab.reports.b_report import render_b_report, report_b
+
+    trials = []
+    for path in args.trials:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                trials.append(b_trial_from_dict(json.loads(line)))
+    # Dedupe by run_uid (keep LAST occurrence) — protects against concatenated
+    # JSONL files where the same run was re-exported. Warn so the owner notices.
+    seen: dict[str, int] = {}
+    for i, t in enumerate(trials):
+        seen[t.run_uid] = i
+    n_dupes = len(trials) - len(seen)
+    if n_dupes > 0:
+        print(
+            f"warning: {n_dupes} duplicate run_uid(s) detected in the trial files; "
+            "keeping the last occurrence of each. Check for overlapping JSONL exports.",
+            file=sys.stderr,
+        )
+        trials = [trials[i] for i in sorted(seen.values())]
+    verdicts = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
+    _, prices = _load_prices(args.prices)
+    report = report_b(trials, verdicts, pricing=prices)
+    Path(args.out).write_text(render_b_report(report), encoding="utf-8")
+    print(args.out)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-eval-lab")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1825,6 +2065,42 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     cb.add_argument("--dry-run", action="store_true")
 
+    rb = subparsers.add_parser(
+        "run-b",
+        help="run ONE model over the B-1 MSTR arms LIVE (human-scored spike) — "
+        "writes grade-less BTrials + a verdict sheet for the owner",
+    )
+    rb.add_argument("--provider", required=True, choices=sorted(PROVIDERS))
+    rb.add_argument("--model", help="override the provider's default model id")
+    rb.add_argument("--evaluator-config", required=True, type=Path, metavar="TOML")
+    rb.add_argument("--out", type=Path, default=Path("reports"))
+    rb.add_argument("--arm", choices=["noskill", "skill", "both"], default="both")
+    rb.add_argument("--driver", choices=["chat", "claude"], default="chat")
+    rb.add_argument("--temperature", type=float, default=0.0)
+    rb.add_argument("--max-tokens", type=int, default=4096)
+
+    rpb = subparsers.add_parser(
+        "report-b",
+        help="join owner verdicts with recorded B-1 trials into the spike report "
+        "(pure)",
+    )
+    rpb.add_argument(
+        "--trials",
+        nargs="+",
+        type=Path,
+        required=True,
+        help="one or more trials-b-*.jsonl artifacts (BTrial JSONL)",
+    )
+    rpb.add_argument(
+        "--verdicts",
+        type=Path,
+        required=True,
+        metavar="JSON",
+        help="owner verdicts: {run_uid: PASS|FAIL|INVALID}",
+    )
+    rpb.add_argument("--prices", type=Path, required=True, metavar="JSON")
+    rpb.add_argument("--out", type=Path, default=Path("reports/B1-report.md"))
+
     rmm = subparsers.add_parser(
         "run-m1", help="orchestrate M1 conditions × domains over the runners"
     )
@@ -1906,6 +2182,10 @@ def main(argv: list[str] | None = None, http_client: httpx.Client | None = None)
         return _run_f_ablation_command(args, http_client)
     if args.command == "run-f-claude-baseline":
         return _run_f_claude_baseline_command(args)
+    if args.command == "run-b":
+        return _run_b_command(args)
+    if args.command == "report-b":
+        return _run_report_b(args)
     if args.command == "report-m1":
         return _run_report_m1(args)
     if args.command == "run-m1":

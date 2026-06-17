@@ -84,6 +84,27 @@ trail is complete, ANDs their `passed`, and reports the `failure_reason` of the
 another `AllOf`.
 _Avoid_: "compound spec", "and-spec".
 
+**definition-match checklist**:
+The closed list of *outcome* checks a reviewer verifies a saved MSTR object against in
+the human-scored **B-1 spike** (object exists under the run's save-name; source cube;
+Rows ⊇ {Years Hierarchy, Region}; Cols ⊇ {Cost}; prompt = South). It is
+**human-performed outcome verification** — grading the reached world-state, the
+`FinalStateSpec` sense — performed manually because no automated readback oracle runs
+in the spike. The exact executed-grid equality check (ADR-0014) is deliberately *out of
+scope* for the spike.
+_Avoid_: "rubric" (the reserved naming hazard — see **Judge rubric**); "FinalStateSpec"
+(that is the automated tagged-union variant; this checklist is manual); "answer key".
+
+**owner verdict**:
+The human `PASS | FAIL | INVALID` a reviewer records over one B-set trial's saved
+object, scored against the **definition-match checklist** — the manual analogue of
+`GradeResult.passed` for the B-1 spike. `INVALID` mirrors the **validity mask**
+(env/provider failure), auto-tagged by the runner and reviewer-overridable. The verdict
+is joined to the trial's `Trajectory` at report time to produce `pass_pow_k` / pass-rate;
+for that spike the verdict, not an automated grader, is the grade source.
+_Avoid_: "score" (a pass/fail decision, not a 1-5 **judge rubric** score); "grade" alone
+(`GradeResult` is the automated record); "rubric" (reserved).
+
 ### Existing terms (for reference, defined by the locked design)
 
 **Task**:

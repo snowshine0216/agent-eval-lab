@@ -64,6 +64,41 @@ def test_skill_arm_carries_the_stripped_skill_noskill_does_not(tmp_path: Path) -
     assert "FAKE stripped strategy-test" not in noskill_sys.content
 
 
+def test_render_b_prompt_injects_save_name_login_and_folder() -> None:
+    from agent_eval_lab.datasets.b_tasks import render_b_prompt
+
+    rendered = render_b_prompt(
+        "Build the report and save it.",
+        save_name="dashscope-qwen3.7-max__b-b1-noskill__0002",
+        login=("https://lab/MicroStrategyLibrary/app", "bxu"),
+        folder="/Candidate/bxu",
+    )
+    assert "dashscope-qwen3.7-max__b-b1-noskill__0002" in rendered
+    assert "https://lab/MicroStrategyLibrary/app" in rendered
+    assert "bxu" in rendered
+    assert "/Candidate/bxu" in rendered
+    # The static instruction is preserved.
+    assert "Build the report and save it." in rendered
+
+
+def test_render_b_prompt_never_leaks_the_password() -> None:
+    from agent_eval_lab.datasets.b_tasks import render_b_prompt
+
+    rendered = render_b_prompt(
+        "Build it.",
+        save_name="m__b-b1-skill__0000",
+        login=("https://lab/app", "bxu"),
+        folder="/Candidate/bxu",
+    )
+    # render_b_prompt has no password parameter at all — the credential never
+    # enters the model context. Guard against a future regression that adds one.
+    assert "password" not in rendered.lower()
+    import inspect
+
+    sig = inspect.signature(render_b_prompt)
+    assert "password" not in sig.parameters
+
+
 def test_candidate_prompt_does_not_leak_a_golden_object_id(tmp_path: Path) -> None:
     """TRAP 2: the candidate prompt must stay at problem level — it must never
     contain a golden object id token. (Fake golden uses a placeholder id; this

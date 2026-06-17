@@ -68,6 +68,12 @@ def parse_argv(command: str) -> list[str] | None:
         return None
     if not argv:
         return None
+    # Browser file:// navigation is a read-the-store vector (§7): a
+    # `playwright-cli open file:///…/evaluator.toml` + eval would exfiltrate the
+    # integrity store. Refuse any file:-scheme argument (case-insensitive). HTTP(S)
+    # navigation is unaffected.
+    if any(tok.lower().startswith("file:") for tok in argv):
+        return None
     # The allowlist is name-based (`Path(argv[0]).name`); a slash-containing
     # argv[0] would let `shutil.which` resolve an absolute/relative path and
     # bypass the allowlist's intent. Require a BARE binary name (review N1).
