@@ -271,7 +271,7 @@ Everything is unit-tested with **no live MSTR and no live provider**:
 2. **`run_uid`.** Task-scoped `f"{condition_id}__{task_id}__{run_index:04d}"` (arm rides
    `task_id`), not the spec's earlier `__{arm}__` form.
 3. **Trial record.** Grade-less **`BTrial`** on disk (`trials-b-*.jsonl`); `report-b` joins
-   owner verdicts to build the grade purely — no fabricated `GradeResult`. *(ADR candidate.)*
+   owner verdicts to build the grade purely — no fabricated `GradeResult`. **→ ADR-0021.**
 4. **Pre-registration.** Unregistered/descriptive — no `freeze-spec` (like the claude baseline);
    results are SPIKE findings, not a registered M1/M2.
 5. **`claude -p` comparability.** Peer on success (owner verdict); efficiency flagged on its own
