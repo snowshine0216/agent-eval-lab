@@ -11,6 +11,9 @@ dependencies = [
     "jsonschema>=4.21",
 ]
 
+[project.scripts]
+agent-eval-lab = "agent_eval_lab.cli:main"
+
 [dependency-groups]
 dev = [
   "hypothesis>=6.100",
