@@ -73,6 +73,7 @@ from agent_eval_lab.runners.f_candidate import (
     make_f_run_fn,
     run_f_candidate,
 )
+from agent_eval_lab.runners.loop import provider_auth_quota_status
 from agent_eval_lab.runners.multi_run import (
     ReplacementOutcome,
     TrialAttempt,
@@ -964,6 +965,33 @@ def _run_f_command(args: argparse.Namespace, http_client: httpx.Client | None) -
                         "errors masked (env-invalid); excluded from pass^k (D34).",
                         file=sys.stderr,
                     )
+                # Fail fast on an account-global auth/quota block (HTTP 401/403):
+                # once a key is revoked or quota is exhausted, every remaining task
+                # would VOID identically, so abort the corpus rather than burn paid
+                # attempts (the qwen3.7-max FreeTierOnly incident). 400/429 do not
+                # trip this. Completed tasks already on disk are preserved.
+                block = next(
+                    (
+                        s
+                        for a in outcome.attempts
+                        if (s := provider_auth_quota_status(a.run.trajectory))
+                        is not None
+                    ),
+                    None,
+                )
+                if block is not None:
+                    tid = outcome.attempts[0].run.task_id if outcome.attempts else "?"
+                    print(
+                        f"error: provider auth/quota rejection (HTTP {block}) on "
+                        f"task {tid!r} — aborting the F corpus before more dead "
+                        "attempts. HTTP 401/403 is an account-global block "
+                        "(missing/revoked key or exhausted quota, e.g. DashScope "
+                        "AllocationQuota.FreeTierOnly), not a per-request error. "
+                        "Fix the key/quota and retry.",
+                        file=sys.stderr,
+                    )
+                    aborted = True
+                    break
     except httpx.TransportError as exc:
         hint = " — is the server running?" if config.id == "local" else ""
         print(
@@ -1422,6 +1450,29 @@ def _run_f_ablation_command(  # noqa: C901
             base_tree = build_candidate_tree(task, repo=f_repo)
             edit_task = make_edit_task(task, base_tree=base_tree)
             traj = run_fn(edit_task, unit.repetition)
+            # Fail fast on a provider auth/quota block (HTTP 401/403). It is
+            # account-global — every remaining attempt fails identically — so
+            # continuing would only burn paid calls and record a false all-FAIL
+            # 0.000 (the qwen3.7-max AllocationQuota.FreeTierOnly VOID run). A 400
+            # (per-request) / 429 (transient) do NOT trip this. The dead attempt is
+            # not graded/written; completed rows + the sidecar are preserved below.
+            auth_quota_status = provider_auth_quota_status(traj)
+            if auth_quota_status is not None:
+                pf = traj.parse_failure
+                detail = pf.raw if pf is not None else ""
+                print(
+                    f"error: provider auth/quota rejection (HTTP "
+                    f"{auth_quota_status}) on {unit.model!r} — aborting before more "
+                    f"dead attempts.\n  {detail}\n"
+                    "HTTP 401/403 is an account-global block (missing/revoked key "
+                    "or exhausted quota, e.g. DashScope AllocationQuota."
+                    "FreeTierOnly), not a per-request error: every remaining "
+                    "attempt would fail identically and record a false 0.000. Fix "
+                    "the key/quota and retry.",
+                    file=sys.stderr,
+                )
+                aborted = True
+                break
             result = grade_f_attempt(
                 task, traj, condition_id=unit.model, run_index=unit.repetition
             )

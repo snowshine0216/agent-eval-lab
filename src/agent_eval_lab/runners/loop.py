@@ -86,6 +86,41 @@ def _provider_error_raw(exc: httpx.HTTPStatusError) -> str:
     return f"HTTP {exc.response.status_code}: {body}"
 
 
+# Account-GLOBAL provider blocks: once seen, every subsequent attempt fails
+# identically. 401 = missing/invalid/revoked key; 403 = quota/permission (e.g.
+# DashScope's AllocationQuota.FreeTierOnly free-tier exhaustion). A 400
+# (per-request, e.g. context-length) and a 429 (transient, already client-retried)
+# are deliberately NOT here — they are not global blocks and must not abort a run.
+_AUTH_QUOTA_STATUSES = frozenset({401, 403})
+
+
+def _status_from_provider_error_raw(raw: str) -> int | None:
+    """Inverse of `_provider_error_raw`: recover the HTTP status from its
+    "HTTP {status}: {body}" prefix, or None when `raw` has some other shape. Kept
+    beside the producer so the format and its parser cannot drift."""
+    prefix = "HTTP "
+    if not raw.startswith(prefix):
+        return None
+    head = raw[len(prefix) :].split(":", 1)[0].strip()
+    return int(head) if head.isdigit() else None
+
+
+def provider_auth_quota_status(trajectory: "Trajectory") -> int | None:
+    """The HTTP status (401 or 403) iff this run aborted on a provider auth/quota
+    rejection — else None. Pure: derives only from the recorded parse_failure.
+
+    The F-ablation/F drivers fail-fast on a non-None result rather than grinding
+    through dozens of dead attempts and emitting a misleading all-FAIL 0.000 (the
+    qwen3.7-max VOID-freetier incident). classify still maps the underlying
+    PROVIDER_ERROR unchanged — this only decides whether to keep going.
+    """
+    pf = trajectory.parse_failure
+    if pf is None or pf.error != PROVIDER_ERROR:
+        return None
+    status = _status_from_provider_error_raw(pf.raw)
+    return status if status in _AUTH_QUOTA_STATUSES else None
+
+
 def run_single(
     *,
     task: Task,

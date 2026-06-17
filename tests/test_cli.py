@@ -1677,6 +1677,150 @@ def test_run_f_writes_m1_f_runs_and_void_sidecar(tmp_path: Path, monkeypatch) ->
     assert sidecar["void_task_ids"] == []  # env-free: F never voids
 
 
+def test_run_f_aborts_on_provider_auth_quota_block_and_preserves_partial(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """run-f must fail-fast when a task's attempts hit an account-global auth/quota
+    block (HTTP 403): completed earlier tasks stay on disk, but the corpus does NOT
+    keep grinding through every remaining task's k attempts (the FreeTierOnly
+    incident). A later task's rows must therefore be absent."""
+    from agent_eval_lab import cli
+    from agent_eval_lab.datasets import f_tasks as f_tasks_mod
+    from agent_eval_lab.experiments.evaluator_config import (
+        CandidateConfig,
+        EvaluatorConfig,
+        HealthProbeConfig,
+        OracleBSetConfig,
+        RunnerConfig,
+        SkillConfig,
+        StoreConfig,
+    )
+    from agent_eval_lab.records.grade import GradeResult, RunResult
+    from agent_eval_lab.records.trajectory import (
+        PROVIDER_ERROR,
+        ParseFailure,
+        Trajectory,
+        Usage,
+    )
+    from agent_eval_lab.runners import f_candidate
+    from agent_eval_lab.runners.multi_run import ReplacementOutcome, TrialAttempt
+
+    store = tmp_path / "store"
+    store.mkdir()
+    fake_cfg = EvaluatorConfig(
+        store=StoreConfig(path=str(store)),
+        health_probe=HealthProbeConfig(url="http://x", username="u", password="p"),
+        skill=SkillConfig(strategy_test_path="x"),
+        candidate=CandidateConfig(username="fake-candidate", password="fake-pass"),
+        runner=RunnerConfig(safety_cap=200, k_valid=3, max_invalid_rate=0.4),
+        oracle_b_set=OracleBSetConfig(
+            readback="playwright-cli",
+            project_id="FAKE_PROJECT_ID",
+            goldens={"B-1": "fake-golden-object-0001"},
+        ),
+    )
+    monkeypatch.setattr(cli, "load_evaluator_config", lambda _p: fake_cfg)
+    monkeypatch.setattr(f_tasks_mod, "build_f_tasks", lambda **_k: ("F1", "F2", "F3"))
+
+    def _clean(tid: str, i: int) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="dashscope:qwen3.7-max",
+            run_index=i,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=5, completion_tokens=3, latency_s=0.1),
+                run_index=i,
+                stop_reason="completed_natural",
+                final_state={"files": {}},
+            ),
+            grade=GradeResult(
+                grader_id="node_execution", passed=True, score=1.0, evidence={}
+            ),
+        )
+
+    def _quota(tid: str, i: int) -> RunResult:
+        return RunResult(
+            task_id=tid,
+            condition_id="dashscope:qwen3.7-max",
+            run_index=i,
+            trajectory=Trajectory(
+                turns=(),
+                usage=Usage(prompt_tokens=1, completion_tokens=0, latency_s=0.0),
+                run_index=i,
+                stop_reason="parse_failure",
+                parse_failure=ParseFailure(
+                    raw='HTTP 403: {"code":"AllocationQuota.FreeTierOnly"}',
+                    error=PROVIDER_ERROR,
+                ),
+            ),
+            grade=GradeResult(
+                grader_id="node_execution", passed=False, score=0.0, evidence={}
+            ),
+        )
+
+    def fake_run_f_candidate(**kwargs):
+        k = kwargs["k"]
+        # task 1: clean (must be preserved on disk).
+        c = tuple(_clean("f-f1", i) for i in range(k))
+        yield ReplacementOutcome(
+            valid_runs=c,
+            attempts=tuple(
+                TrialAttempt(attempt_index=i, valid=True, run=r)
+                for i, r in enumerate(c)
+            ),
+            void=False,
+        )
+        # task 2: every attempt is a 403 quota block → all masked, VOID.
+        q = tuple(_quota("f-f2", i) for i in range(k))
+        yield ReplacementOutcome(
+            valid_runs=(),
+            attempts=tuple(
+                TrialAttempt(attempt_index=i, valid=False, run=r)
+                for i, r in enumerate(q)
+            ),
+            void=True,
+        )
+        # task 3: clean — must NOT be reached (the run aborted at task 2).
+        c3 = tuple(_clean("f-f3", i) for i in range(k))
+        yield ReplacementOutcome(
+            valid_runs=c3,
+            attempts=tuple(
+                TrialAttempt(attempt_index=i, valid=True, run=r)
+                for i, r in enumerate(c3)
+            ),
+            void=False,
+        )
+
+    monkeypatch.setattr(f_candidate, "run_f_candidate", fake_run_f_candidate)
+
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "run-f",
+            "--provider",
+            "dashscope",
+            "--model",
+            "qwen3.7-max",
+            "--evaluator-config",
+            str(tmp_path / "evaluator.toml"),
+            "--out",
+            str(out),
+        ],
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
+        ),
+    )
+    assert rc == 1  # aborts non-zero on the auth/quota block
+    runs_path = out / "runs-m1-dashscope-qwen3.7-max-F.jsonl"
+    rows = [
+        json.loads(line) for line in runs_path.read_text().splitlines() if line.strip()
+    ]
+    task_ids = {r["task_id"] for r in rows}
+    assert task_ids == {"f-f1"}  # task 1 preserved; task 3 never ran
+    assert "f-f3" not in task_ids
+
+
 def test_run_f_model_override_changes_condition_slug(
     tmp_path: Path, monkeypatch
 ) -> None:
