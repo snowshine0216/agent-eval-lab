@@ -72,6 +72,13 @@ class Trajectory:
     """Model turns taken (each assistant reply, tool-call or final message)."""
     wall_time_s: float = 0.0
     """Cumulative wall-clock seconds across the run's provider calls."""
+    total_cost_usd: float | None = None
+    """API-equivalent dollar cost of this attempt, as reported by the provider.
+
+    Set only by the claude-cli F-baseline runner (the OAuth/subscription session
+    has no per-token dollars, so `claude -p`'s `total_cost_usd` is the efficiency
+    metric). None for the token-metered B/D/M runners, whose cost is derived from
+    token counts × TokenPrice, not reported per-run."""
     tool_call_counts: Mapping[str, int] = field(default_factory=dict)
     """Per-tool-name cumulative tool-call counts."""
     safety_cap_bound: bool = False

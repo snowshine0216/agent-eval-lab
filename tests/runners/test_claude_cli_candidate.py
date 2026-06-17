@@ -71,7 +71,7 @@ def _edit_task(files):
     )
 
 
-def _rr(passed: bool) -> RunResult:
+def _rr(passed: bool, *, cost: float | None = None) -> RunResult:
     return RunResult(
         task_id="f-f1",
         condition_id="cond",
@@ -81,6 +81,7 @@ def _rr(passed: bool) -> RunResult:
             usage=Usage(prompt_tokens=1, completion_tokens=1, latency_s=0.0),
             run_index=0,
             stop_reason="completed_natural",
+            total_cost_usd=cost,
         ),
         grade=GradeResult(
             grader_id="node",
@@ -263,6 +264,55 @@ def test_run_fn_success_builds_trajectory_with_produced_tree(tmp_path):
     assert captured["home"] == os.environ.get("HOME")
     assert "--safe-mode" in captured["argv"]
     assert captured["argv"][-1] == "Fix the bug in a.js"
+
+
+def test_run_fn_success_records_total_cost_usd(tmp_path):
+    # total_cost_usd is the API-equivalent efficiency metric for the OAuth-auth'd
+    # baseline (no per-token dollars). The runner must persist it on the trajectory
+    # so the run JSONL and the rollup can surface it.
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        (Path(cwd) / "a.js").write_text("fixed\n")
+        return _FakeCompleted(stdout=_result_json(total_cost_usd=0.0456))
+
+    def fake_workdir():
+        wd = tmp_path / "wd_cost"
+        wd.mkdir()
+        return wd
+
+    run_fn = make_claude_run_fn(
+        model="claude-sonnet-4-6",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.total_cost_usd == 0.0456
+
+
+def test_run_fn_env_invalid_records_no_cost(tmp_path):
+    # A run that never produced a fair trial carries no API-equivalent cost
+    # (None), so the rollup's per-base total counts only clean attempts.
+    def fake_subprocess(argv, *, cwd, env, timeout):
+        return _FakeCompleted(stdout="", returncode=1)
+
+    def fake_workdir():
+        wd = tmp_path / "wd_nocost"
+        wd.mkdir()
+        return wd
+
+    run_fn = make_claude_run_fn(
+        model="m",
+        surface="edit-only",
+        run_subprocess=fake_subprocess,
+        workdir_factory=fake_workdir,
+        max_budget_usd=0.5,
+        timeout_s=300,
+    )
+    traj = run_fn(_edit_task({"a.js": "bug\n"}), 0)
+    assert traj.parse_failure is not None
+    assert traj.total_cost_usd is None
 
 
 def test_run_fn_nonzero_exit_is_env_invalid(tmp_path):
@@ -488,7 +538,38 @@ def test_summary_clean_all_pass_is_pass_hat_k():
         void=False,
         pass_hat_k=True,
         pass_at_1=1.0,
+        cost_usd=0.0,  # _rr() carries no cost -> total is 0
     )
+
+
+def test_summary_sums_total_cost_usd_across_attempts():
+    a, b = _rr(True, cost=0.02), _rr(True, cost=0.03)
+    o = ReplacementOutcome(
+        valid_runs=(a, b),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=a),
+            TrialAttempt(attempt_index=1, valid=True, run=b),
+        ),
+        void=False,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.cost_usd == pytest.approx(0.05)
+
+
+def test_summary_cost_skips_attempts_without_recorded_cost():
+    # An env-invalid attempt records no cost (total_cost_usd is None); it must
+    # contribute 0 to the per-base total, not crash the sum.
+    good, bad = _rr(True, cost=0.04), _rr(False)  # bad: no cost recorded
+    o = ReplacementOutcome(
+        valid_runs=(good,),
+        attempts=(
+            TrialAttempt(attempt_index=0, valid=True, run=good),
+            TrialAttempt(attempt_index=1, valid=False, run=bad),
+        ),
+        void=True,
+    )
+    (row,) = summarize_baseline("cond", ["f1"], [o])
+    assert row.cost_usd == pytest.approx(0.04)
 
 
 def test_summary_one_valid_fail_breaks_pass_hat_k():

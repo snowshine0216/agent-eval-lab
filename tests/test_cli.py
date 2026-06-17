@@ -2028,3 +2028,5 @@ def test_claude_baseline_writes_records_and_void_summary(tmp_path, monkeypatch):
     assert summary[0]["void"] is True
     assert summary[0]["valid"] == 1 and summary[0]["invalid"] == 1
     assert summary[0]["pass_hat_k"] is False
+    # API-equivalent cost total is surfaced per (surface, base) row.
+    assert summary[0]["cost_usd"] == 0.0

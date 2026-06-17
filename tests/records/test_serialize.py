@@ -355,6 +355,38 @@ def test_max_rounds_bound_survives_round_trip_cf1() -> None:
     assert restored == trajectory
 
 
+def test_total_cost_usd_survives_round_trip() -> None:
+    # The claude-cli F-baseline carries the provider-reported API-equivalent cost
+    # on the trajectory; it must survive the JSONL round-trip.
+    trajectory = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=1500, completion_tokens=320, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed_natural",
+        rounds=7,
+        total_cost_usd=0.0123,
+    )
+    d = trajectory_to_dict(trajectory)
+    assert d["total_cost_usd"] == 0.0123
+    restored = trajectory_from_dict(d)
+    assert restored.total_cost_usd == 0.0123
+    assert restored == trajectory
+
+
+def test_total_cost_usd_none_is_omitted_from_disk_keys() -> None:
+    # Token-metered runners report no per-run cost; the key is omitted (like
+    # max_tokens) so pre-existing artifacts stay byte-identical and reload as None.
+    trajectory = Trajectory(
+        turns=(),
+        usage=Usage(prompt_tokens=0, completion_tokens=0, latency_s=0.0),
+        run_index=0,
+        stop_reason="completed_natural",
+    )
+    d = trajectory_to_dict(trajectory)
+    assert "total_cost_usd" not in d
+    assert trajectory_from_dict(d).total_cost_usd is None
+
+
 def test_old_v2_record_without_round_policy_keys_defaults_safely() -> None:
     # Backward compat: a schema_version="2" dict written before item 002 has
     # none of the three new keys; it must deserialize with safe defaults.
