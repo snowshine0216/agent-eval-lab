@@ -31,6 +31,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `--max-turns` in CLI 2.1.177). Output dir `reports/agentic-v1/f-claude-baseline/`. `--smoke` runs
   1×F1×edit-only then stops; `--dry-run` previews the plan with no subprocess. Fail-fasts when the
   resolved Node can't run the oracle (needs Node ≥20) or the web-dossier repo is missing.
+- **Per-attempt cost persisted in the Claude Code F-baseline.** `claude -p`'s `total_cost_usd` was
+  parsed into `ClaudeRunMeta` but dropped before the record was written; it is now carried on the
+  trajectory (new optional `Trajectory.total_cost_usd`, surfaced as `total_cost_usd` in the run
+  JSONL) and rolled up as `cost_usd` per (surface, base) in `claude-baseline-summary.json`, so the
+  OAuth-auth'd baseline reports a real API-equivalent efficiency metric. The field defaults to
+  `None` for the token-metered B/D/M runners (whose cost is derived from token counts × `TokenPrice`,
+  not reported per-run) and is omitted from their serialized records, keeping prior artifacts
+  byte-identical. The owner-gated paid re-run that captures it is still pending.
 
 ## v0.4.0 — 2026-06-16
 

@@ -135,6 +135,8 @@ def trajectory_to_dict(trajectory: Trajectory) -> dict[str, Any]:
     }
     if trajectory.max_tokens is not None:
         d["max_tokens"] = trajectory.max_tokens
+    if trajectory.total_cost_usd is not None:
+        d["total_cost_usd"] = trajectory.total_cost_usd
     return d
 
 
@@ -184,6 +186,7 @@ def trajectory_from_dict(data: Mapping[str, Any]) -> Trajectory:
         max_rounds_bound=data.get("max_rounds_bound", False),
         env_health=(None if env_health is None else env_health_from_dict(env_health)),
         run_uid=data.get("run_uid"),
+        total_cost_usd=data.get("total_cost_usd"),
     )
 
 

@@ -283,6 +283,7 @@ def make_claude_run_fn(
                 final_state={"files": produced},
                 rounds=meta.num_turns,
                 tool_call_counts={},
+                total_cost_usd=meta.total_cost_usd,
             )
         finally:
             # The produced tree is already read into memory above; the temp
@@ -306,6 +307,7 @@ class BaselineRow:
     void: bool  # True iff < k clean attempts (D34: never scored over <k)
     pass_hat_k: bool  # not void AND all k clean attempts passed
     pass_at_1: float  # fraction of clean attempts that passed
+    cost_usd: float  # Σ total_cost_usd over attempts that recorded one (USD)
 
 
 def summarize_baseline(
@@ -320,6 +322,11 @@ def summarize_baseline(
         passed = [r.grade.passed for r in outcome.valid_runs]
         n_valid = len(passed)
         n_attempts = len(outcome.attempts)
+        # API-equivalent cost over every attempt that reported one; env-invalid
+        # attempts carry None (no fair trial, no recorded cost) → counted as 0.
+        cost_usd = sum(
+            (att.run.trajectory.total_cost_usd or 0.0) for att in outcome.attempts
+        )
         rows.append(
             BaselineRow(
                 condition_id=condition_id,
@@ -330,6 +337,7 @@ def summarize_baseline(
                 void=outcome.void,
                 pass_hat_k=(not outcome.void) and n_valid > 0 and all(passed),
                 pass_at_1=(sum(passed) / n_valid) if n_valid else 0.0,
+                cost_usd=cost_usd,
             )
         )
     return tuple(rows)
