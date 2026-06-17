@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ claude/b1-live-spike-001 | ✅ 00609ee | ✅ | ✅ #44 | ⏳ | ✅ | ⏳ | ⏳ | ⏳ |
 
 Evidence / notes:
 - **001-spec** ✅ — [items/001-spec.md](items/001-spec.md) (user-provided, verbatim copy).
@@ -14,4 +14,6 @@ Evidence / notes:
 - **001-plan** ✅ — [items/001-plan.md](items/001-plan.md) (Opus writing-plans, commit `7fb138e`). 11 phases mapping spec §11.1–§11.11; TDD-ordered; per-phase `uv run pytest` verification points.
 - **001-impl** ✅ — 14 commits (`e19c306`..`00609ee`) on `claude/b1-live-spike-001`. Full suite **1244 passed, 18 skipped**; ruff clean. 11 phases (spec §11.1–§11.11) all built TDD-first.
   - Deviation noted for drift: added `[project.scripts] agent-eval-lab = "agent_eval_lab.cli:main"` to `pyproject.toml` (additive console entry to satisfy the plan's final-verification `agent-eval-lab --help`; the existing `python -m agent_eval_lab.cli` path is unchanged).
+- **001-ship** ✅ — [PR #44](https://github.com/snowshine0216/agent-eval-lab/pull/44) (base `feat/b-set-live-spike`, Mode A). v0.6.0 bump; [items/001-ship.md](items/001-ship.md).
+- **001-review** ✅ — [items/001-review.md](items/001-review.md) — `/ship` steps 8+9; 2 P0 + 4 P1 found & fixed pre-PR; re-review CONFIRMED-CLEAN → Verdict PASS.
 - **verify** column (not QA) — non-web project; post-ship verifier is `/verify`.
