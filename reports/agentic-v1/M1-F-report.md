@@ -7,13 +7,13 @@
 
 ## Per-domain scores (primary metric: pass^k)
 
-| condition | domain | pass^k [95% CI] | CI method | valid | invalid |
+| condition | domain | pass^k (tasks solved / non-void) [95% CI] | CI method | valid | invalid |
 | --- | --- | --- | --- | --- | --- |
-| deepseek:deepseek-v4-pro | F | 0.000 [0.000, 0.708] | binomial_exact | 15 | 0 |
-| glm:Pro/zai-org/GLM-5.1 | F | 0.000 [0.000, 0.708] | binomial_exact | 15 | 0 |
-| minimax:MiniMax-M3 | F | 0.000 [0.000, 0.708] | binomial_exact | 15 | 0 |
-| siliconflow:Qwen/Qwen3.5-397B-A17B | F | 0.000 [0.000, 0.708] | binomial_exact | 15 | 0 |
-| siliconflow:Qwen/Qwen3.6-35B-A3B | F | 0.333 [0.008, 0.906] | binomial_exact | 15 | 0 |
+| deepseek:deepseek-v4-pro | F | 0/3 [0.000, 0.708] | binomial_exact | 15 | 0 |
+| glm:Pro/zai-org/GLM-5.1 | F | 0/3 [0.000, 0.708] | binomial_exact | 15 | 0 |
+| minimax:MiniMax-M3 | F | 0/3 [0.000, 0.708] | binomial_exact | 15 | 0 |
+| siliconflow:Qwen/Qwen3.5-397B-A17B | F | 0/3 [0.000, 0.708] | binomial_exact | 15 | 0 |
+| siliconflow:Qwen/Qwen3.6-35B-A3B | F | 1/3 [0.008, 0.906] | binomial_exact | 15 | 0 |
 | (all conditions) | D | not yet run | — | 0 | 0 |
 | (all conditions) | B | not yet run | — | 0 | 0 |
 
@@ -37,31 +37,31 @@ Equal-weighted mean of per-domain primary estimates (weights: B=1.0, D=1.0, F=1.
 
 | condition | pass^k | cost_usd | on frontier |
 | --- | --- | --- | --- |
-| siliconflow:Qwen/Qwen3.6-35B-A3B | 0.333 | 0.2433 | yes |
-| minimax:MiniMax-M3 | 0.000 | 1.292 | — |
-| deepseek:deepseek-v4-pro | 0.000 | 2.146 | — |
-| siliconflow:Qwen/Qwen3.5-397B-A17B | 0.000 | 2.95 | — |
-| glm:Pro/zai-org/GLM-5.1 | 0.000 | 9.315 | — |
+| siliconflow:Qwen/Qwen3.6-35B-A3B | 1/3 | 0.2433 | yes |
+| minimax:MiniMax-M3 | 0/3 | 1.292 | — |
+| deepseek:deepseek-v4-pro | 0/3 | 2.146 | — |
+| siliconflow:Qwen/Qwen3.5-397B-A17B | 0/3 | 2.95 | — |
+| glm:Pro/zai-org/GLM-5.1 | 0/3 | 9.315 | — |
 
 ### F — pass^k vs rounds
 
 | condition | pass^k | rounds | on frontier |
 | --- | --- | --- | --- |
-| siliconflow:Qwen/Qwen3.5-397B-A17B | 0.000 | 4 | yes |
-| glm:Pro/zai-org/GLM-5.1 | 0.000 | 6 | — |
-| siliconflow:Qwen/Qwen3.6-35B-A3B | 0.333 | 8 | yes |
-| deepseek:deepseek-v4-pro | 0.000 | 9 | — |
-| minimax:MiniMax-M3 | 0.000 | 16 | — |
+| siliconflow:Qwen/Qwen3.5-397B-A17B | 0/3 | 4 | yes |
+| glm:Pro/zai-org/GLM-5.1 | 0/3 | 6 | — |
+| siliconflow:Qwen/Qwen3.6-35B-A3B | 1/3 | 8 | yes |
+| deepseek:deepseek-v4-pro | 0/3 | 9 | — |
+| minimax:MiniMax-M3 | 0/3 | 16 | — |
 
 ### F — pass^k vs tokens
 
 | condition | pass^k | tokens | on frontier |
 | --- | --- | --- | --- |
-| siliconflow:Qwen/Qwen3.6-35B-A3B | 0.333 | 8.626e+05 | yes |
-| deepseek:deepseek-v4-pro | 0.000 | 1.16e+06 | — |
-| minimax:MiniMax-M3 | 0.000 | 1.838e+06 | — |
-| siliconflow:Qwen/Qwen3.5-397B-A17B | 0.000 | 5.154e+06 | — |
-| glm:Pro/zai-org/GLM-5.1 | 0.000 | 9.384e+06 | — |
+| siliconflow:Qwen/Qwen3.6-35B-A3B | 1/3 | 8.626e+05 | yes |
+| deepseek:deepseek-v4-pro | 0/3 | 1.16e+06 | — |
+| minimax:MiniMax-M3 | 0/3 | 1.838e+06 | — |
+| siliconflow:Qwen/Qwen3.5-397B-A17B | 0/3 | 5.154e+06 | — |
+| glm:Pro/zai-org/GLM-5.1 | 0/3 | 9.384e+06 | — |
 
 ## Planned comparisons (Holm-corrected, two-sided; effect = metric(b) − metric(a))
 

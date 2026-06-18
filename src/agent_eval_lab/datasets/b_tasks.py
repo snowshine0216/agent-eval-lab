@@ -24,15 +24,18 @@ _SYSTEM = (
     "owner-specified report build exactly; do not take shortcuts via APIs."
 )
 
-# Fair problem-level instruction (§4.3). Names the source cube, the row/column
-# layout, the mandatory prompt, and the Save-As name pattern — NOT a golden
-# object id, NOT a literal grid value (TRAP 2 / §4.1 withhold-localization).
+# Fair problem-level instruction (§4.3). Names the create-path (MDX Sources →
+# SAPBW cube), the object-browser row/column layout, the mandatory prompt, and the
+# Save-As name pattern — NOT a golden object id, NOT a literal grid value (TRAP 2 /
+# §4.1 withhold-localization). The login (app URL + username) is NOT baked in here;
+# it is injected per-trial by render_b_prompt and the password NEVER enters the
+# model context (ADR-0022 / §7 integrity boundary).
 _B1_USER = (
-    "In the MicroStrategy Library app (Tutorial Project), create a new report in "
-    "Design Mode from the source cube SAPBW > AV_TUTO > "
-    "Query_CharacteristicValue_Mandatory. Place 'Years Hierarchy' and 'Region' on "
-    "Rows and 'Cost' on Columns. Answer the mandatory prompt with 'South', then "
-    "Apply. Save the report to your run's isolated folder under the unique name "
+    "Create a report under MicroStrategy Tutorial Project, select MDX Sources, "
+    "choose SAPBW › AV_TUTO › Query_CharacteristicValue_Mandatory, in report "
+    "editor's object browser, Place 'Years Hierarchy' and 'Region' on Rows and "
+    "'Cost' on Columns. Answer the mandatory prompt with 'South', then Apply. "
+    "Save the report to your run's isolated folder under the unique name "
     "'<model>-<condition>-<run_id>' provided to you. Report when the saved report "
     "renders the prompted result."
 )

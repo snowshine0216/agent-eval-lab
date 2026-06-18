@@ -9,14 +9,14 @@ Vanilla Claude Code (`claude -p`, **claude-sonnet-4-6**, no skills/CLAUDE.md/plu
 
 ## Results
 
-| surface | base | pass^k (5/5) | pass@1 | passed | mean rounds | mean completion tok |
-|---------|------|:------------:|:------:|:------:|:-----------:|:-------------------:|
-| edit-only | f1 | ✗ | 0.00 | 0/5 | 6.8 | 2265 |
-| edit-only | f2 | ✗ | 0.00 | 0/5 | 6.4 | 5491 |
-| edit-only | **f3** | **✓** | **1.00** | **5/5** | 4.2 | 1872 |
-| natural | f1 | ✗ | 0.00 | 0/5 | 7.4 | 2649 |
-| natural | f2 | ✗ | 0.00 | 0/5 | 7.0 | 5084 |
-| natural | **f3** | ✗ | **0.80** | **4/5** | 3.0 | 1658 |
+| surface | base | pass^k (5/5) | pass@1 | mean rounds | mean completion tok |
+|---------|------|:------------:|:------:|:-----------:|:-------------------:|
+| edit-only | f1 | ✗ | 0/5 | 6.8 | 2265 |
+| edit-only | f2 | ✗ | 0/5 | 6.4 | 5491 |
+| edit-only | **f3** | **✓** | **5/5** | 4.2 | 1872 |
+| natural | f1 | ✗ | 0/5 | 7.4 | 2649 |
+| natural | f2 | ✗ | 0/5 | 7.0 | 5084 |
+| natural | **f3** | ✗ | **4/5** | 3.0 | 1658 |
 
 Totals: ~96.4k tokens across 30 attempts (≈95k completion). pass^k = all k clean attempts pass.
 
