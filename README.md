@@ -1,9 +1,9 @@
 # Agent Eval Lab
 
-Agent Eval Lab is a portfolio-driven learning project for designing, running,
-and analyzing reproducible evaluations of AI agents.
+Agent Eval Lab is a laboratory for designing, running, and analyzing
+reproducible evaluations of AI agents.
 
-The project turns agent evaluation concepts into working evidence:
+It provides, as working code:
 
 - versioned evaluation datasets;
 - isolated and reproducible runs;
@@ -23,9 +23,10 @@ different paths. A useful evaluation system must distinguish:
 - task completion from grader exploitation;
 - development-set progress from held-out generalization.
 
-This repository is both a learning environment and a public portfolio artifact.
-It aims to demonstrate the ability to build evaluation datasets, implement
-reliable evaluation infrastructure, analyze failures, and communicate results.
+This repository makes those distinctions mechanical rather than anecdotal:
+versioned datasets, deterministic graders backed by a golden conformance suite,
+calibrated model-based judging, and statistical reporting designed so that a
+claimed improvement survives scrutiny.
 
 ## Initial Scope
 
@@ -220,10 +221,10 @@ docs/
 
 ## Outcomes
 
-The roadmap ships as two independent portfolio releases, so finetuning never
+The roadmap ships as two independent releases, so finetuning never
 delays the evaluation system.
 
-**Release #1 — Evaluation portfolio (Weeks 1–12), no training dependency:**
+**Release #1 — Evaluation system (Weeks 1–12), no training dependency:**
 
 - a documented task taxonomy and versioned dataset;
 - deterministic, execution-based, and calibrated model-based graders;
@@ -231,7 +232,7 @@ delays the evaluation system.
 - trace inspection and failure-mode analysis;
 - two pre-registered controlled experiments with bootstrap confidence intervals;
 - a golden conformance suite cross-checked against Inspect AI;
-- a portfolio-quality technical report.
+- a publication-quality technical report.
 
 **Release #2 — Data and finetuning (Weeks 13–16):**
 
